@@ -29,13 +29,75 @@ struct Vm {
     players: Vec<String>,
 }
 
+/// Menu-driven vsync state. The menu observer flips it; `apply_vsync`
+/// reconfigures the window surface and relabels the menu item.
+#[derive(Resource)]
+struct Vsync {
+    on: bool,
+    dirty: bool,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(PfUiPlugin)
+        .insert_resource(Vsync { on: true, dirty: false })
         .add_systems(Startup, setup)
-        .add_systems(Update, live_updates)
+        .add_systems(Update, (wire_vsync_menu, apply_vsync, live_updates))
         .run();
+}
+
+/// One-shot: attach a click observer to the "VsyncToggle" menu item once the
+/// scene has instantiated. The built-in menu behavior (close on leaf click)
+/// still runs — observers stack.
+fn wire_vsync_menu(
+    mut wired: Local<bool>,
+    ui: PfQuery,
+    mut commands: Commands,
+) {
+    if *wired {
+        return;
+    }
+    let Some(toggle) = ui.by_name("VsyncToggle") else {
+        return;
+    };
+    commands.entity(toggle).observe(
+        |_click: On<Pointer<Click>>, mut vsync: ResMut<Vsync>| {
+            vsync.on = !vsync.on;
+            vsync.dirty = true;
+        },
+    );
+    *wired = true;
+}
+
+fn apply_vsync(
+    mut vsync: ResMut<Vsync>,
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+    ui: PfQuery,
+    mut texts: Query<&mut Text>,
+) {
+    if !vsync.dirty {
+        return;
+    }
+    vsync.dirty = false;
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    // Changing Window.present_mode makes bevy reconfigure the surface live.
+    // Note: current macOS ignores vsync-off for windowed apps (presents stay
+    // locked to the display refresh); on Windows/Linux this uncaps the FPS.
+    window.present_mode = if vsync.on {
+        bevy::window::PresentMode::AutoVsync
+    } else {
+        bevy::window::PresentMode::AutoNoVsync
+    };
+    if let Some(item) = ui.by_name("VsyncToggle")
+        && let Some(text_entity) = ui.first_text_in(item)
+        && let Ok(mut text) = texts.get_mut(text_entity)
+    {
+        text.0 = if vsync.on { "Vsync: On" } else { "Vsync: Off" }.to_string();
+    }
 }
 
 fn setup(mut commands: Commands) {
@@ -64,10 +126,17 @@ fn setup(mut commands: Commands) {
                         <Separator/>
                         <MenuItem Header="Exit"/>
                       </MenuItem>
+                      <MenuItem Header="View">
+                        <MenuItem Header="Vsync: On" x:Name="VsyncToggle"/>
+                      </MenuItem>
                       <MenuItem Header="Help">
                         <MenuItem Header="About bevy_pf"/>
                       </MenuItem>
                     </Menu>
+
+                    <Border DockPanel.Dock="Bottom" Background="#FFECECEC" Padding="8,4,8,4">
+                      <TextBlock x:Name="Fps" Text="fps: --" FontSize="12"/>
+                    </Border>
 
                     <TabControl Margin="8">
                       <TabItem Header="Basics">
@@ -214,12 +283,31 @@ fn setup(mut commands: Commands) {
 /// element is found fresh through `PfQuery` (by name, uid, or automation id).
 fn live_updates(
     time: Res<Time>,
+    diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
     ui: PfQuery,
     mut texts: Query<&mut Text>,
     mut bars: Query<&mut bevy_pf::components::PfProgress>,
     mut commands: Commands,
 ) {
     let secs = time.elapsed_secs();
+
+    // 0. FPS status bar (bottom). Windowed macOS presents are locked to the
+    //    display refresh, so this reads ~60 by design — the bench example
+    //    measures uncapped throughput offscreen.
+    if let Some(fps) = diagnostics
+        .get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.smoothed())
+        && let Some(label) = ui.by_name("Fps")
+        && let Some(text_entity) = ui.first_text_in(label)
+        && let Ok(mut text) = texts.get_mut(text_entity)
+    {
+        let next = format!(
+            "fps: {fps:.0}  (vsync-locked at the display refresh; uncapped numbers: docs/performance.md)"
+        );
+        if text.0 != next {
+            text.0 = next;
+        }
+    }
 
     // 1. x:Uid lookup -> rewrite the clock TextBlock's text child.
     if let Some(clock) = ui.by_uid("clock.uid")

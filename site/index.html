@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bevy_pf — XAML UI framework for Bevy</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>bevy_<span>pf</span></h1>
+    <p class="tag">A XAML / WPF-style UI framework for the Bevy game engine — written in Rust, running right here in your browser.</p>
+    <div class="buttons">
+      <a class="btn primary" href="showcase.html">Try the controls</a>
+      <a class="btn primary" href="breakout.html">Play Breakout</a>
+      <a class="btn sponsor" href="https://github.com/sponsors/edgarhsanchez" target="_blank" rel="noopener">&#10084; Sponsor the developer</a>
+      <a class="btn" href="https://github.com/edgarhsanchez/bevy_pf" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="grid">
+      <div class="card">
+        <h3>Real XAML</h3>
+        <p>WPF-conformant parser: namespaces, property elements, markup extensions, styles with triggers, merged dictionaries, data binding — validated at compile time by the <code>xaml!</code> macro.</p>
+      </div>
+      <div class="card">
+        <h3>The full control set</h3>
+        <p>Buttons through DataGrid: panels, lists, menus, tabs, trees, popups, tooltips, shapes with the path mini-language — all instantiated from markup into Bevy ECS entities.</p>
+      </div>
+      <div class="card">
+        <h3>Games included</h3>
+        <p>The Breakout demo's menus, HUD, paddle, ball, and all 40 bricks are XAML elements. Game systems just push numbers; markup does the rest.</p>
+      </div>
+      <div class="card">
+        <h3>Fast</h3>
+        <p>Every control benchmarks above 2,000 FPS offscreen on Apple silicon, and the framework's own systems cost ~10&micro;s a frame. Tracy-profiled, honestly documented.</p>
+      </div>
+      <div class="card">
+        <h3>Open source</h3>
+        <p>MIT OR Apache-2.0, compatibility-tested against verbatim XAML from microsoft/WPF-Samples, Avalonia, and dotnet/wpf theme dictionaries.</p>
+      </div>
+      <div class="card">
+        <h3>Keep it free</h3>
+        <p>bevy_pf stays free and open. If it saves you time, <a href="https://github.com/sponsors/edgarhsanchez" target="_blank" rel="noopener">sponsoring the developer</a> funds the roadmap: control templates, storyboards, theming.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Built with <a href="https://bevy.org" target="_blank" rel="noopener">Bevy</a> &middot;
+    <a href="https://github.com/edgarhsanchez/bevy_pf" target="_blank" rel="noopener">Source</a> &middot;
+    <a href="https://github.com/sponsors/edgarhsanchez" target="_blank" rel="noopener">&#10084; Sponsor</a>
+  </footer>
+</body>
+</html>
