@@ -37,6 +37,8 @@ opt-level = 3
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
-lto = "fat"
+# thin, not fat: fat LTO on a bevy-sized wasm link exceeds CI runner memory
+# (exit 143 OOM on 16 GB); thin costs a few percent size after wasm-opt -Oz.
+lto = "thin"
 codegen-units = 1
 strip = true
