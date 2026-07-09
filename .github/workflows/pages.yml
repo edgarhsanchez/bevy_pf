@@ -34,11 +34,19 @@ jobs:
         with:
           tool: wasm-bindgen@0.2.126
 
-      - name: Install wasm-opt
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - name: Install wasm-opt (pinned binaryen — apt's is years old and corrupts modern wasm)
+        run: |
+          curl -sL https://github.com/WebAssembly/binaryen/releases/download/version_130/binaryen-version_130-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_130/bin" >> "$GITHUB_PATH"
 
       - name: Build wasm bundles (WebGPU + WebGL2)
         run: ./site/build-wasm.sh
+
+      - name: Validate wasm binaries (browsers must accept them)
+        run: |
+          for f in site/wasm/*/*_bg.wasm; do
+            node -e "const fs=require('fs'); if(!WebAssembly.validate(fs.readFileSync('$f'))) { console.error('INVALID: $f'); process.exit(1); } console.log('valid: $f');"
+          done
 
       - uses: actions/configure-pages@v5
 
