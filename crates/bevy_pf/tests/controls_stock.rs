@@ -335,3 +335,28 @@ fn date_picker_selection_updates_display_and_closes() {
     );
     assert!(!app.world().get::<bevy_pf::PfPopup>(state.popup).unwrap().open);
 }
+
+#[test]
+fn scene_roots_fill_their_container_like_wpf() {
+    let mut app = test_app();
+    // A bare Grid root stretches to the full window, like WPF window content.
+    let root = spawn(
+        &mut app,
+        r#"<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"/>"#,
+    );
+    let node = app.world().get::<Node>(root).unwrap();
+    assert_eq!(node.width, Val::Percent(100.0));
+    assert_eq!(node.height, Val::Percent(100.0));
+
+    // Explicit dimensions still win over the root stretch.
+    let root = spawn(
+        &mut app,
+        r#"<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 Width="300" Height="200"/>"#,
+    );
+    let node = app.world().get::<Node>(root).unwrap();
+    assert_eq!(node.width, Val::Px(300.0));
+    assert_eq!(node.height, Val::Px(200.0));
+}

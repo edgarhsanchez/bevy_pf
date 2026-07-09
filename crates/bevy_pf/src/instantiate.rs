@@ -662,6 +662,17 @@ impl<'w> Ctx<'w> {
 
         self.insert_defaults(entity, kind, node);
 
+        // WPF arranges a scene's root content with the full window constraint:
+        // any root element fills its container. Explicit Width/Height (applied
+        // below) still override, exactly like fixed-size WPF content.
+        if parent_kind == ParentKind::None
+            && kind != ElemKind::Root
+            && let Some(mut n) = self.world.get_mut::<Node>(entity)
+        {
+            n.width = Val::Percent(100.0);
+            n.height = Val::Percent(100.0);
+        }
+
         // Effective style: explicit `Style` attribute wins over implicit
         // (by-type) style, exactly like WPF.
         let style = self.effective_style(node);
