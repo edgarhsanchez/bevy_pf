@@ -131,6 +131,14 @@ Working today:
   scoped `DataContext` (`{Binding name}` inside a template reads
   `players[i].name`, TwoWay writes back into the list element).
 
+- **Navigation**: WPF `Frame` + `Page` + the journal on Bevy — register
+  routes with `app.register_page("home.xaml", xaml!(...))`, point a
+  `<Frame Source="home.xaml"/>` at one, and `<Hyperlink NavigateUri>` with a
+  relative URI navigates the enclosing frame (absolute `http(s)` still opens
+  the browser, like WPF). Back/forward chrome, `navigate`/`go_back`/
+  `go_forward`, `PfNavigated` messages, `Title` tracking, and WPF's
+  `KeepAlive="False"` semantics — pages re-instantiate, state lives in the
+  `DataContext`. See `--example navigation`.
 - **Themes**: 12 built-in themes with palettes from the official specs —
   Fluent (Windows 11) light/dark, Material light/dark, Nord, Dracula,
   Catppuccin Latte/Mocha, Solarized light/dark, Gruvbox, Tokyo Night. One
@@ -167,6 +175,7 @@ cargo run -p bevy_pf --example items_and_dropdowns # ItemsSource + DataTemplate 
 cargo run -p bevy_pf --example app_shell        # Menu bar, TabControl, TreeView, DataGrid, ContextMenu
 cargo run -p bevy_pf --example components_showcase # every component in one app + PfQuery live updates
 cargo run -p bevy_pf --example theme_gallery    # 12 built-in themes, switchable live
+cargo run -p bevy_pf --example navigation       # Frame/Page journal navigation, WPF-style
 cargo run -p bevy_pf --example rpg_hud          # RPG HUD kit: vitals, action bar, quests, loot toasts
 cargo run -p bevy_pf --example breakout         # the Breakout game, XAML all the way down
 cargo run -p bevy_pf --example hot_reload --features hot_reload  # live .xaml editing

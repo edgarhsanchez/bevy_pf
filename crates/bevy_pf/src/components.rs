@@ -115,6 +115,32 @@ impl PfProgress {
     }
 }
 
+/// WPF `Frame`: a navigable content host with a journal.
+#[derive(Component, Debug, Clone)]
+pub struct PfFrame {
+    /// The entity whose children are the current page.
+    pub content: Entity,
+    /// Built-in back/forward chrome, when `NavigationUIVisibility` shows it.
+    pub chrome: Option<PfFrameChrome>,
+    /// Journal: routes behind the current page.
+    pub back: Vec<String>,
+    /// Journal: routes ahead of the current page (after `go_back`).
+    pub forward: Vec<String>,
+    /// The route currently shown.
+    pub current: Option<String>,
+    /// The current page's `Title`, if declared.
+    pub current_title: Option<String>,
+    /// `Source=` waiting for the page registry (resolved by a startup system).
+    pub pending_source: Option<String>,
+}
+
+/// The built-in navigation chrome of a [`PfFrame`].
+#[derive(Debug, Clone, Copy)]
+pub struct PfFrameChrome {
+    pub back_button: Entity,
+    pub forward_button: Entity,
+}
+
 /// Links a ProgressBar root to its fill entity.
 #[derive(Component, Debug, Clone)]
 pub struct PfProgressVisual {

@@ -38,6 +38,7 @@ pub mod dynamic;
 pub mod error;
 pub mod instantiate;
 pub mod items;
+pub mod navigation;
 pub mod overlay;
 pub mod perf;
 pub mod plugin;
@@ -74,6 +75,7 @@ pub mod prelude {
     pub use crate::asset::{XamlAsset, XamlView};
     pub use crate::binding::{Bindable, DataContext};
     pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
+    pub use crate::navigation::{PfNavigationAppExt, PfNavigated};
     pub use crate::query::PfQuery;
     pub use crate::plugin::{PfCommandsExt, PfUiPlugin};
     pub use crate::{XamlScene, include_xaml, xaml};

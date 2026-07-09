@@ -182,6 +182,7 @@ enum ElemKind {
     GroupBox,
     Expander,
     Viewbox,
+    Frame,
     Image,
     Shape,
     StatusBar,
@@ -230,6 +231,7 @@ impl ElemKind {
             "GroupBox" => Self::GroupBox,
             "Expander" => Self::Expander,
             "Viewbox" => Self::Viewbox,
+            "Frame" => Self::Frame,
             "Image" => Self::Image,
             "Rectangle" | "Ellipse" | "Line" | "Polyline" | "Polygon" | "Path" => Self::Shape,
             "StatusBar" => Self::StatusBar,
@@ -263,7 +265,8 @@ impl ElemKind {
             | Self::ComboBox | Self::Shape | Self::GroupBox | Self::Expander
             | Self::Viewbox | Self::TabControl | Self::TreeView | Self::Menu
             | Self::DataGrid | Self::Hyperlink | Self::PopupElement
-            | Self::GridSplitter | Self::Calendar | Self::DatePicker => ParentKind::FlexColumn,
+            | Self::GridSplitter | Self::Calendar | Self::DatePicker
+            | Self::Frame => ParentKind::FlexColumn,
             Self::StatusBar | Self::StatusBarItem | Self::ToolBar | Self::ToolBarTray => {
                 ParentKind::FlexRow
             }
@@ -888,6 +891,11 @@ impl<'w> Ctx<'w> {
             ElemKind::Hyperlink => Node {
                 display: Display::Flex,
                 align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            ElemKind::Frame => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
                 ..Default::default()
             },
             // The <Popup> placeholder never lays out; its content lives on
@@ -1885,6 +1893,8 @@ impl<'w> Ctx<'w> {
             "SelectedDate" | "DisplayDate" | "DisplayMode" | "FirstDayOfWeek"
                 if matches!(kind, ElemKind::Calendar | ElemKind::DatePicker) => {}
             "ResizeDirection" | "ResizeBehavior" if kind == ElemKind::GridSplitter => {}
+            "Source" | "NavigationUIVisibility" | "JournalOwnership"
+                if kind == ElemKind::Frame => {}
             "MaxLength" => self.pending.max_length = Some(value.to_f32()? as usize),
             "AcceptsReturn" => self.pending.accepts_return = value.to_bool()?,
             "Rows" if kind == ElemKind::UniformGrid => {
@@ -2402,6 +2412,9 @@ impl<'w> Ctx<'w> {
             }
             ElemKind::Hyperlink => {
                 self.spawn_hyperlink(entity, node)?;
+            }
+            ElemKind::Frame => {
+                self.spawn_frame(entity, node);
             }
             ElemKind::PopupElement => {
                 self.spawn_popup_element(entity, node)?;
@@ -3880,15 +3893,125 @@ impl<'w> Ctx<'w> {
             .entity_mut(entity)
             .insert((PfHyperlink(uri), Interaction::default()));
         self.world.entity_mut(entity).observe(
-            move |click: On<Pointer<Click>>, links: Query<&PfHyperlink>| {
-                if let Ok(link) = links.get(click.entity) {
-                    if !link.0.is_empty() {
-                        crate::util::open_url(&link.0);
-                    }
+            move |click: On<Pointer<Click>>,
+                  links: Query<&PfHyperlink>,
+                  mut commands: Commands| {
+                let link_entity = click.entity;
+                if let Ok(link) = links.get(link_entity)
+                    && !link.0.is_empty()
+                {
+                    let uri = link.0.clone();
+                    commands.queue(move |world: &mut World| {
+                        crate::navigation::follow_hyperlink(world, link_entity, &uri);
+                    });
                 }
             },
         );
         Ok(())
+    }
+
+    /// WPF `Frame`: optional back/forward chrome over a content host that
+    /// pages instantiate into. `Source=` is resolved by a plugin system once
+    /// the page registry is populated.
+    fn spawn_frame(&mut self, entity: Entity, node: &XamlNode) {
+        use crate::components::{PfFrame, PfFrameChrome};
+
+        let source = match node.attribute("Source") {
+            Some(XamlValue::Str(s)) => Some(s.clone()),
+            _ => None,
+        };
+        let show_chrome = !matches!(
+            node.attribute("NavigationUIVisibility"),
+            Some(XamlValue::Str(s)) if s.eq_ignore_ascii_case("hidden")
+        );
+
+        let chrome = if show_chrome {
+            let mut make_button = |glyph: &str| {
+                let label = self.world
+                    .spawn((
+                        Node::default(),
+                        bevy::ui::widget::Text::new(glyph),
+                        bevy::text::TextFont {
+                            font_size: bevy::text::FontSize::Px(13.0),
+                            ..Default::default()
+                        },
+                        bevy::text::TextColor(Color::srgb_u8(0xAF, 0xAF, 0xAF)),
+                    ))
+                    .id();
+                let button = self.world
+                    .spawn((
+                        Node {
+                            width: Val::Px(30.0),
+                            height: Val::Px(24.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            margin: UiRect::right(Val::Px(4.0)),
+                            ..Default::default()
+                        },
+                        BackgroundColor(Color::srgb_u8(0xF4, 0xF4, 0xF4)),
+                        Interaction::default(),
+                    ))
+                    .id();
+                self.world.entity_mut(button).add_children(&[label]);
+                button
+            };
+            let back_button = make_button("<");
+            let forward_button = make_button(">");
+            let frame = entity;
+            self.world.entity_mut(back_button).observe(
+                move |_: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        crate::navigation::go_back(world, frame);
+                    });
+                },
+            );
+            self.world.entity_mut(forward_button).observe(
+                move |_: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        crate::navigation::go_forward(world, frame);
+                    });
+                },
+            );
+            let bar = self.world
+                .spawn((
+                    Node {
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Row,
+                        padding: UiRect::all(Val::Px(4.0)),
+                        ..Default::default()
+                    },
+                    BackgroundColor(Color::NONE),
+                ))
+                .id();
+            self.world.entity_mut(bar).add_children(&[back_button, forward_button]);
+            self.add_children(entity, &[bar]);
+            Some(PfFrameChrome { back_button, forward_button })
+        } else {
+            None
+        };
+
+        let content = self.world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    flex_grow: 1.0,
+                    ..Default::default()
+                },
+                BackgroundColor(Color::NONE),
+            ))
+            .id();
+        self.add_children(entity, &[content]);
+
+        self.world.entity_mut(entity).insert(PfFrame {
+            content,
+            chrome,
+            back: Vec::new(),
+            forward: Vec::new(),
+            current: None,
+            current_title: None,
+            pending_source: source,
+        });
     }
 
     /// The raw WPF `<Popup>` element: content lives on the overlay layer,

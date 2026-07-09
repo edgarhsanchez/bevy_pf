@@ -24,6 +24,9 @@ pub struct PfUiPlugin;
 impl Plugin for PfUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<crate::dialog::PfDialogResult>();
+        app.add_message::<crate::navigation::PfNavigated>();
+        app.init_resource::<crate::navigation::PfPages>();
+        app.add_systems(Update, crate::navigation::init_pending_frames);
         app.init_asset::<crate::asset::XamlAsset>()
             .register_asset_loader(crate::asset::XamlAssetLoader)
             .init_resource::<crate::asset::PendingXamlViews>()
