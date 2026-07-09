@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>bevy_pf — controls playground</title>
+  <title>bevy_pf — theme gallery</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="demo-page">
@@ -20,13 +20,13 @@
   <main>
     <div class="canvas-holder">
       <canvas id="bevy-canvas"></canvas>
-      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the controls playground&hellip;</span></div>
+      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the theme gallery&hellip;</span></div>
     </div>
-    <p class="note">Every widget here — menus, tabs, tree, data grid, the animated swatch — is XAML instantiated into Bevy ECS entities. The clock, progress bar, and swatch are driven by plain Bevy systems locating elements by <code>x:Uid</code>, <code>AutomationId</code>, and <code>x:Name</code>.</p>
+    <p class="note">Pick a theme in the ComboBox — all 12 (Fluent, Material, Nord, Dracula, Catppuccin, Solarized, Gruvbox, Tokyo Night) are <code>ResourceDictionary</code> palettes from the official specs, and the swap re-colors the live UI through <code>{DynamicResource}</code> without rebuilding it.</p>
   </main>
   <script type="module">
     import { boot } from './loader.js';
-    boot('showcase');
+    boot('themes');
   </script>
 </body>
 </html>

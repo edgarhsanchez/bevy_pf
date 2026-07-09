@@ -114,11 +114,25 @@ pub(crate) fn sync_items_sources(world: &mut World) {
                     ))
                     .id();
                 for (col_index, column) in grid.columns.iter().enumerate() {
-                    let text = item_ctx
-                        .read_path(&column.path)
-                        .map(|v| v.to_display())
-                        .unwrap_or_default();
-                    let cell = spawn_runtime_text(world, &text);
+                    let cell = if let Some(template) = &column.template {
+                        // GridViewColumn.CellTemplate: expand with the row's
+                        // scoped DataContext.
+                        let wrapper = world
+                            .spawn((Node::default(), DataContext(item_ctx.clone())))
+                            .id();
+                        if let Err(e) =
+                            crate::instantiate::instantiate_template(world, wrapper, template)
+                        {
+                            warn!("bevy_pf: cell template failed: {e}");
+                        }
+                        wrapper
+                    } else {
+                        let text = item_ctx
+                            .read_path(&column.path)
+                            .map(|v| v.to_display())
+                            .unwrap_or_default();
+                        spawn_runtime_text(world, &text)
+                    };
                     if let Some(mut n) = world.get_mut::<Node>(cell) {
                         n.grid_column =
                             bevy::ui::GridPlacement::start_span(col_index as i16 + 1, 1);

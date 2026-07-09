@@ -101,6 +101,8 @@ pub struct PfProgress {
     pub min: f32,
     pub max: f32,
     pub value: f32,
+    /// WPF `IsIndeterminate`: animated sweep instead of a value fill.
+    pub indeterminate: bool,
 }
 
 impl PfProgress {
@@ -111,6 +113,32 @@ impl PfProgress {
             0.0
         }
     }
+}
+
+/// WPF `Frame`: a navigable content host with a journal.
+#[derive(Component, Debug, Clone)]
+pub struct PfFrame {
+    /// The entity whose children are the current page.
+    pub content: Entity,
+    /// Built-in back/forward chrome, when `NavigationUIVisibility` shows it.
+    pub chrome: Option<PfFrameChrome>,
+    /// Journal: routes behind the current page.
+    pub back: Vec<String>,
+    /// Journal: routes ahead of the current page (after `go_back`).
+    pub forward: Vec<String>,
+    /// The route currently shown.
+    pub current: Option<String>,
+    /// The current page's `Title`, if declared.
+    pub current_title: Option<String>,
+    /// `Source=` waiting for the page registry (resolved by a startup system).
+    pub pending_source: Option<String>,
+}
+
+/// The built-in navigation chrome of a [`PfFrame`].
+#[derive(Debug, Clone, Copy)]
+pub struct PfFrameChrome {
+    pub back_button: Entity,
+    pub forward_button: Entity,
 }
 
 /// Links a ProgressBar root to its fill entity.
@@ -239,6 +267,9 @@ pub struct PfGridColumn {
     pub header: String,
     pub path: String,
     pub width: bevy_pf_xaml::value::GridLength,
+    /// `CellTemplate` (GridViewColumn) — expanded per cell with the row's
+    /// scoped DataContext when present; otherwise `path` renders as text.
+    pub template: Option<std::sync::Arc<bevy_pf_xaml::XamlNode>>,
 }
 
 /// WPF `DataGrid`: column definitions + the rows container (rows are
@@ -247,4 +278,45 @@ pub struct PfGridColumn {
 pub struct PfDataGrid {
     pub columns: Vec<PfGridColumn>,
     pub rows_host: Entity,
+}
+
+/// WPF `Hyperlink`: clicking opens `NavigateUri` in the default browser.
+#[derive(Component, Debug, Clone)]
+pub struct PfHyperlink(pub String);
+
+/// The XAML `<Popup>` placeholder element -> its overlay popup entity.
+#[derive(Component, Debug, Clone)]
+pub struct PfPopupSource {
+    pub popup: Entity,
+}
+
+/// WPF `GridSplitter`: drags resize the two neighboring tracks of the
+/// parent `Grid`.
+#[derive(Component, Debug, Clone)]
+pub struct PfGridSplitter {
+    /// True = resizes columns (drag x), false = rows (drag y).
+    pub columns: bool,
+}
+
+/// WPF `Calendar` month view.
+#[derive(Component, Debug, Clone)]
+pub struct PfCalendar {
+    pub year: i32,
+    pub month: u32,
+    pub selected: Option<(i32, u32, u32)>,
+    /// Grid hosting the day buttons (rebuilt on month change).
+    pub days_host: Entity,
+    /// The "July 2026" title text entity.
+    pub title: Entity,
+    /// DatePicker that owns this calendar, if any (selection reports back).
+    pub owner_picker: Option<Entity>,
+}
+
+/// WPF `DatePicker`: display text + calendar dropdown on the popup layer.
+#[derive(Component, Debug, Clone)]
+pub struct PfDatePicker {
+    pub calendar: Entity,
+    pub popup: Entity,
+    pub display: Entity,
+    pub selected: Option<(i32, u32, u32)>,
 }

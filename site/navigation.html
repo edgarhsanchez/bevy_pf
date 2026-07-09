@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>bevy_pf — controls playground</title>
+  <title>bevy_pf — Frame/Page navigation</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="demo-page">
@@ -20,13 +20,13 @@
   <main>
     <div class="canvas-holder">
       <canvas id="bevy-canvas"></canvas>
-      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the controls playground&hellip;</span></div>
+      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the navigation demo&hellip;</span></div>
     </div>
-    <p class="note">Every widget here — menus, tabs, tree, data grid, the animated swatch — is XAML instantiated into Bevy ECS entities. The clock, progress bar, and swatch are driven by plain Bevy systems locating elements by <code>x:Uid</code>, <code>AutomationId</code>, and <code>x:Name</code>.</p>
+    <p class="note">WPF navigation on Bevy: three XAML <code>Page</code>s in a <code>Frame</code>, &#9664; &#9654; journal chrome, <code>Hyperlink</code>s that navigate pages (external links still open the browser), and a counter that survives page re-creation because state lives in the <code>DataContext</code>.</p>
   </main>
   <script type="module">
     import { boot } from './loader.js';
-    boot('showcase');
+    boot('navigation');
   </script>
 </body>
 </html>

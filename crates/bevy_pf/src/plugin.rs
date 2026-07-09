@@ -23,6 +23,10 @@ pub struct PfUiPlugin;
 
 impl Plugin for PfUiPlugin {
     fn build(&self, app: &mut App) {
+        app.add_message::<crate::dialog::PfDialogResult>();
+        app.add_message::<crate::navigation::PfNavigated>();
+        app.init_resource::<crate::navigation::PfPages>();
+        app.add_systems(Update, crate::navigation::init_pending_frames);
         app.init_asset::<crate::asset::XamlAsset>()
             .register_asset_loader(crate::asset::XamlAssetLoader)
             .init_resource::<crate::asset::PendingXamlViews>()
@@ -76,6 +80,8 @@ impl Plugin for PfUiPlugin {
                 checked_visual_sync,
                 slider_thumb_sync,
                 progress_fill_sync,
+                progress_indeterminate_anim,
+                resolve_popup_sources,
                 listbox_selection_visuals,
                 listbox_item_hover,
                 expander_sync,
@@ -209,6 +215,40 @@ fn progress_fill_sync(
     for (progress, visual) in &bars {
         if let Ok(mut node) = nodes.get_mut(visual.fill) {
             node.width = Val::Percent(progress.fraction() * 100.0);
+        }
+    }
+}
+
+/// Animate indeterminate progress bars: a 30% band sweeping back and forth.
+fn progress_indeterminate_anim(
+    time: Res<Time>,
+    bars: Query<(&PfProgress, &PfProgressVisual)>,
+    mut nodes: Query<&mut Node>,
+) {
+    for (progress, visual) in &bars {
+        if !progress.indeterminate {
+            continue;
+        }
+        if let Ok(mut node) = nodes.get_mut(visual.fill) {
+            let t = (time.elapsed_secs() * 0.9).fract();
+            let pos = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
+            node.width = Val::Percent(30.0);
+            node.margin.left = Val::Percent(pos * 70.0);
+        }
+    }
+}
+
+/// A `<Popup>` element anchors to its XAML parent; the parent link only
+/// exists after the tree is assembled, so resolve it here (once each).
+fn resolve_popup_sources(
+    sources: Query<(Entity, &crate::components::PfPopupSource, &ChildOf)>,
+    mut popups: Query<&mut crate::overlay::PfPopup>,
+) {
+    for (placeholder, source, child_of) in &sources {
+        if let Ok(mut popup) = popups.get_mut(source.popup)
+            && popup.anchor == placeholder
+        {
+            popup.anchor = child_of.parent();
         }
     }
 }
