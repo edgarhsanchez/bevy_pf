@@ -24,9 +24,26 @@ struct Vm {
     rows: Vec<Row>,
 }
 
+fn primary_window() -> Window {
+    #[allow(unused_mut)]
+    let mut window = Window {
+        title: "bevy_pf theme gallery".to_string(),
+        ..Default::default()
+    };
+    #[cfg(target_arch = "wasm32")]
+    {
+        window.canvas = Some("#bevy-canvas".to_string());
+        window.fit_canvas_to_parent = true;
+    }
+    window
+}
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(primary_window()),
+            ..Default::default()
+        }))
         .add_plugins(PfUiPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, switch_theme)

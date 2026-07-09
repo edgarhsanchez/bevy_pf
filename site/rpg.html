@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>bevy_pf — controls playground</title>
+  <title>bevy_pf — RPG HUD kit</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="demo-page">
@@ -20,13 +20,13 @@
   <main>
     <div class="canvas-holder">
       <canvas id="bevy-canvas"></canvas>
-      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the controls playground&hellip;</span></div>
+      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the RPG HUD&hellip;</span></div>
     </div>
-    <p class="note">Every widget here — menus, tabs, tree, data grid, the animated swatch — is XAML instantiated into Bevy ECS entities. The clock, progress bar, and swatch are driven by plain Bevy systems locating elements by <code>x:Uid</code>, <code>AutomationId</code>, and <code>x:Name</code>.</p>
+    <p class="note">A WoW-style HUD where every element is XAML: vitals bars, cooldown sweeps, timed buffs, quest tracker, rarity-colored loot toasts. A tiny combat simulation drives it all through the element-query API.</p>
   </main>
   <script type="module">
     import { boot } from './loader.js';
-    boot('showcase');
+    boot('rpg');
   </script>
 </body>
 </html>
