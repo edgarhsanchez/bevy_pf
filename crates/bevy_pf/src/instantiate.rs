@@ -184,6 +184,15 @@ enum ElemKind {
     Viewbox,
     Image,
     Shape,
+    StatusBar,
+    StatusBarItem,
+    ToolBar,
+    ToolBarTray,
+    Hyperlink,
+    PopupElement,
+    GridSplitter,
+    Calendar,
+    DatePicker,
     Unknown,
 }
 
@@ -223,6 +232,15 @@ impl ElemKind {
             "Viewbox" => Self::Viewbox,
             "Image" => Self::Image,
             "Rectangle" | "Ellipse" | "Line" | "Polyline" | "Polygon" | "Path" => Self::Shape,
+            "StatusBar" => Self::StatusBar,
+            "StatusBarItem" => Self::StatusBarItem,
+            "ToolBar" => Self::ToolBar,
+            "ToolBarTray" => Self::ToolBarTray,
+            "Hyperlink" => Self::Hyperlink,
+            "Popup" => Self::PopupElement,
+            "GridSplitter" => Self::GridSplitter,
+            "Calendar" => Self::Calendar,
+            "DatePicker" => Self::DatePicker,
             _ => Self::Unknown,
         }
     }
@@ -244,7 +262,11 @@ impl ElemKind {
             | Self::ProgressBar | Self::Separator | Self::ListBox | Self::ItemsControl
             | Self::ComboBox | Self::Shape | Self::GroupBox | Self::Expander
             | Self::Viewbox | Self::TabControl | Self::TreeView | Self::Menu
-            | Self::DataGrid => ParentKind::FlexColumn,
+            | Self::DataGrid | Self::Hyperlink | Self::PopupElement
+            | Self::GridSplitter | Self::Calendar | Self::DatePicker => ParentKind::FlexColumn,
+            Self::StatusBar | Self::StatusBarItem | Self::ToolBar | Self::ToolBarTray => {
+                ParentKind::FlexRow
+            }
         }
     }
 }
@@ -274,6 +296,8 @@ struct Pending {
     item_template: Option<std::sync::Arc<XamlNode>>,
     /// `DisplayMemberPath` for items controls.
     display_member: Option<String>,
+    /// `IsIndeterminate` for ProgressBar.
+    is_indeterminate: bool,
 }
 
 /// Font and text properties that flow down the tree (WPF property value
@@ -818,6 +842,75 @@ impl<'w> Ctx<'w> {
                 border: UiRect::all(Val::Px(1.0)),
                 ..Default::default()
             },
+            ElemKind::StatusBar => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                width: Val::Percent(100.0),
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                column_gap: Val::Px(10.0),
+                ..Default::default()
+            },
+            ElemKind::StatusBarItem => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
+                ..Default::default()
+            },
+            ElemKind::ToolBar => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)),
+                column_gap: Val::Px(4.0),
+                border: UiRect::bottom(Val::Px(1.0)),
+                ..Default::default()
+            },
+            ElemKind::ToolBarTray => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                flex_wrap: FlexWrap::Wrap,
+                width: Val::Percent(100.0),
+                ..Default::default()
+            },
+            ElemKind::Hyperlink => Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            // The <Popup> placeholder never lays out; its content lives on
+            // the overlay layer.
+            ElemKind::PopupElement => Node {
+                display: Display::None,
+                ..Default::default()
+            },
+            ElemKind::GridSplitter => Node {
+                display: Display::Flex,
+                min_width: Val::Px(4.0),
+                min_height: Val::Px(4.0),
+                ..Default::default()
+            },
+            ElemKind::Calendar => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                width: Val::Px(252.0),
+                padding: UiRect::all(Val::Px(8.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                row_gap: Val::Px(4.0),
+                ..Default::default()
+            },
+            ElemKind::DatePicker => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                min_width: Val::Px(140.0),
+                min_height: Val::Px(26.0),
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                column_gap: Val::Px(6.0),
+                ..Default::default()
+            },
             ElemKind::Slider => Node {
                 display: Display::Flex,
                 align_items: AlignItems::Center,
@@ -979,6 +1072,30 @@ impl<'w> Ctx<'w> {
             }
             ElemKind::GroupBox => {
                 e.insert(BorderColor::all(Color::srgb_u8(0xD5, 0xD5, 0xD5)));
+            }
+            ElemKind::StatusBar => {
+                e.insert(BackgroundColor(Color::srgb_u8(0xF0, 0xF0, 0xF0)));
+            }
+            ElemKind::ToolBar => {
+                e.insert((
+                    BackgroundColor(Color::srgb_u8(0xF5, 0xF5, 0xF5)),
+                    BorderColor::all(Color::srgb_u8(0xD5, 0xD5, 0xD5)),
+                ));
+            }
+            ElemKind::ToolBarTray => {
+                e.insert(BackgroundColor(Color::srgb_u8(0xEB, 0xEB, 0xEB)));
+            }
+            ElemKind::GridSplitter => {
+                e.insert((
+                    BackgroundColor(Color::srgb_u8(0xC8, 0xC8, 0xC8)),
+                    Interaction::default(),
+                ));
+            }
+            ElemKind::Calendar | ElemKind::DatePicker => {
+                e.insert((
+                    BackgroundColor(Color::WHITE),
+                    BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                ));
             }
             _ => {}
         }
@@ -1463,7 +1580,7 @@ impl<'w> Ctx<'w> {
         // is a structured value (brush, style, ...) applied as a property.
         if matches!(
             pe.name.as_str(),
-            "Content" | "Child" | "Children" | "Header" | "Columns"
+            "Content" | "Child" | "Children" | "Header" | "Columns" | "View"
         ) {
             return; // consumed by spawn_content
         }
@@ -1747,6 +1864,16 @@ impl<'w> Ctx<'w> {
             "Value" if matches!(kind, ElemKind::Slider | ElemKind::ProgressBar) => {
                 self.pending.value = Some(value.to_f32()?)
             }
+            "IsIndeterminate" if kind == ElemKind::ProgressBar => {
+                self.pending.is_indeterminate = value.to_bool()?
+            }
+            // Consumed directly by the control builders.
+            "NavigateUri" | "Content" if kind == ElemKind::Hyperlink => {}
+            "IsOpen" | "Placement" | "PlacementTarget" | "StaysOpen"
+                if kind == ElemKind::PopupElement => {}
+            "SelectedDate" | "DisplayDate" | "DisplayMode" | "FirstDayOfWeek"
+                if matches!(kind, ElemKind::Calendar | ElemKind::DatePicker) => {}
+            "ResizeDirection" | "ResizeBehavior" if kind == ElemKind::GridSplitter => {}
             "MaxLength" => self.pending.max_length = Some(value.to_f32()? as usize),
             "AcceptsReturn" => self.pending.accepts_return = value.to_bool()?,
             "Rows" if kind == ElemKind::UniformGrid => {
@@ -2141,7 +2268,12 @@ impl<'w> Ctx<'w> {
                 let min = pending.minimum.unwrap_or(0.0);
                 let max = pending.maximum.unwrap_or(100.0);
                 let value = pending.value.unwrap_or(min);
-                let progress = PfProgress { min, max, value };
+                let progress = PfProgress {
+                    min,
+                    max,
+                    value,
+                    indeterminate: self.pending.is_indeterminate,
+                };
                 let fill = self
                     .world
                     .spawn((
@@ -2204,12 +2336,24 @@ impl<'w> Ctx<'w> {
                 self.add_children(entity, &children);
             }
             ElemKind::ListBox | ElemKind::ItemsControl => {
-                let pending = self.pending.clone();
-                let children = self.spawn_child_elements(node, ParentKind::FlexColumn)?;
-                if kind == ElemKind::ItemsControl {
-                    self.add_children(entity, &children);
+                // ListView with a GridView view is column mode (details view).
+                let grid_view = if node.name == "ListView" {
+                    node.property_element("View")
+                        .and_then(|v| v.elements().find(|e| e.name == "GridView"))
+                        .cloned()
                 } else {
-                    self.finish_list_box(entity, node, &children, &pending);
+                    None
+                };
+                if let Some(gv) = grid_view {
+                    self.spawn_list_view(entity, &gv)?;
+                } else {
+                    let pending = self.pending.clone();
+                    let children = self.spawn_child_elements(node, ParentKind::FlexColumn)?;
+                    if kind == ElemKind::ItemsControl {
+                        self.add_children(entity, &children);
+                    } else {
+                        self.finish_list_box(entity, node, &children, &pending);
+                    }
                 }
             }
             ElemKind::GroupBox => {
@@ -2239,6 +2383,26 @@ impl<'w> Ctx<'w> {
             }
             ElemKind::DataGrid => {
                 self.spawn_data_grid(entity, node)?;
+            }
+            ElemKind::StatusBar | ElemKind::StatusBarItem | ElemKind::ToolBar
+            | ElemKind::ToolBarTray => {
+                let children = self.spawn_child_elements(node, ParentKind::FlexRow)?;
+                self.add_children(entity, &children);
+            }
+            ElemKind::Hyperlink => {
+                self.spawn_hyperlink(entity, node)?;
+            }
+            ElemKind::PopupElement => {
+                self.spawn_popup_element(entity, node)?;
+            }
+            ElemKind::GridSplitter => {
+                self.spawn_grid_splitter(entity, node);
+            }
+            ElemKind::Calendar => {
+                self.spawn_calendar(entity, node, None)?;
+            }
+            ElemKind::DatePicker => {
+                self.spawn_date_picker(entity, node)?;
             }
             ElemKind::Viewbox => {
                 let stretch = self.pending.shape.stretch.unwrap_or(v::Stretch::Uniform);
@@ -3482,6 +3646,7 @@ impl<'w> Ctx<'w> {
                     header,
                     path,
                     width,
+                    template: None,
                 });
             }
         }
@@ -3553,6 +3718,453 @@ impl<'w> Ctx<'w> {
         Ok(())
     }
 
+    /// Shared tail for DataGrid / column-mode ListView: header row + rows
+    /// host, with per-column grid tracks.
+    fn build_column_grid(
+        &mut self,
+        entity: Entity,
+        columns: Vec<crate::components::PfGridColumn>,
+    ) {
+        use crate::components::PfDataGrid;
+
+        let template: Vec<RepeatedGridTrack> = columns
+            .iter()
+            .map(|c| match c.width {
+                v::GridLength::Auto => GridTrack::fr(1.0),
+                other => convert::grid_track(other),
+            })
+            .collect();
+
+        let header_row = self.world
+            .spawn((
+                Node {
+                    display: Display::Grid,
+                    grid_template_columns: template,
+                    grid_template_rows: vec![GridTrack::auto()],
+                    border: UiRect {
+                        bottom: Val::Px(1.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                BackgroundColor(Color::srgb_u8(0xF0, 0xF0, 0xF0)),
+                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                PfElementKind("GridView.Header".to_string()),
+            ))
+            .id();
+        let saved_weight = self.inherited.font_weight;
+        self.inherited.font_weight = v::FontWeight::SEMI_BOLD;
+        for (i, col) in columns.iter().enumerate() {
+            let cell = self.spawn_text_child(col.header.clone());
+            {
+                let mut n = self.node_mut(cell);
+                n.grid_column = GridPlacement::start_span(i as i16 + 1, 1);
+                n.grid_row = GridPlacement::start_span(1, 1);
+                n.padding = UiRect::axes(Val::Px(8.0), Val::Px(4.0));
+            }
+            self.add_children(header_row, &[cell]);
+        }
+        self.inherited.font_weight = saved_weight;
+
+        let rows_host = self.world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    ..Default::default()
+                },
+                PfListBox::default(),
+                PfElementKind("GridView.Rows".to_string()),
+            ))
+            .id();
+        self.add_children(entity, &[header_row, rows_host]);
+        self.world.entity_mut(entity).insert(PfDataGrid {
+            columns,
+            rows_host,
+        });
+    }
+
+    /// WPF `ListView` + `GridView`: details view with `GridViewColumn`s
+    /// (`DisplayMemberBinding` text cells or `CellTemplate` templates).
+    fn spawn_list_view(&mut self, entity: Entity, grid_view: &XamlNode) -> Result<(), PfError> {
+        use crate::components::PfGridColumn;
+
+        let mut columns: Vec<PfGridColumn> = Vec::new();
+        for col in grid_view.children.iter().filter_map(|c| c.as_element()) {
+            if col.name != "GridViewColumn" {
+                self.warn(format!(
+                    "{}: `{}` inside GridView is not supported yet",
+                    col.pos, col.name
+                ));
+                continue;
+            }
+            let header = match col.attribute("Header") {
+                Some(XamlValue::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let path = match col.attribute("DisplayMemberBinding") {
+                Some(XamlValue::Extension(ext)) if ext.name == "Binding" => {
+                    crate::binding::parse_binding_extension(ext).path
+                }
+                _ => String::new(),
+            };
+            let template = col
+                .property_element("CellTemplate")
+                .and_then(|pe| pe.elements().find(|e| e.name == "DataTemplate"))
+                .map(|dt| std::sync::Arc::new(dt.clone()));
+            if path.is_empty() && template.is_none() {
+                self.warn(format!(
+                    "{}: GridViewColumn needs DisplayMemberBinding or CellTemplate",
+                    col.pos
+                ));
+                continue;
+            }
+            let width = match col.attribute("Width") {
+                Some(XamlValue::Str(s)) => s
+                    .parse::<v::GridLength>()
+                    .unwrap_or(v::GridLength::Star(1.0)),
+                _ => v::GridLength::Star(1.0),
+            };
+            columns.push(PfGridColumn {
+                header,
+                path,
+                width,
+                template,
+            });
+        }
+        if columns.is_empty() {
+            self.warn("ListView GridView needs GridViewColumn entries".to_string());
+        }
+        self.build_column_grid(entity, columns);
+        Ok(())
+    }
+
+    /// WPF `Hyperlink`: accent-colored text that opens `NavigateUri`.
+    fn spawn_hyperlink(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
+        use crate::components::PfHyperlink;
+
+        let mut text = String::new();
+        for child in &node.children {
+            if let Some(t) = child.as_text() {
+                text.push_str(t);
+            }
+        }
+        if text.is_empty() {
+            if let Some(XamlValue::Str(s)) = node.attribute("Content") {
+                text = s.clone();
+            }
+        }
+        let uri = match node.attribute("NavigateUri") {
+            Some(XamlValue::Str(s)) => s.clone(),
+            _ => String::new(),
+        };
+
+        let saved = self.inherited.foreground;
+        self.inherited.foreground = v::PfColor::rgb(0x00, 0x66, 0xCC);
+        let label = self.spawn_text_child(text);
+        self.inherited.foreground = saved;
+        self.add_children(entity, &[label]);
+
+        self.world
+            .entity_mut(entity)
+            .insert((PfHyperlink(uri), Interaction::default()));
+        self.world.entity_mut(entity).observe(
+            move |click: On<Pointer<Click>>, links: Query<&PfHyperlink>| {
+                if let Ok(link) = links.get(click.entity) {
+                    if !link.0.is_empty() {
+                        crate::util::open_url(&link.0);
+                    }
+                }
+            },
+        );
+        Ok(())
+    }
+
+    /// The raw WPF `<Popup>` element: content lives on the overlay layer,
+    /// anchored to the popup's XAML parent (resolved by a plugin system once
+    /// the tree is assembled). `IsOpen` sets the initial state.
+    fn spawn_popup_element(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
+        use crate::components::PfPopupSource;
+        use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
+
+        let placement = match node.attribute("Placement") {
+            Some(XamlValue::Str(s)) if s.eq_ignore_ascii_case("right") => PfPlacement::Right,
+            _ => PfPlacement::Bottom,
+        };
+        let is_open = match node.attribute("IsOpen") {
+            Some(XamlValue::Str(s)) => s.eq_ignore_ascii_case("true"),
+            _ => false,
+        };
+
+        let overlay = ensure_overlay_root(self.world);
+        let popup = self.world
+            .spawn((
+                PfPopup {
+                    // Placeholder anchor; resolve_popup_sources swaps in the
+                    // XAML parent once the tree exists.
+                    anchor: entity,
+                    placement,
+                    open: is_open,
+                    match_anchor_width: false,
+                },
+                crate::components::PfLogicalParent(entity),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::None,
+                    flex_direction: FlexDirection::Column,
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                bevy::ui::GlobalZIndex(i32::MAX - 900),
+            ))
+            .id();
+        let backdrop = spawn_backdrop(self.world, popup);
+        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+        let children = self.spawn_child_elements(node, ParentKind::FlexColumn)?;
+        self.add_children(popup, &children);
+        self.world
+            .entity_mut(entity)
+            .insert(PfPopupSource { popup });
+        let popup_entity = popup;
+        self.world.entity_mut(backdrop).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = false;
+                }
+            },
+        );
+        Ok(())
+    }
+
+    /// WPF `GridSplitter`: dragging resizes the two neighboring tracks of
+    /// the parent Grid (explicit definitions become pixel tracks).
+    fn spawn_grid_splitter(&mut self, entity: Entity, node: &XamlNode) {
+        use crate::components::PfGridSplitter;
+
+        let columns = match node.attribute("ResizeDirection") {
+            Some(XamlValue::Str(s)) => s.eq_ignore_ascii_case("columns"),
+            // WPF auto: a thin-width splitter resizes columns.
+            _ => node.attribute("Width").is_some() || node.attribute("Height").is_none(),
+        };
+        self.world
+            .entity_mut(entity)
+            .insert(PfGridSplitter { columns });
+        self.world.entity_mut(entity).observe(
+            move |drag: On<Pointer<Drag>>, mut commands: Commands| {
+                let splitter = drag.entity;
+                let delta = drag.delta;
+                commands.queue(move |world: &mut World| {
+                    splitter_drag(world, splitter, delta);
+                });
+            },
+        );
+    }
+
+    /// WPF `Calendar` month view; also the dropdown content of `DatePicker`.
+    fn spawn_calendar(
+        &mut self,
+        entity: Entity,
+        node: &XamlNode,
+        owner_picker: Option<Entity>,
+    ) -> Result<(), PfError> {
+        use crate::components::PfCalendar;
+
+        // Initial month: SelectedDate/DisplayDate ("YYYY-MM-DD") or today.
+        let parse_date = |value: Option<&XamlValue>| -> Option<(i32, u32, u32)> {
+            if let Some(XamlValue::Str(s)) = value {
+                let mut it = s.split('-');
+                let y = it.next()?.parse().ok()?;
+                let m = it.next()?.parse().ok()?;
+                let d = it.next()?.parse().ok()?;
+                return Some((y, m, d));
+            }
+            None
+        };
+        let selected = parse_date(node.attribute("SelectedDate"));
+        let (year, month) = selected
+            .or(parse_date(node.attribute("DisplayDate")))
+            .map(|(y, m, _)| (y, m))
+            .unwrap_or_else(today_year_month);
+
+        let prev = self.spawn_nav_button("<");
+        let next = self.spawn_nav_button(">");
+        let title = self.spawn_text_child(String::new());
+        {
+            let mut n = self.node_mut(title);
+            n.flex_grow = 1.0;
+            n.justify_content = JustifyContent::Center;
+        }
+        let header = self.world
+            .spawn(Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            })
+            .id();
+        self.add_children(header, &[prev, title, next]);
+
+        let weekdays = self.world
+            .spawn(Node {
+                display: Display::Grid,
+                grid_template_columns: vec![RepeatedGridTrack::fr(7, 1.0)],
+                ..Default::default()
+            })
+            .id();
+        for (i, wd) in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].iter().enumerate() {
+            let cell = self.spawn_text_child(wd.to_string());
+            {
+                let mut n = self.node_mut(cell);
+                n.grid_column = GridPlacement::start_span(i as i16 + 1, 1);
+                n.justify_content = JustifyContent::Center;
+                n.padding = UiRect::all(Val::Px(2.0));
+            }
+            self.add_children(weekdays, &[cell]);
+        }
+
+        let days_host = self.world
+            .spawn(Node {
+                display: Display::Grid,
+                grid_template_columns: vec![RepeatedGridTrack::fr(7, 1.0)],
+                ..Default::default()
+            })
+            .id();
+        self.add_children(entity, &[header, weekdays, days_host]);
+        self.world.entity_mut(entity).insert(PfCalendar {
+            year,
+            month,
+            selected,
+            days_host,
+            title,
+            owner_picker,
+        });
+
+        let cal = entity;
+        self.world.entity_mut(prev).observe(
+            move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(move |world: &mut World| calendar_shift_month(world, cal, -1));
+            },
+        );
+        self.world.entity_mut(next).observe(
+            move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(move |world: &mut World| calendar_shift_month(world, cal, 1));
+            },
+        );
+        calendar_rebuild(self.world, entity);
+        Ok(())
+    }
+
+    fn spawn_nav_button(&mut self, glyph: &str) -> Entity {
+        let label = self.spawn_text_child(glyph.to_string());
+        let button = self.world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    width: Val::Px(24.0),
+                    height: Val::Px(22.0),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::srgb_u8(0xE8, 0xE8, 0xE8)),
+                Interaction::default(),
+            ))
+            .id();
+        self.add_children(button, &[label]);
+        button
+    }
+
+    /// WPF `DatePicker`: a display box with a calendar dropdown.
+    fn spawn_date_picker(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
+        use crate::components::{PfCalendar, PfDatePicker};
+        use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
+
+        let display = self.spawn_text_child("Select a date".to_string());
+        {
+            let mut n = self.node_mut(display);
+            n.flex_grow = 1.0;
+        }
+        let arrow = self.spawn_text_child("\u{25BE}".to_string());
+        self.add_children(entity, &[display, arrow]);
+
+        let overlay = ensure_overlay_root(self.world);
+        let popup = self.world
+            .spawn((
+                PfPopup {
+                    anchor: entity,
+                    placement: PfPlacement::Bottom,
+                    open: false,
+                    match_anchor_width: false,
+                },
+                crate::components::PfLogicalParent(entity),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::None,
+                    flex_direction: FlexDirection::Column,
+                    ..Default::default()
+                },
+                bevy::ui::GlobalZIndex(i32::MAX - 900),
+            ))
+            .id();
+        let backdrop = spawn_backdrop(self.world, popup);
+        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+
+        let calendar = self.world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Px(252.0),
+                    padding: UiRect::all(Val::Px(8.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    row_gap: Val::Px(4.0),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                PfElementKind("Calendar".to_string()),
+            ))
+            .id();
+        self.spawn_calendar(calendar, node, Some(entity))?;
+        self.add_children(popup, &[calendar]);
+
+        let selected = self
+            .world
+            .get::<PfCalendar>(calendar)
+            .and_then(|c| c.selected);
+        self.world.entity_mut(entity).insert((
+            PfDatePicker {
+                calendar,
+                popup,
+                display,
+                selected,
+            },
+            Interaction::default(),
+        ));
+        if let Some((y, m, d)) = selected {
+            set_text(self.world, display, format!("{y:04}-{m:02}-{d:02}"));
+        }
+
+        let popup_entity = popup;
+        self.world.entity_mut(entity).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = !p.open;
+                }
+            },
+        );
+        self.world.entity_mut(backdrop).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = false;
+                }
+            },
+        );
+        Ok(())
+    }
+
     /// Map a recorded `{Binding}` onto its concrete target entity + slot.
     fn attach_binding(
         &mut self,
@@ -3565,6 +4177,12 @@ impl<'w> Ctx<'w> {
         // ItemsSource is not a scalar binding: it generates children.
         if property == "ItemsSource" {
             let host = match kind {
+                // A ListView in GridView (column) mode hosts rows like a DataGrid.
+                ElemKind::ListBox
+                    if self.world.get::<crate::components::PfDataGrid>(entity).is_some() =>
+                {
+                    crate::items::ItemsHostKind::DataGrid
+                }
                 ElemKind::ListBox => crate::items::ItemsHostKind::ListBox,
                 ElemKind::ItemsControl => crate::items::ItemsHostKind::ItemsControl,
                 ElemKind::ComboBox => crate::items::ItemsHostKind::ComboBox,
@@ -4039,5 +4657,251 @@ fn close_popup_subtree(world: &mut World, popup: Entity) {
                 close_popup_subtree(world, sub);
             }
         }
+    }
+}
+
+/// Replace the string of a text entity (or its first text descendant).
+pub fn set_text(world: &mut World, entity: Entity, text: String) {
+    fn find(world: &World, e: Entity) -> Option<Entity> {
+        if world.get::<bevy::ui::widget::Text>(e).is_some() {
+            return Some(e);
+        }
+        let children: Vec<Entity> = world.get::<Children>(e)?.iter().collect();
+        children.into_iter().find_map(|c| find(world, c))
+    }
+    if let Some(target) = find(world, entity)
+        && let Some(mut t) = world.get_mut::<bevy::ui::widget::Text>(target)
+    {
+        t.0 = text;
+    }
+}
+
+/// Today's (year, month) from the system clock (civil-from-days algorithm,
+/// UTC). Falls back to 2026-01 if the clock is unavailable.
+fn today_year_month() -> (i32, u32) {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if secs == 0 {
+        return (2026, 1);
+    }
+    let (y, m, _) = civil_from_days(secs.div_euclid(86_400));
+    (y, m)
+}
+
+/// Days-since-epoch -> (year, month, day). Howard Hinnant's algorithm.
+fn civil_from_days(z: i64) -> (i32, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    ((if m <= 2 { y + 1 } else { y }) as i32, m, d)
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        _ => {
+            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
+                29
+            } else {
+                28
+            }
+        }
+    }
+}
+
+/// Day of week for a date, 0 = Sunday (Sakamoto's method).
+fn day_of_week(year: i32, month: u32, day: u32) -> u32 {
+    const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let y = if month < 3 { year - 1 } else { year };
+    ((y + y / 4 - y / 100 + y / 400 + T[(month - 1) as usize] + day as i32) % 7).rem_euclid(7)
+        as u32
+}
+
+const MONTH_NAMES: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June", "July", "August", "September",
+    "October", "November", "December",
+];
+
+/// Repaint a Calendar's day grid + title for its current month/selection.
+pub fn calendar_rebuild(world: &mut World, calendar: Entity) {
+    use crate::components::PfCalendar;
+
+    let Some(state) = world.get::<PfCalendar>(calendar).cloned() else {
+        return;
+    };
+    set_text(
+        world,
+        state.title,
+        format!("{} {}", MONTH_NAMES[(state.month - 1) as usize], state.year),
+    );
+    world.entity_mut(state.days_host).despawn_children();
+
+    let first_dow = day_of_week(state.year, state.month, 1);
+    let days = days_in_month(state.year, state.month);
+    let mut cells = Vec::new();
+    for day in 1..=days {
+        let slot = first_dow + day - 1;
+        let selected = state.selected == Some((state.year, state.month, day));
+        let label = crate::items::spawn_runtime_text(world, &day.to_string());
+        let cell = world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    padding: UiRect::all(Val::Px(3.0)),
+                    grid_column: GridPlacement::start_span((slot % 7) as i16 + 1, 1),
+                    grid_row: GridPlacement::start_span((slot / 7) as i16 + 1, 1),
+                    ..Default::default()
+                },
+                if selected {
+                    BackgroundColor(crate::components::ACCENT)
+                } else {
+                    BackgroundColor(Color::NONE)
+                },
+                Interaction::default(),
+            ))
+            .id();
+        if selected && let Some(mut color) = world.get_mut::<bevy::text::TextColor>(label) {
+            color.0 = Color::WHITE;
+        }
+        world.entity_mut(cell).add_children(&[label]);
+        let cal = calendar;
+        let (y, m) = (state.year, state.month);
+        world.entity_mut(cell).observe(
+            move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(move |world: &mut World| calendar_select(world, cal, y, m, day));
+            },
+        );
+        cells.push(cell);
+    }
+    world.entity_mut(state.days_host).add_children(&cells);
+}
+
+/// Move a Calendar by whole months (negative = back).
+pub fn calendar_shift_month(world: &mut World, calendar: Entity, delta: i32) {
+    use crate::components::PfCalendar;
+    if let Some(mut state) = world.get_mut::<PfCalendar>(calendar) {
+        let mut m = state.month as i32 + delta;
+        let mut y = state.year;
+        while m < 1 {
+            m += 12;
+            y -= 1;
+        }
+        while m > 12 {
+            m -= 12;
+            y += 1;
+        }
+        state.month = m as u32;
+        state.year = y;
+    }
+    calendar_rebuild(world, calendar);
+}
+
+/// Select a date on a Calendar; reports to the owning DatePicker if any.
+pub fn calendar_select(world: &mut World, calendar: Entity, year: i32, month: u32, day: u32) {
+    use crate::components::{PfCalendar, PfDatePicker};
+    use crate::overlay::PfPopup;
+
+    let owner = {
+        let Some(mut state) = world.get_mut::<PfCalendar>(calendar) else {
+            return;
+        };
+        state.selected = Some((year, month, day));
+        state.owner_picker
+    };
+    calendar_rebuild(world, calendar);
+
+    if let Some(picker) = owner {
+        let (display, popup) = {
+            let Some(mut p) = world.get_mut::<PfDatePicker>(picker) else {
+                return;
+            };
+            p.selected = Some((year, month, day));
+            (p.display, p.popup)
+        };
+        set_text(world, display, format!("{year:04}-{month:02}-{day:02}"));
+        if let Some(mut pop) = world.get_mut::<PfPopup>(popup) {
+            pop.open = false;
+        }
+    }
+}
+
+/// Resize the two grid tracks around a GridSplitter by a drag delta.
+pub fn splitter_drag(world: &mut World, splitter: Entity, delta: Vec2) {
+    use crate::components::{PfAttachedProps, PfGridSplitter};
+
+    let Some(config) = world.get::<PfGridSplitter>(splitter).cloned() else {
+        return;
+    };
+    let Some(grid) = world.get::<ChildOf>(splitter).map(|c| c.parent()) else {
+        return;
+    };
+    let (owner, prop, axis_delta) = if config.columns {
+        ("Grid", "Column", delta.x)
+    } else {
+        ("Grid", "Row", delta.y)
+    };
+    let Some(index) = world
+        .get::<PfAttachedProps>(splitter)
+        .and_then(|a| a.parse::<usize>(owner, prop))
+    else {
+        return;
+    };
+    if index == 0 {
+        return;
+    }
+
+    // Current sizes of the neighbor cells, from any child occupying them.
+    let mut before_size: Option<f32> = None;
+    let mut after_size: Option<f32> = None;
+    let children: Vec<Entity> = world
+        .get::<Children>(grid)
+        .map(|c| c.iter().collect())
+        .unwrap_or_default();
+    for child in children {
+        let Some(attached) = world.get::<PfAttachedProps>(child) else {
+            continue;
+        };
+        let Some(i) = attached.parse::<usize>(owner, prop) else {
+            continue;
+        };
+        let Some(computed) = world.get::<bevy::ui::ComputedNode>(child) else {
+            continue;
+        };
+        let size = computed.size() * computed.inverse_scale_factor();
+        let logical = if config.columns { size.x } else { size.y };
+        if i == index - 1 {
+            before_size.get_or_insert(logical);
+        } else if i == index + 1 {
+            after_size.get_or_insert(logical);
+        }
+    }
+    let (Some(before), Some(after)) = (before_size, after_size) else {
+        return;
+    };
+    let new_before = (before + axis_delta).max(24.0);
+    let new_after = (after - axis_delta).max(24.0);
+
+    let Some(mut node) = world.get_mut::<Node>(grid) else {
+        return;
+    };
+    let tracks = if config.columns {
+        &mut node.grid_template_columns
+    } else {
+        &mut node.grid_template_rows
+    };
+    if index + 1 < tracks.len() + 1 && index >= 1 && tracks.len() > index {
+        tracks[index - 1] = GridTrack::px(new_before);
+        tracks[index + 1] = GridTrack::px(new_after);
     }
 }

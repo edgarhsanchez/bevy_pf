@@ -33,6 +33,7 @@ pub mod asset;
 pub mod binding;
 pub mod components;
 pub mod convert;
+pub mod dialog;
 pub mod dynamic;
 pub mod error;
 pub mod instantiate;
@@ -44,7 +45,9 @@ pub mod query;
 pub mod provider;
 pub mod resources;
 pub mod shapes;
+pub mod themes;
 pub mod triggers;
+pub mod util;
 
 pub use bevy_pf_macros::{include_xaml, xaml};
 pub use bevy_pf_xaml as xaml_ast;
