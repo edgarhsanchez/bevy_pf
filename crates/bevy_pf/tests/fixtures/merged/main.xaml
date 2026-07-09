@@ -1,0 +1,17 @@
+<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="themes/theme.xaml"/>
+      </ResourceDictionary.MergedDictionaries>
+      <SolidColorBrush x:Key="Brush.Local" Color="Purple"/>
+    </ResourceDictionary>
+  </StackPanel.Resources>
+  <Border x:Name="FromColors" Background="{StaticResource Brush.FromColors}"/>
+  <Border x:Name="FromTheme" Background="{StaticResource Brush.FromTheme}"/>
+  <Border x:Name="Overridden" Background="{StaticResource Brush.Overridden}"/>
+  <Border x:Name="Local" Background="{StaticResource Brush.Local}"/>
+  <Border x:Name="Accent" Background="{StaticResource Brush.Accent}"/>
+  <TextBlock x:Name="Sized" Text="t" FontSize="{StaticResource Theme.FontSize}"/>
+</StackPanel>

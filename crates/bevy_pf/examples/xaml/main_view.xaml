@@ -1,0 +1,18 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="bevy_pf — external .xaml file">
+  <Window.Resources>
+    <Style TargetType="Button">
+      <Setter Property="Margin" Value="0,4"/>
+      <Setter Property="Padding" Value="16,6"/>
+    </Style>
+  </Window.Resources>
+  <StackPanel Margin="40" MaxWidth="420" HorizontalAlignment="Center">
+    <TextBlock Text="This view lives in main_view.xaml" FontSize="24" FontWeight="SemiBold"/>
+    <TextBlock Text="Edit the file and rebuild — the macro re-validates it at compile time."
+               TextWrapping="Wrap" Margin="0,8,0,16"/>
+    <Button Content="First"/>
+    <Button Content="Second"/>
+    <Button Content="Third"/>
+  </StackPanel>
+</Window>

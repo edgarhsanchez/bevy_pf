@@ -1,0 +1,211 @@
+# bevy_pf
+
+A **XAML / WPF-like UI framework for [Bevy](https://bevy.org)**. Write your UI
+in XAML — inline in Rust via the `xaml!` macro or in separate `.xaml` files —
+style it with resources, and use the familiar WPF control and panel set inside
+Bevy apps and games.
+
+```rust
+use bevy::prelude::*;
+use bevy_pf::prelude::*;
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(PfUiPlugin)
+        .add_systems(Startup, setup)
+        .run();
+}
+
+fn setup(mut commands: Commands) {
+    commands.spawn(Camera2d);
+    commands.spawn_xaml(xaml!(
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                       Margin="24" Spacing="8">
+             <TextBlock Text="Hello from XAML" FontSize="28" FontWeight="Bold"/>
+             <Button x:Name="Go" Content="Click me" Width="140"/>
+           </StackPanel>"#
+    ));
+}
+```
+
+Malformed XAML is a **compile error** — both macros parse and validate the
+markup at build time. `.xaml` files are tracked by the compiler, so editing
+them triggers rebuilds.
+
+## Crates
+
+| Crate | Purpose |
+|---|---|
+| `bevy_pf` | The Bevy plugin: instantiation, panels, controls, styling runtime |
+| `bevy_pf_xaml` | Bevy-free XAML parser + WPF value types/type converters |
+| `bevy_pf_macros` | `xaml!` and `include_xaml!` proc macros |
+
+## Status
+
+Early but real: targeting **Bevy 0.19** and **Rust 1.95+** (edition 2024).
+
+Working today:
+
+- **XAML parser** with WPF semantics: namespaces (`xmlns`, `xmlns:x`,
+  Avalonia's namespace as an alias), property-element syntax
+  (`<Button.Content>`), attached properties (`Grid.Row="1"`), markup
+  extensions (`{StaticResource}`, `{DynamicResource}`, `{x:Null}`, nested
+  extensions, `{}` escapes), `x:Name`/`x:Key`/`x:Class`, `mc:Ignorable`
+  design-time attribute skipping, whitespace rules, UTF-8 BOM tolerance.
+- **Type converters**: all 141 named colors, `#RGB/#ARGB/#RRGGBB/#AARRGGBB`,
+  `sc#`, Thickness, CornerRadius, GridLength (`Auto`/`*`/`2.5*`/px), Point,
+  Size, Rect, Duration/TimeSpan, FontWeight (names + numeric), and the common
+  enums — all case-insensitive like WPF.
+- **Panels**: `Grid` (star/auto/pixel tracks, row/column spans, WPF overlap
+  semantics, out-of-range clamping, `.NET 10`/Avalonia `RowDefinitions="Auto,*"`
+  shorthand), `StackPanel` (+WinUI `Spacing`), `WrapPanel`, `Canvas`
+  (absolute positioning), `DockPanel` (approximation, faithful layout planned),
+  `Border`, `ScrollViewer` (basic).
+- **Controls**: `TextBlock` (inline text flattening, font properties,
+  wrapping/alignment), `Button` (hover/pressed chrome via `Interaction`),
+  `Label`, `Image`, `Window`/`Page`/`UserControl` roots (Window `Title` is
+  applied to the primary window).
+- **Resources & styling**: lexically scoped `ResourceDictionary`,
+  `StaticResource`, implicit styles by `TargetType`, named styles, `BasedOn`
+  inheritance, `Setter`s (including attached like `DockPanel.Dock`),
+  `x:Double`/`x:String` primitives, solid + linear/radial gradient brushes.
+- **WPF property inheritance** for font properties (`FontSize`, `Foreground`,
+  `FontFamily`, `FontWeight`, `FontStyle`) down the element tree.
+- **Element identity + queries**: every XAML identity becomes a plain ECS
+  component — `x:Name`/`Name` → `PfName` (plus the `XamlNames` namescope map
+  on the scene root, WPF `FindName`-style), `x:Uid` → `PfUid`,
+  `AutomationProperties.AutomationId` → `PfAutomationId`, and the element's
+  XAML type → `PfElementKind` — so ordinary Bevy queries always work, and any
+  system can locate any element. The `PfQuery` `SystemParam` bundles the
+  lookups (`by_name`, `by_uid`, `by_automation_id`, `by_kind`, `named_in`,
+  `scope_root`, `first_text_in`); to *change* what you find, mutate components
+  directly (e.g. `PfProgress.value`, `Text`) or call
+  `bevy_pf::provider::set_local` to set store-managed properties at the same
+  precedence tier as a XAML attribute. Attach observers
+  (`On<Pointer<Click>>`) to found entities as usual.
+- **Controls**: `Button`, `ToggleButton`, `CheckBox`, `RadioButton` (GroupName
+  exclusivity), `TextBox` (native Bevy `EditableText`: typing, selection,
+  clipboard, IME), `Slider`, `ProgressBar`, `Separator`,
+  `ListBox`/`ListBoxItem` (selection + hover), `ItemsControl`, `GroupBox`,
+  `Expander`, `Label`, `Image`, `ScrollViewer`, `ComboBox`,
+  `TabControl`/`TabItem`, `TreeView`/`TreeViewItem` (expansion + selection),
+  `Menu`/`MenuItem` (nested submenus) + `ContextMenu` (right-click),
+  `DataGrid` (text columns bound to a view-model), `ToolTip`, `Viewbox`.
+- **Data binding**: `{Binding Path, Mode, StringFormat}` against any
+  `#[derive(Reflect)]` view-model wrapped in a `Bindable` (the
+  `INotifyPropertyChanged` analog), `DataContext` inherited down the tree,
+  OneWay + TwoWay (TextBox text, CheckBox `IsChecked`, Slider `Value` write
+  back), reflection paths (`Player.Name`, `Items[0].Score`).
+- **Vector graphics / WPF Shapes**: `Rectangle`, `Ellipse`, `Line`,
+  `Polyline`, `Polygon`, and `Path` with the full geometry mini-language
+  (`M/L/H/V/C/S/Q/T/A/Z`, `F0/F1`, relative commands, smooth-curve
+  reflection), gradient fills/strokes, `Stretch` modes — rasterized with
+  tiny-skia at laid-out pixel size.
+- **Runtime `.xaml` assets**: `XamlView(handle)` instantiates on load and
+  rebuilds on file change (`--features hot_reload`); merged dictionaries are
+  prefetched as load dependencies, so editing a theme file reloads every view
+  using it.
+- **Resource system**: `ResourceDictionary.MergedDictionaries` with `Source=`
+  across files (all five WPF URI spellings), application-level resources,
+  and real deferred `{DynamicResource}` — theme swaps re-resolve live, and
+  keys that appear late (Fluent's pattern) apply when merged.
+- **Value-provider store + Style.Triggers**: per-property precedence using
+  WPF's verbatim `BaseValueSourceInternal` order; `Trigger`, `DataTrigger`,
+  and `MultiTrigger` evaluate at runtime (hover/pressed/checked/enabled/
+  selected + view-model comparisons) with structural revert — deactivating a
+  trigger restores the style setter, theme value, or control chrome beneath
+  it, and local values always win.
+- **Popup layer**: a top-Z overlay hosting dropdowns and tooltips, positioned
+  against anchors after layout, with light-dismiss backdrops; popup content
+  inherits DataContext/resources through logical-parent links, like WPF's
+  logical tree. `ComboBox` (static items or `ItemsSource`, `SelectedIndex`,
+  `DisplayMemberPath`) and `ToolTip` build on it.
+- **ItemsSource + DataTemplate**: bind any reflected `Vec` to
+  `ListBox`/`ItemsControl`/`ComboBox`; templates expand per item with a
+  scoped `DataContext` (`{Binding name}` inside a template reads
+  `players[i].name`, TwoWay writes back into the list element).
+
+Planned next: ControlTemplate/theme parity (the store's template tiers are
+already reserved; Fluent.Light.xaml is the acceptance gate), EventTrigger/
+Storyboard animations, VisualStateManager, granular list diffing
+(ObservableList), GPU vector backend (vello) once it reaches Bevy 0.19.
+
+## Vector graphics decision
+
+Bevy 0.19's `bevy_ui` natively renders rounded-rect chrome, per-side borders,
+box shadows, and linear/radial/conic gradients — enough for all standard
+control visuals without a custom renderer. It does **not** rasterize arbitrary
+vector paths; WPF `Shapes`/`Path` support will come from lyon tessellation
+(`bevy_prototype_lyon`/`bevy_svg` are Bevy-0.19-compatible today; `bevy_vello`
+still targets 0.18). See `docs/bevy-ui-research.md`.
+
+## Examples
+
+```sh
+cargo run -p bevy_pf --example hello_xaml       # smallest app, inline xaml!
+cargo run -p bevy_pf --example styling          # resources, implicit styles, BasedOn
+cargo run -p bevy_pf --example grid_layout      # Grid tracks/spans + named-button click handler
+cargo run -p bevy_pf --example xaml_file        # include_xaml!("....xaml")
+cargo run -p bevy_pf --example controls_gallery # the whole control set
+cargo run -p bevy_pf --example shapes           # vector shapes + path mini-language
+cargo run -p bevy_pf --example data_binding     # MVVM view-model binding, TwoWay
+cargo run -p bevy_pf --example triggers_theming # Style.Triggers + light/dark theme swap
+cargo run -p bevy_pf --example items_and_dropdowns # ItemsSource + DataTemplate + ComboBox + ToolTip
+cargo run -p bevy_pf --example app_shell        # Menu bar, TabControl, TreeView, DataGrid, ContextMenu
+cargo run -p bevy_pf --example components_showcase # every component in one app + PfQuery live updates
+cargo run -p bevy_pf --example hot_reload --features hot_reload  # live .xaml editing
+```
+
+## Performance
+
+All 42 benchmark scenes (every control, plus baselines and a composite app
+shell) render at **2,800–3,800 FPS** offscreen on an Apple M4 Pro — above the
+2,000 FPS gate — and bevy_pf's own systems cost ~10 µs/frame (~1 % of the
+frame; the rest is stock Bevy). Two shipping knobs:
+`bevy_pf::perf::tune_schedules_for_gui` (single-threaded schedule executors —
+sub-millisecond GUI frames are dominated by dispatch overhead) and
+`WinitSettings::desktop_app()` reactive rendering for native-toolkit idle CPU.
+Methodology, per-control tables, Tracy workflow, and the NoesisGUI/WPF
+comparison (including honest caveats): [docs/performance.md](docs/performance.md).
+Reproduce with `--example perf_bench`.
+
+## Compatibility testing
+
+`tests/corpus/` contains verbatim open-source XAML from
+[microsoft/WPF-Samples](https://github.com/microsoft/WPF-Samples) and
+[AvaloniaUI/Avalonia.Samples](https://github.com/AvaloniaUI/Avalonia.Samples)
+(both MIT). Every corpus file must parse, and every WPF page must instantiate
+headlessly with unsupported features degrading to warnings — never errors.
+The corpus grows as features land.
+
+### External (local-only) oracles
+
+Proprietary XAML corpora — e.g. the NoesisGUI SDK's 172 samples and themes —
+can be swept locally without copying anything into the repo:
+
+```sh
+BEVY_PF_EXTERNAL_XAML_DIRS=/path/to/sdk \
+  cargo test -p bevy_pf_xaml --test external_corpus -- --ignored --nocapture
+BEVY_PF_EXTERNAL_XAML_DIRS=/path/to/sdk \
+  cargo test -p bevy_pf --test external_instantiate -- --ignored --nocapture
+```
+
+The parse sweep asserts every file parses — NoesisGUI: 172/172; dotnet/wpf:
+all 168 well-formed files (33 build-time preprocessor fragments are excluded
+as non-XML, one type-driven scanner DRT is skipped). The instantiation sweep
+prints a warning histogram that ranks missing features by real-world usage
+and asserts the warnings-never-errors invariant.
+
+Related docs: `docs/roadmap-from-noesis-analysis.md` (feature roadmap) and
+`docs/wpf-conformance-notes.md` (source-level conformance audit against
+dotnet/wpf: verified-conformant behaviors, known deviations, and the
+template-system design decisions settled by the reference implementation —
+including the exact `BaseValueSourceInternal` precedence order and PART_
+contract table). `tests/corpus/wpf-upstream/` carries MIT-licensed files
+harvested from dotnet/wpf itself, including .NET 9 Fluent theme dictionaries.
+
+## License
+
+MIT OR Apache-2.0.

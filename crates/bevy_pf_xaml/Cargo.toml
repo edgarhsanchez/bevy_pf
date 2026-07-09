@@ -1,0 +1,13 @@
+[package]
+name = "bevy_pf_xaml"
+description = "XAML parser and core value types for bevy_pf. No Bevy dependency; usable from proc macros and at runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+roxmltree = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,20 @@
+[package]
+name = "bevy_pf"
+description = "A XAML / WPF-like UI framework for Bevy: XAML in macros or files, styling with resources, and the common WPF control set."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# Watch asset files and re-instantiate XamlView trees on change.
+hot_reload = ["bevy/file_watcher"]
+
+[dependencies]
+bevy = { workspace = true }
+bevy_pf_xaml = { workspace = true }
+bevy_pf_macros = { workspace = true }
+thiserror = { workspace = true }
+tiny-skia = { workspace = true }

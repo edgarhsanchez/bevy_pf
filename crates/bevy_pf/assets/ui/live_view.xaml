@@ -1,0 +1,21 @@
+<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            Margin="40" MaxWidth="480" HorizontalAlignment="Center">
+  <StackPanel.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="theme.xaml"/>
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </StackPanel.Resources>
+  <TextBlock Text="Live XAML" FontSize="{StaticResource Font.Title}" FontWeight="Bold"
+             Foreground="{DynamicResource Brush.Accent}"/>
+  <TextBlock Text="This view merges ui/theme.xaml — edit either file and save."
+             TextWrapping="Wrap" Margin="0,8"/>
+  <Border Background="{StaticResource Brush.Card}" CornerRadius="8" Padding="12">
+    <StackPanel Spacing="6">
+      <CheckBox Content="Merged dictionaries re-resolve on save" IsChecked="True"/>
+      <ProgressBar Minimum="0" Maximum="100" Value="80"/>
+    </StackPanel>
+  </Border>
+</StackPanel>

@@ -1,0 +1,10 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="../colors.xaml"/>
+  </ResourceDictionary.MergedDictionaries>
+  <!-- Own entry beats the merged Brush.Overridden (WPF rule). -->
+  <SolidColorBrush x:Key="Brush.Overridden" Color="Green"/>
+  <SolidColorBrush x:Key="Brush.FromTheme" Color="Gold"/>
+  <x:Double x:Key="Theme.FontSize">21</x:Double>
+</ResourceDictionary>

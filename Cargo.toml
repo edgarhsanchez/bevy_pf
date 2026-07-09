@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/bevy_pf_xaml",
+    "crates/bevy_pf_macros",
+    "crates/bevy_pf",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bevy_pf/bevy_pf"
+authors = ["bevy_pf contributors"]
+
+[workspace.dependencies]
+bevy_pf_xaml = { path = "crates/bevy_pf_xaml", version = "0.1.0" }
+bevy_pf_macros = { path = "crates/bevy_pf_macros", version = "0.1.0" }
+bevy_pf = { path = "crates/bevy_pf", version = "0.1.0" }
+
+bevy = { version = "0.19", default-features = true, features = ["bevy_ui_widgets"] }
+roxmltree = "0.21"
+tiny-skia = "0.12"
+thiserror = "2.0"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
