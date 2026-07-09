@@ -1215,6 +1215,7 @@ dependencies = [
  "bevy_pf_xaml",
  "thiserror 2.0.18",
  "tiny-skia 0.12.0",
+ "web-sys",
 ]
 
 [[package]]

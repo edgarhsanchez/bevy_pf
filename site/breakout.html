@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bevy_pf — Breakout, XAML all the way down</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="demo-page">
+  <nav class="demo-nav">
+    <a href="index.html">&larr; bevy_pf</a>
+    <a href="showcase.html">Controls playground</a>
+    <span class="spacer"></span>
+    <a class="btn sponsor" href="https://github.com/sponsors/edgarhsanchez" target="_blank" rel="noopener">&#10084; Sponsor</a>
+  </nav>
+  <main>
+    <div class="canvas-holder">
+      <canvas id="bevy-canvas"></canvas>
+      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading Breakout&hellip;</span></div>
+    </div>
+    <p class="note">Mouse or &larr;/&rarr; to move &middot; Space launches &middot; P pauses. The title screen, pause menu, HUD bindings, paddle, ball, and all 40 bricks are XAML — game systems only write coordinates and scores.</p>
+  </main>
+  <script type="module">
+    import { boot } from './loader.js';
+    boot('breakout');
+  </script>
+</body>
+</html>

@@ -3,3 +3,6 @@
 .DS_Store
 .claude/settings.local.json
 *.tracy
+site/wasm/
+site/assets/
+/target-wasm

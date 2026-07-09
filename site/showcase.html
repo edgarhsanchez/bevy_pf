@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bevy_pf — controls playground</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="demo-page">
+  <nav class="demo-nav">
+    <a href="index.html">&larr; bevy_pf</a>
+    <a href="breakout.html">Breakout</a>
+    <span class="spacer"></span>
+    <a class="btn sponsor" href="https://github.com/sponsors/edgarhsanchez" target="_blank" rel="noopener">&#10084; Sponsor</a>
+  </nav>
+  <main>
+    <div class="canvas-holder">
+      <canvas id="bevy-canvas"></canvas>
+      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the controls playground&hellip;</span></div>
+    </div>
+    <p class="note">Every widget here — menus, tabs, tree, data grid, the animated swatch — is XAML instantiated into Bevy ECS entities. The clock, progress bar, and swatch are driven by plain Bevy systems locating elements by <code>x:Uid</code>, <code>AutomationId</code>, and <code>x:Name</code>.</p>
+  </main>
+  <script type="module">
+    import { boot } from './loader.js';
+    boot('showcase');
+  </script>
+</body>
+</html>

@@ -32,3 +32,11 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# Web bundles: size over compile time. Used by site/build-wasm.sh.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
