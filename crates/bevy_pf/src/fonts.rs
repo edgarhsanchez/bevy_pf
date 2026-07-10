@@ -63,7 +63,8 @@ pub fn resolve_family(family: &str) -> FontSource {
         // Common WPF/Windows UI families: map to the embedded family so the
         // same markup looks right on macOS, Linux, and the web.
         "segoe ui" | "arial" | "helvetica" | "helvetica neue" | "tahoma" | "verdana"
-        | "calibri" | "global user interface" | "sans-serif" | "sans serif" => default_font(),
+        | "calibri" | "trebuchet ms" | "global user interface" | "sans-serif"
+        | "sans serif" => default_font(),
         "consolas" | "courier new" | "courier" | "cascadia code" | "cascadia mono"
         | "lucida console" | "monospace" | "global monospace" => FontSource::Monospace,
         "times new roman" | "georgia" | "cambria" | "serif" | "global serif" => {

@@ -1895,6 +1895,15 @@ impl<'w> Ctx<'w> {
             "ResizeDirection" | "ResizeBehavior" if kind == ElemKind::GridSplitter => {}
             "Source" | "NavigationUIVisibility" | "JournalOwnership"
                 if kind == ElemKind::Frame => {}
+            // WPF DataGrid knobs that don't apply here: columns are never
+            // auto-generated, headers always show, sizing is fixed. Accepted
+            // silently so verbatim WPF markup instantiates clean.
+            "AutoGenerateColumns" | "HeadersVisibility" | "CanUserResizeColumns"
+            | "CanUserResizeRows" | "CanUserSortColumns" | "CanUserAddRows"
+            | "CanUserDeleteRows" | "CanUserReorderColumns" | "IsReadOnly"
+            | "ColumnHeaderStyle" | "GridLinesVisibility" | "SelectionMode"
+            | "SelectionUnit"
+                if kind == ElemKind::DataGrid => {}
             "MaxLength" => self.pending.max_length = Some(value.to_f32()? as usize),
             "AcceptsReturn" => self.pending.accepts_return = value.to_bool()?,
             "Rows" if kind == ElemKind::UniformGrid => {
