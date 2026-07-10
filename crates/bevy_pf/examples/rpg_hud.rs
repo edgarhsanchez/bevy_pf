@@ -154,7 +154,7 @@ fn scene() -> String {
                         <TextBlock x:Name="Buff{i}" Text="" Foreground="White" FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
                       </Grid>
                     </Border>"##,
-                glyph = ["+", "*", "&"][i],
+                glyph = ["+", "*", "~"][i],
             )
         })
         .collect();
