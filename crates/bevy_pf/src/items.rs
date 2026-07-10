@@ -245,6 +245,7 @@ pub(crate) fn spawn_runtime_text(world: &mut World, text: &str) -> Entity {
             bevy::ui::widget::Text::new(text),
             bevy::text::TextFont {
                 font_size: bevy::text::FontSize::Px(12.0),
+                font: crate::fonts::default_font(),
                 ..Default::default()
             },
             bevy::text::TextColor(Color::BLACK),

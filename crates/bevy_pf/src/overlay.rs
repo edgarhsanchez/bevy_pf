@@ -223,6 +223,7 @@ fn spawn_tooltip_popup(world: &mut World, owner: Entity, text: &str) -> Entity {
             bevy::ui::widget::Text::new(text),
             bevy::text::TextFont {
                 font_size: bevy::text::FontSize::Px(12.0),
+                font: crate::fonts::default_font(),
                 ..Default::default()
             },
             bevy::text::TextColor(Color::WHITE),

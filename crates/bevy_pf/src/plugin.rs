@@ -23,6 +23,7 @@ pub struct PfUiPlugin;
 
 impl Plugin for PfUiPlugin {
     fn build(&self, app: &mut App) {
+        crate::fonts::register_builtin_fonts(app);
         app.add_message::<crate::dialog::PfDialogResult>();
         app.add_message::<crate::navigation::PfNavigated>();
         app.init_resource::<crate::navigation::PfPages>();

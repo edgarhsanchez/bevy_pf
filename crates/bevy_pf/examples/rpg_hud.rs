@@ -139,7 +139,7 @@ fn scene() -> String {
                         <TextBlock Text="{key}" Foreground="#FFD9C07A" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,4,0"/>
                       </Grid>
                     </Border>"##,
-                glyph = ["⚔", "🛡", "🔥", "❄", "☠", "✨", "🧪", "🐎"][i],
+                glyph = ["A", "S", "D", "F", "G", "H", "J", "K"][i],
                 key = i + 1,
             )
         })
@@ -154,7 +154,7 @@ fn scene() -> String {
                         <TextBlock x:Name="Buff{i}" Text="" Foreground="White" FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
                       </Grid>
                     </Border>"##,
-                glyph = ["💪", "🌀", "🍖"][i],
+                glyph = ["+", "*", "&"][i],
             )
         })
         .collect();
@@ -168,7 +168,7 @@ fn scene() -> String {
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="16">
                 <Border Width="64" Height="64" CornerRadius="32" Background="#FF3A2E1E" BorderBrush="{GOLD}" BorderThickness="2">
                   <Grid>
-                    <TextBlock Text="🧙" FontSize="28" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Text="T" FontWeight="Bold" FontSize="28" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     <Border Background="{GOLD}" CornerRadius="8" Width="22" Height="16" HorizontalAlignment="Right" VerticalAlignment="Bottom">
                       <TextBlock Text="{{Binding level}}" Foreground="#FF14100A" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -186,7 +186,7 @@ fn scene() -> String {
                 <Border Width="120" Height="120" CornerRadius="60" Background="#C0202A20" BorderBrush="{GOLD}" BorderThickness="2" HorizontalAlignment="Right">
                   <Grid>
                     <TextBlock Text="N" Foreground="#FFD9C07A" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,4,0,0"/>
-                    <TextBlock Text="✦" Foreground="#FF7FD4FF" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Text="@" Foreground="#FF7FD4FF" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                   </Grid>
                 </Border>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">{buffs}</StackPanel>

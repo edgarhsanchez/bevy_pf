@@ -2614,15 +2614,19 @@ impl<'w> Ctx<'w> {
     fn apply_text_font(&mut self, entity: Entity) {
         use bevy::text::{FontSource, TextFont};
         let inherited = &self.inherited;
-        let mut font = TextFont {
+        let _ = FontSource::Handle(Default::default()); // keep the import used
+        let font = TextFont {
             font_size: convert::font_size(inherited.font_size),
             weight: convert::font_weight(inherited.font_weight),
             style: convert::font_style(inherited.font_style),
+            // No explicit family -> the embedded UI family, so weight/style
+            // resolve on every platform (the web has no system fonts).
+            font: match &inherited.font_family {
+                Some(family) => crate::fonts::resolve_family(family),
+                None => crate::fonts::default_font(),
+            },
             ..Default::default()
         };
-        if let Some(family) = &inherited.font_family {
-            font.font = FontSource::Family(family.clone().into());
-        }
         self.world.entity_mut(entity).insert(font);
     }
 
@@ -3933,6 +3937,7 @@ impl<'w> Ctx<'w> {
                         bevy::ui::widget::Text::new(glyph),
                         bevy::text::TextFont {
                             font_size: bevy::text::FontSize::Px(13.0),
+                            font: crate::fonts::default_font(),
                             ..Default::default()
                         },
                         bevy::text::TextColor(Color::srgb_u8(0xAF, 0xAF, 0xAF)),
