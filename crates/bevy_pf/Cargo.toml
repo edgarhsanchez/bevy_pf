@@ -21,3 +21,4 @@ tiny-skia = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window"] }
+js-sys = "0.3"

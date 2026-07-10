@@ -4810,18 +4810,27 @@ pub fn set_text(world: &mut World, entity: Entity, text: String) {
     }
 }
 
-/// Today's (year, month) from the system clock (civil-from-days algorithm,
-/// UTC). Falls back to 2026-01 if the clock is unavailable.
+/// Today's (year, month). `std::time` does not exist on wasm32 targets
+/// (`SystemTime::now()` aborts), so the browser clock is used there.
 fn today_year_month() -> (i32, u32) {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    if secs == 0 {
-        return (2026, 1);
+    #[cfg(target_arch = "wasm32")]
+    {
+        let date = js_sys::Date::new_0();
+        // JS months are 0-based.
+        (date.get_full_year() as i32, date.get_month() + 1)
     }
-    let (y, m, _) = civil_from_days(secs.div_euclid(86_400));
-    (y, m)
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if secs == 0 {
+            return (2026, 1);
+        }
+        let (y, m, _) = civil_from_days(secs.div_euclid(86_400));
+        (y, m)
+    }
 }
 
 /// Days-since-epoch -> (year, month, day). Howard Hinnant's algorithm.

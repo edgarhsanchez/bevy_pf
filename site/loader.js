@@ -25,8 +25,10 @@ export async function boot(app) {
     }
     console.error(e);
     if (msg) {
-      msg.textContent =
-        'Could not start the demo — your browser may lack WebGPU/WebGL2. ' + e;
+      const text = String(e);
+      msg.textContent = /panic|unreachable/i.test(text)
+        ? 'The demo hit a runtime error — details are in the browser console.'
+        : 'Could not start the demo — your browser may lack WebGPU/WebGL2. ' + text;
     }
   }
 }
