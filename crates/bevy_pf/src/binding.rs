@@ -300,10 +300,50 @@ impl PfBinding {
     fn format(&self, value: &BoundValue) -> String {
         let s = value.to_display();
         match &self.string_format {
-            Some(fmt) if fmt.contains("{0}") => fmt.replace("{0}", &s),
+            Some(fmt) if fmt.contains("{0") => apply_string_format(fmt, &s),
             Some(fmt) => format!("{fmt}{s}"),
             None => s,
         }
+    }
+}
+
+
+/// Expand `{0}` / `{0:spec}` placeholders with .NET's common numeric format
+/// specifiers (`C` currency, `F`/`N` fixed decimals, `P` percent). Unknown
+/// specs fall back to the raw value.
+fn apply_string_format(fmt: &str, raw: &str) -> String {
+    let mut out = String::with_capacity(fmt.len() + raw.len());
+    let mut rest = fmt;
+    while let Some(start) = rest.find("{0") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            out.push_str(&rest[start..]);
+            rest = "";
+            break;
+        };
+        let spec = &after[..end];
+        out.push_str(&format_with_spec(spec.strip_prefix(':').unwrap_or(""), raw));
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn format_with_spec(spec: &str, raw: &str) -> String {
+    if spec.is_empty() {
+        return raw.to_string();
+    }
+    let Ok(number) = raw.trim().parse::<f64>() else {
+        return raw.to_string();
+    };
+    let (kind, digits) = spec.split_at(1);
+    let digits: usize = digits.parse().unwrap_or(2);
+    match kind {
+        "c" | "C" => format!("${number:.digits$}", digits = digits),
+        "f" | "F" | "n" | "N" => format!("{number:.digits$}", digits = digits),
+        "p" | "P" => format!("{:.digits$}%", number * 100.0, digits = digits),
+        _ => raw.to_string(),
     }
 }
 
@@ -435,6 +475,10 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 }
                 match &b.source {
                     PfBindingSource::DataContext => {
+                        // WPF OneTime: applied once, then frozen forever.
+                        if b.mode == v::BindingMode::OneTime && b.seen_version != 0 {
+                            continue;
+                        }
                         if let Some(ctx) = &ctx {
                             if b.seen_version != ctx.version() {
                                 updates.push((i, b.clone()));
@@ -473,8 +517,14 @@ pub(crate) fn apply_bindings(world: &mut World) {
             }
             if let Some(version) = mark_version {
                 // Mark seen (also for misses, so we do not spam every frame).
+                // OneTime bindings freeze on a nonzero version sentinel.
+                let seen = if binding.mode == v::BindingMode::OneTime {
+                    version.max(1)
+                } else {
+                    version
+                };
                 if let Some(mut bindings) = world.get_mut::<PfBindings>(entity) {
-                    bindings.0[index].seen_version = version;
+                    bindings.0[index].seen_version = seen;
                 }
             }
         }

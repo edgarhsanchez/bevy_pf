@@ -8,6 +8,14 @@ Ported examples keep the original XAML with documented, minimal deviations.
 | Sample | bevy_pf example | Deviations |
 |---|---|---|
 | Getting Started / WalkthroughFirstWPFApp (ExpenseIt) | `--example wpf_expense_it` | NavigationWindow->Frame, XmlDataProvider->reflected VM, high-contrast triggers + ImageBrush dropped |
+| Getting Started / HelloWorld | `--example wpf_samples_gallery` | verbatim (Icon dropped) |
+| Getting Started / SimpleLayout | `--example wpf_samples_gallery` | verbatim |
+| Getting Started / ComplexLayout | `--example wpf_samples_gallery` | verbatim |
+| Getting Started / DynamicLayout | `--example wpf_samples_gallery` | Click code-behind -> observer + bound ItemsControl |
+| Getting Started / MultiPage | `--example wpf_samples_gallery` | verbatim — exercises inline `<Hyperlink>` runs in TextBlock |
+| Data Binding / SimpleBinding | `--example wpf_samples_gallery` | `local:Person` resource -> DataContext |
+| Data Binding / DirectionalBinding | `--example wpf_samples_gallery` | `local:NetIncome` -> DataContext; TargetUpdated handler -> observer |
+| Data Binding / DataBindingToStringFormat | `--example wpf_samples_gallery` | MultiBinding half out of scope; `{0:c}` currency implemented |
 
 ## Portable now (next in line)
 
@@ -57,6 +65,14 @@ Ported examples keep the original XAML with documented, minimal deviations.
 - **Graphics/Brushes** — blocked by Storyboard brush animations + Command/ControlTemplate SampleViewer (static gradient pages could be cherry-picked)
 - **Sample Applications/ExpenseIt/ExpenseItDemo** — blocked by ControlTemplate (EditBox custom control Themes/Generic.xaml), ICommand/x:Static, ValidationRules, RelativeSource
 - **Sample Applications/DataBindingDemo** — blocked by CollectionViewSource sort/filter/group + IValueConverter + ControlTemplate
+
+Gaps fixed by the batch-2 ports: inline `Hyperlink` runs inside `TextBlock`,
+`Binding Mode=OneTime` (apply-once semantics), .NET numeric format specifiers
+in `StringFormat` (`{0:c}` currency, `F`/`N`/`P`), and code-behind event
+attributes (`Click=`, `Loaded=`, `TargetUpdated=`, ...) accepted silently so
+verbatim markup instantiates clean. Discovered gap for a later batch:
+template expansion does not capture the page's lexical resource scope, which
+blocks keyed styles inside `DataTemplate`s (affects the DataTrigger sample).
 
 Biggest unlocks by sample count: `ControlTemplate`, `Storyboard`,
 `IValueConverter`, `CollectionViewSource` (sort/filter/group), `RelativeSource`/`ElementName` bindings.

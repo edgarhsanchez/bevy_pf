@@ -1895,6 +1895,15 @@ impl<'w> Ctx<'w> {
             "ResizeDirection" | "ResizeBehavior" if kind == ElemKind::GridSplitter => {}
             "Source" | "NavigationUIVisibility" | "JournalOwnership"
                 if kind == ElemKind::Frame => {}
+            // Code-behind event handlers from verbatim WPF markup. There is
+            // no C# to call; interactivity is wired as Bevy observers, so
+            // these are accepted without noise.
+            "Click" | "Loaded" | "Unloaded" | "Initialized" | "TargetUpdated"
+            | "SelectionChanged" | "TextChanged" | "Checked" | "Unchecked"
+            | "ValueChanged" | "Navigating" | "Navigated" | "MouseEnter"
+            | "MouseLeave" | "MouseDown" | "MouseUp" | "KeyDown" | "KeyUp"
+            | "GotFocus" | "LostFocus" | "SizeChanged" | "DataContextChanged"
+            | "Closed" | "Opened" | "ContextMenuOpening" | "MouseDoubleClick" => {}
             // WPF DataGrid knobs that don't apply here: columns are never
             // auto-generated, headers always show, sizing is fixed. Accepted
             // silently so verbatim WPF markup instantiates clean.
@@ -2214,6 +2223,43 @@ impl<'w> Ctx<'w> {
     ) -> Result<(), PfError> {
         match kind {
             ElemKind::TextBlock => {
+                // WPF inlines with anchors: flow text runs and Hyperlinks as
+                // real children instead of flattening the link away.
+                let has_inline_links = node.attribute("Text").is_none()
+                    && node.children.iter().any(|c| {
+                        matches!(c, XamlChild::Element(el) if el.name == "Hyperlink")
+                    });
+                if has_inline_links {
+                    if let Some(mut n) = self.world.get_mut::<Node>(entity) {
+                        n.display = Display::Flex;
+                        n.flex_wrap = FlexWrap::Wrap;
+                        n.align_items = AlignItems::Center;
+                    }
+                    let children: Vec<XamlChild> = node.children.clone();
+                    let mut spawned = Vec::new();
+                    for child in &children {
+                        match child {
+                            XamlChild::Text(t) => {
+                                let t = t.trim();
+                                if !t.is_empty() {
+                                    spawned.push(self.spawn_text_child(t.to_string()));
+                                }
+                            }
+                            XamlChild::Element(el) if el.name == "Hyperlink" => {
+                                spawned
+                                    .push(self.spawn_element(el, ParentKind::FlexRow, None)?);
+                            }
+                            XamlChild::Element(el) => {
+                                let flat = collect_inline_text(el);
+                                if !flat.trim().is_empty() {
+                                    spawned.push(self.spawn_text_child(flat));
+                                }
+                            }
+                        }
+                    }
+                    self.add_children(entity, &spawned);
+                    return Ok(());
+                }
                 let text = match node.attribute("Text") {
                     Some(value) => {
                         let value = value.clone();

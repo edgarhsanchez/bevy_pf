@@ -177,6 +177,7 @@ cargo run -p bevy_pf --example components_showcase # every component in one app 
 cargo run -p bevy_pf --example theme_gallery    # 12 built-in themes, switchable live
 cargo run -p bevy_pf --example navigation       # Frame/Page journal navigation, WPF-style
 cargo run -p bevy_pf --example wpf_expense_it   # the official WPF ExpenseIt walkthrough, ported
+cargo run -p bevy_pf --example wpf_samples_gallery # eight more official WPF samples in one gallery
 cargo run -p bevy_pf --example rpg_hud          # RPG HUD kit: vitals, action bar, quests, loot toasts
 cargo run -p bevy_pf --example breakout         # the Breakout game, XAML all the way down
 cargo run -p bevy_pf --example hot_reload --features hot_reload  # live .xaml editing
