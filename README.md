@@ -186,7 +186,8 @@ cargo run -p bevy_pf --example hot_reload --features hot_reload  # live .xaml ed
 ## Performance
 
 All 42 benchmark scenes (every control, plus baselines and a composite app
-shell) render at **2,800–3,800 FPS** offscreen on an Apple M4 Pro — above the
+shell) render at **3,000–4,100 FPS** offscreen on an Apple M4 Pro with the
+production release profile (fat LTO, single codegen unit) — above the
 2,000 FPS gate — and bevy_pf's own systems cost ~10 µs/frame (~1 % of the
 frame; the rest is stock Bevy). Two shipping knobs:
 `bevy_pf::perf::tune_schedules_for_gui` (single-threaded schedule executors —

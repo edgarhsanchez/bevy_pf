@@ -1,7 +1,12 @@
 # Performance
 
-Benchmarked 2026-07-09 on an Apple M4 Pro (14 CPU cores, Metal 4, 64 GB),
-macOS 26.5.2, Rust 1.96.1, Bevy 0.19, `--release`. Harness:
+Benchmarked 2026-07-10 on an Apple M4 Pro (14 CPU cores, Metal 4, 64 GB),
+macOS 26.5.2, Rust 1.96.1, Bevy 0.19, on the **production release profile**
+(`lto = "fat"`, `codegen-units = 1` — whole-program optimization; worth
++3.7% to +11.8% mean FPS, +7.3% on average, over cargo's stock release).
+The wasm profile intentionally stays size-optimized: on the web, download
+time dominates perceived performance and browser presents are vsync-capped
+regardless. Harness:
 [`examples/perf_bench.rs`](../crates/bevy_pf/examples/perf_bench.rs) — one
 scene per control at 1280x720, 2 s warm-up, 5 s of raw frame-delta sampling.
 
@@ -44,9 +49,52 @@ variant is safe everywhere.
 
 ## Per-control results (offscreen, `BENCH_ST=1`)
 
-Gate: mean FPS > 2,000. **42/42 scenes pass.**
+Gate: mean FPS > 2,000. **42/42 scenes pass** (slowest: composite_app_shell at 2,961).
 
-| Scene | Mean FPS | p50 FPS | p99-low FPS | Gate >2000 | Tracy p50 FPS* | bevy_pf systems (us/frame) |
+| Scene | Mean FPS (production) | p50 FPS | p99-low FPS | vs stock release | Gate >2000 | bevy_pf systems (us/frame)* |
+|---|---|---|---|---|---|---|
+| empty | 4102 | 4232 | 2658 | +7.5% | pass | 9 |
+| bevy_ui_raw | 3557 | 3657 | 2350 | +8.9% | pass | 10 |
+| textblock | 3578 | 3686 | 2338 | +7.3% | pass | 10 |
+| label | 3604 | 3702 | 2401 | +7.1% | pass | 10 |
+| button | 3616 | 3701 | 2410 | +8.9% | pass | 10 |
+| togglebutton | 3588 | 3657 | 2380 | +7.3% | pass | 10 |
+| checkbox | 3559 | 3654 | 2379 | +7.6% | pass | 11 |
+| radiobutton | 3382 | 3458 | 2314 | +5.9% | pass | 10 |
+| textbox | 3570 | 3660 | 2369 | +8.2% | pass | 10 |
+| slider | 3519 | 3580 | 2350 | +6.3% | pass | 10 |
+| progressbar | 3582 | 3678 | 2380 | +5.9% | pass | 9 |
+| separator | 3562 | 3640 | 2373 | +6.8% | pass | 10 |
+| image | 3818 | 3935 | 2532 | +7.5% | pass | 10 |
+| border | 3634 | 3738 | 2395 | +6.6% | pass | 10 |
+| groupbox | 3548 | 3645 | 2224 | +5.6% | pass | 10 |
+| expander | 3440 | 3496 | 2304 | +5.6% | pass | 10 |
+| scrollviewer | 3234 | 3295 | 2203 | +10.4% | pass | 10 |
+| viewbox | 3621 | 3727 | 2372 | +7.9% | pass | 9 |
+| tooltip | 3570 | 3657 | 2369 | +7.0% | pass | 11 |
+| stackpanel | 3295 | 3356 | 2195 | +6.2% | pass | 10 |
+| grid | 3135 | 3175 | 2129 | +5.0% | pass | 10 |
+| wrappanel | 3475 | 3539 | 2350 | +6.7% | pass | 10 |
+| dockpanel | 3442 | 3506 | 2348 | +6.4% | pass | 10 |
+| canvas | 3468 | 3514 | 2330 | +9.5% | pass | 10 |
+| uniformgrid | 3480 | 3549 | 2346 | +7.1% | pass | 10 |
+| listbox | 3072 | 3112 | 2110 | +7.2% | pass | 10 |
+| listbox_items | 2976 | 3021 | 2053 | +3.7% | pass | 13 |
+| itemscontrol_items | 3113 | 3175 | 2163 | +4.6% | pass | 12 |
+| combobox | 3209 | 3257 | 2201 | +6.7% | pass | 10 |
+| combobox_open | 3133 | 3173 | 2129 | +7.3% | pass | 10 |
+| tabcontrol | 3258 | 3295 | 2257 | +9.5% | pass | 10 |
+| treeview | 3105 | 3149 | 2100 | +7.0% | pass | 11 |
+| menu | 3248 | 3329 | 2163 | +6.5% | pass | 11 |
+| menu_open | 3212 | 3292 | 2095 | +11.8% | pass | 11 |
+| contextmenu | 3345 | 3385 | 2303 | +8.4% | pass | 10 |
+| contextmenu_open | 3325 | 3401 | 2296 | +7.2% | pass | 10 |
+| datagrid | 3039 | 3111 | 2071 | +7.8% | pass | 12 |
+| shapes_basic | 3467 | 3537 | 2323 | +7.3% | pass | 10 |
+| shapes_path | 3594 | 3685 | 2399 | +8.9% | pass | 11 |
+| styles_triggers | 3583 | 3666 | 2396 | +9.0% | pass | 12 |
+| dynamicresource | 3607 | 3707 | 2413 | +7.2% | pass | 11 |
+| composite_app_shell | 2961 | 3035 | 1971 | +5.2% | pass | 13 |
 
 \* Tracy column: p50 frame rate *while fully instrumented* (~1,450 zones
 recorded per frame — the instrumentation itself costs ~0.7 ms/frame, so these
@@ -72,7 +120,11 @@ both apps windowed, continuous rendering):
 
 | | NoesisGUI | bevy_pf (continuous) | bevy_pf (reactive) |
 |---|---|---|---|
-| Average CPU @ 60 Hz | **5.7 %** | 40.9 % | 9.2 % (button scene) |
+| Average CPU @ 60 Hz | **5.7 %** | 40.7 % | 9.2 % (button scene) |
+
+(Re-measured on the production profile: 40.9 % -> 40.7 % — LTO improves
+throughput, not idle dispatch; the fixed cost at 60 Hz is thread-pool
+scheduling, which inlining cannot remove.)
 
 Honest reading: Noesis's single-threaded C++ core is roughly **7x more
 CPU-efficient per frame** at trivial UI loads. Bevy's cost is architectural —
