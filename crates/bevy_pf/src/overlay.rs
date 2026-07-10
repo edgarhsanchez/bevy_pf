@@ -195,12 +195,11 @@ pub(crate) fn tooltip_system(world: &mut World) {
             if elapsed >= TOOLTIP_DELAY && active.is_none() {
                 let popup = spawn_tooltip_popup(world, owner, &text);
                 world.resource_mut::<PfActiveTooltip>().0 = Some((owner, popup));
-            } else if let Some((active_owner, popup)) = active {
-                if active_owner != owner {
+            } else if let Some((active_owner, popup)) = active
+                && active_owner != owner {
                     world.entity_mut(popup).despawn();
                     world.resource_mut::<PfActiveTooltip>().0 = None;
                 }
-            }
         }
         None => {
             state.0 = HoverState::default();

@@ -254,11 +254,10 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
             }
         }
         PropertyTarget::BorderThickness => {
-            if let Some(t) = as_thickness() {
-                if let Some(mut node) = world.get_mut::<Node>(entity) {
+            if let Some(t) = as_thickness()
+                && let Some(mut node) = world.get_mut::<Node>(entity) {
                     node.border = convert::thickness(t);
                 }
-            }
         }
         PropertyTarget::Foreground => {
             if let Some(v::PfBrush::Solid(c)) = as_brush() {
@@ -279,18 +278,16 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
             }
         }
         PropertyTarget::Margin => {
-            if let Some(t) = as_thickness() {
-                if let Some(mut node) = world.get_mut::<Node>(entity) {
+            if let Some(t) = as_thickness()
+                && let Some(mut node) = world.get_mut::<Node>(entity) {
                     node.margin = convert::thickness(t);
                 }
-            }
         }
         PropertyTarget::Padding => {
-            if let Some(t) = as_thickness() {
-                if let Some(mut node) = world.get_mut::<Node>(entity) {
+            if let Some(t) = as_thickness()
+                && let Some(mut node) = world.get_mut::<Node>(entity) {
                     node.padding = convert::thickness(t);
                 }
-            }
         }
         PropertyTarget::CornerRadius => {
             let radius = match value {
@@ -299,11 +296,10 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
                 PfValue::String(s) => s.parse().ok(),
                 _ => None,
             };
-            if let Some(r) = radius {
-                if let Some(mut node) = world.get_mut::<Node>(entity) {
+            if let Some(r) = radius
+                && let Some(mut node) = world.get_mut::<Node>(entity) {
                     node.border_radius = convert::corner_radius(r);
                 }
-            }
         }
         PropertyTarget::Width | PropertyTarget::Height => {
             let Some(px) = as_f32() else { return };

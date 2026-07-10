@@ -106,7 +106,7 @@ fn instantiate_external_corpora() {
 
     let mut ranked: Vec<(usize, String)> =
         histogram.into_iter().map(|(k, v)| (v, k)).collect();
-    ranked.sort_by(|a, b| b.0.cmp(&a.0));
+    ranked.sort_by_key(|entry| std::cmp::Reverse(entry.0));
 
     eprintln!("\n=== external instantiation sweep ===");
     eprintln!(

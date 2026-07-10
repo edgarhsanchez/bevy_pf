@@ -97,6 +97,7 @@ enum Action {
 }
 
 fn main() {
+    #[allow(unused_mut)] // the wasm cfg block below mutates it
     let mut window = Window {
         title: "bevy_pf breakout — XAML all the way down".to_string(),
         ..Default::default()
@@ -143,8 +144,7 @@ fn main() {
 /// is generated markup — still XAML through the same parser as everything.
 fn scene_xaml() -> String {
     let mut bricks = String::new();
-    for row in 0..ROWS {
-        let (color, _) = ROW_STYLE[row];
+    for (row, &(color, _)) in ROW_STYLE.iter().enumerate() {
         for col in 0..COLS {
             let x = BRICKS_LEFT + col as f32 * (BRICK_W + BRICK_GAP);
             let y = BRICKS_TOP + row as f32 * (BRICK_H + BRICK_GAP);
@@ -259,14 +259,14 @@ fn wire_ui(mut game: ResMut<Game>, ui: PfQuery, mut commands: Commands) {
     game.ball_pos = Vec2::new(W / 2.0 - BALL / 2.0, 520.0);
     game.speed = 380.0;
 
-    for row in 0..ROWS {
+    for (row, &(_, points)) in ROW_STYLE.iter().enumerate() {
         for col in 0..COLS {
             if let Some(entity) = ui.by_name(&format!("Brick_{row}_{col}")) {
                 game.bricks.push(Brick {
                     entity,
                     x: BRICKS_LEFT + col as f32 * (BRICK_W + BRICK_GAP),
                     y: BRICKS_TOP + row as f32 * (BRICK_H + BRICK_GAP),
-                    points: ROW_STYLE[row].1,
+                    points,
                     alive: true,
                 });
             }
@@ -374,11 +374,10 @@ fn keyboard(
                 *phase = Phase::Menu;
             }
         }
-        Phase::Paused => {
-            if keys.just_pressed(KeyCode::KeyP) || keys.just_pressed(KeyCode::Space) {
+        Phase::Paused
+            if (keys.just_pressed(KeyCode::KeyP) || keys.just_pressed(KeyCode::Space)) => {
                 *phase = Phase::Playing;
             }
-        }
         _ => {}
     }
 }

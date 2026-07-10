@@ -149,7 +149,7 @@ impl<'a, 'input> Ctx<'a, 'input> {
                 owner,
                 name: prop_name,
                 namespace: ns,
-                value: value,
+                value,
                 pos: apos,
             });
         }

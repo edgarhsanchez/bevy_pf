@@ -1246,13 +1246,12 @@ impl<'w> Ctx<'w> {
         // Accessibility metadata: AutomationId becomes a queryable component;
         // the other AutomationProperties.* are accepted without warnings.
         if owner == Some("AutomationProperties") {
-            if name == "AutomationId" {
-                if let XamlValue::Str(s) = value {
+            if name == "AutomationId"
+                && let XamlValue::Str(s) = value {
                     self.world
                         .entity_mut(entity)
                         .insert(crate::components::PfAutomationId(s.clone()));
                 }
-            }
             return;
         }
 
@@ -1273,7 +1272,7 @@ impl<'w> Ctx<'w> {
                     Ok(key) => {
                         self.apply_dynamic_reference(entity, kind, parent_kind, name, key)
                     }
-                    Err(e) => Err(e.into()),
+                    Err(e) => Err(e),
                 }
             }
             XamlValue::Extension(ext) => match self.resolve_extension(ext) {
@@ -2039,7 +2038,7 @@ impl<'w> Ctx<'w> {
 
             // Recognized but deliberately ignored (design-time / app-level).
             "ShowGridLines" | "SizeToContent" | "WindowStartupLocation" | "Icon"
-            | "ResizeMode" | "WindowStyle" | "WindowState" | "Loaded" | "Click"
+            | "ResizeMode" | "WindowStyle" | "WindowState"
             | "IsDefault" | "IsCancel" | "SnapsToDevicePixels" | "UseLayoutRounding"
             | "Focusable" | "IsTabStop" | "TabIndex" | "ClipToBounds" | "LastChildFill"
             | "IsReadOnly" | "IsIndeterminate" | "SmallChange" | "LargeChange"
@@ -2199,16 +2198,14 @@ impl<'w> Ctx<'w> {
             node.top = Val::Px(top);
         }
         // WPF: Left beats Right, Top beats Bottom.
-        if attached.get("Canvas", "Left").is_none() {
-            if let Some(right) = attached.parse::<f32>("Canvas", "Right") {
+        if attached.get("Canvas", "Left").is_none()
+            && let Some(right) = attached.parse::<f32>("Canvas", "Right") {
                 node.right = Val::Px(right);
             }
-        }
-        if attached.get("Canvas", "Top").is_none() {
-            if let Some(bottom) = attached.parse::<f32>("Canvas", "Bottom") {
+        if attached.get("Canvas", "Top").is_none()
+            && let Some(bottom) = attached.parse::<f32>("Canvas", "Bottom") {
                 node.bottom = Val::Px(bottom);
             }
-        }
     }
 
     // -----------------------------------------------------------------
@@ -2373,8 +2370,8 @@ impl<'w> Ctx<'w> {
                     Some(shape) => {
                         // Stretch=None shapes get their natural geometry size
                         // unless an explicit size was set.
-                        if shape.stretch == v::Stretch::None {
-                            if let Some(size) = shape.natural_size() {
+                        if shape.stretch == v::Stretch::None
+                            && let Some(size) = shape.natural_size() {
                                 let mut ui_node = self.node_mut(entity);
                                 if ui_node.width == Val::Auto {
                                     ui_node.width = Val::Px(size.x);
@@ -2383,7 +2380,6 @@ impl<'w> Ctx<'w> {
                                     ui_node.height = Val::Px(size.y);
                                 }
                             }
-                        }
                         self.world
                             .entity_mut(entity)
                             .insert((shape, crate::shapes::PfShapeRendered::default()));
@@ -2972,8 +2968,8 @@ impl<'w> Ctx<'w> {
         }
         self.add_children(entity, &items);
 
-        if let Some(idx) = pending.selected_index {
-            if let Some(&item) = items.get(idx) {
+        if let Some(idx) = pending.selected_index
+            && let Some(&item) = items.get(idx) {
                 if let Some(mut list_state) = self.world.get_mut::<PfListBox>(entity) {
                     list_state.selected = Some(item);
                 }
@@ -2981,7 +2977,6 @@ impl<'w> Ctx<'w> {
                     bg.0 = crate::plugin::LIST_SELECTED_BG;
                 }
             }
-        }
     }
 
     /// Spawn a `Header` (attribute string, binding, or property element).
@@ -3264,11 +3259,7 @@ impl<'w> Ctx<'w> {
         let tab_items: Vec<XamlNode> = node
             .child_elements()
             .filter(|c| {
-                if c.name == "TabItem" {
-                    true
-                } else {
-                    false
-                }
+                c.name == "TabItem"
             })
             .cloned()
             .collect();
@@ -3372,11 +3363,10 @@ impl<'w> Ctx<'w> {
         let saved_pending = std::mem::take(&mut self.pending);
         // Per-item attributes (IsExpanded, Header) live on the item node.
         for attr in &node.attributes {
-            if attr.name == "IsExpanded" {
-                if let XamlValue::Str(v) = &attr.value {
+            if attr.name == "IsExpanded"
+                && let XamlValue::Str(v) = &attr.value {
                     self.pending.is_checked = Some(v.trim().eq_ignore_ascii_case("true"));
                 }
-            }
         }
         let expanded = self.pending.is_checked.unwrap_or(false);
         self.pending = saved_pending;
@@ -3670,11 +3660,10 @@ impl<'w> Ctx<'w> {
         let menu_popup = popup;
         self.world.entity_mut(entity).observe(
             move |click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
-                if click.button == bevy::picking::pointer::PointerButton::Secondary {
-                    if let Ok(mut p) = popups.get_mut(menu_popup) {
+                if click.button == bevy::picking::pointer::PointerButton::Secondary
+                    && let Ok(mut p) = popups.get_mut(menu_popup) {
                         p.open = true;
                     }
-                }
             },
         );
         let owner = entity;
@@ -3932,11 +3921,10 @@ impl<'w> Ctx<'w> {
                 text.push_str(t);
             }
         }
-        if text.is_empty() {
-            if let Some(XamlValue::Str(s)) = node.attribute("Content") {
+        if text.is_empty()
+            && let Some(XamlValue::Str(s)) = node.attribute("Content") {
                 text = s.clone();
             }
-        }
         let uri = match node.attribute("NavigateUri") {
             Some(XamlValue::Str(s)) => s.clone(),
             _ => String::new(),
@@ -4736,8 +4724,8 @@ pub fn select_tab(world: &mut World, tab_control: Entity, index: usize) {
 /// Select a tree item and toggle its expansion (WPF expands on the arrow;
 /// v1 toggles on any header click).
 pub fn toggle_tree_item(world: &mut World, tree: Entity, item: Entity) {
-    if let Some(state) = world.get::<crate::components::PfTreeItem>(item).cloned() {
-        if state.has_children {
+    if let Some(state) = world.get::<crate::components::PfTreeItem>(item).cloned()
+        && state.has_children {
             let expanded = !state.expanded;
             if let Some(mut node) = world.get_mut::<Node>(state.container) {
                 node.display = if expanded { Display::Flex } else { Display::None };
@@ -4749,7 +4737,6 @@ pub fn toggle_tree_item(world: &mut World, tree: Entity, item: Entity) {
                 s.expanded = expanded;
             }
         }
-    }
     // Selection highlight on the header rows.
     let previous = world
         .get::<crate::components::PfTreeView>(tree)
@@ -4758,18 +4745,16 @@ pub fn toggle_tree_item(world: &mut World, tree: Entity, item: Entity) {
         let prev_header = world
             .get::<Children>(prev)
             .and_then(|c| c.iter().next());
-        if let Some(h) = prev_header {
-            if let Some(mut bg) = world.get_mut::<BackgroundColor>(h) {
+        if let Some(h) = prev_header
+            && let Some(mut bg) = world.get_mut::<BackgroundColor>(h) {
                 bg.0 = Color::NONE;
             }
-        }
     }
     let header = world.get::<Children>(item).and_then(|c| c.iter().next());
-    if let Some(h) = header {
-        if let Some(mut bg) = world.get_mut::<BackgroundColor>(h) {
+    if let Some(h) = header
+        && let Some(mut bg) = world.get_mut::<BackgroundColor>(h) {
             bg.0 = crate::plugin::LIST_SELECTED_BG;
         }
-    }
     if let Some(mut t) = world.get_mut::<crate::components::PfTreeView>(tree) {
         t.selected = Some(item);
     }
@@ -4801,13 +4786,11 @@ pub fn activate_menu_item(world: &mut World, item: Entity) {
 /// Open the submenu of `item` plus every ancestor submenu on its chain.
 fn open_menu_chain(world: &mut World, mut item: Entity) {
     loop {
-        if let Some(state) = world.get::<crate::components::PfMenuItem>(item).cloned() {
-            if let Some(popup) = state.submenu {
-                if let Some(mut p) = world.get_mut::<crate::overlay::PfPopup>(popup) {
+        if let Some(state) = world.get::<crate::components::PfMenuItem>(item).cloned()
+            && let Some(popup) = state.submenu
+                && let Some(mut p) = world.get_mut::<crate::overlay::PfPopup>(popup) {
                     p.open = true;
                 }
-            }
-        }
         // Walk up through popup logical parents to keep ancestors open.
         let Some(parent) = world
             .get::<ChildOf>(item)
@@ -4829,11 +4812,10 @@ pub fn close_menu_popups(world: &mut World, menu_root: Entity) {
         .map(|(e, _)| e)
         .collect();
     for popup in popups {
-        if let Some(mut p) = world.get_mut::<crate::overlay::PfPopup>(popup) {
-            if p.open {
+        if let Some(mut p) = world.get_mut::<crate::overlay::PfPopup>(popup)
+            && p.open {
                 p.open = false;
             }
-        }
     }
 }
 
@@ -4846,11 +4828,10 @@ fn close_popup_subtree(world: &mut World, popup: Entity) {
         .map(|c| c.iter().collect())
         .unwrap_or_default();
     for child in children {
-        if let Some(state) = world.get::<crate::components::PfMenuItem>(child).cloned() {
-            if let Some(sub) = state.submenu {
+        if let Some(state) = world.get::<crate::components::PfMenuItem>(child).cloned()
+            && let Some(sub) = state.submenu {
                 close_popup_subtree(world, sub);
             }
-        }
     }
 }
 
@@ -4894,6 +4875,7 @@ fn today_year_month() -> (i32, u32) {
 }
 
 /// Days-since-epoch -> (year, month, day). Howard Hinnant's algorithm.
+#[cfg(not(target_arch = "wasm32"))] // wasm reads the browser clock instead
 fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);

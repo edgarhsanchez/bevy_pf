@@ -514,6 +514,7 @@ fn main() {
             .disable::<bevy::audio::AudioPlugin>()
             .disable::<bevy::animation::AnimationPlugin>();
     }
+    #[cfg(not(target_arch = "wasm32"))] // configured out of bevy_render on wasm
     if std::env::var("BENCH_NOPIPE").is_ok() {
         plugins =
             plugins.disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>();

@@ -568,7 +568,7 @@ pub fn parse_points(s: &str) -> XamlResult<Vec<Point>> {
         .iter()
         .map(|p| parse_f32(p, "PointCollection"))
         .collect::<XamlResult<_>>()?;
-    if nums.len() % 2 != 0 {
+    if !nums.len().is_multiple_of(2) {
         return Err(XamlError::convert(
             s,
             "PointCollection",
@@ -838,24 +838,36 @@ xaml_enum!(BindingMode { OneWay, TwoWay, OneTime, OneWayToSource, Default });
 xaml_enum!(ClickMode { Release, Press, Hover });
 xaml_enum!(SelectionMode { Single, Multiple, Extended });
 
+// The enum comes out of `xaml_enum!`, which cannot attach `#[default]` to a
+// variant, so the derive suggestion does not apply.
+#[allow(clippy::derivable_impls)]
 impl Default for HorizontalAlignment {
     fn default() -> Self {
         Self::Stretch
     }
 }
 
+// The enum comes out of `xaml_enum!`, which cannot attach `#[default]` to a
+// variant, so the derive suggestion does not apply.
+#[allow(clippy::derivable_impls)]
 impl Default for VerticalAlignment {
     fn default() -> Self {
         Self::Stretch
     }
 }
 
+// The enum comes out of `xaml_enum!`, which cannot attach `#[default]` to a
+// variant, so the derive suggestion does not apply.
+#[allow(clippy::derivable_impls)]
 impl Default for Orientation {
     fn default() -> Self {
         Self::Vertical
     }
 }
 
+// The enum comes out of `xaml_enum!`, which cannot attach `#[default]` to a
+// variant, so the derive suggestion does not apply.
+#[allow(clippy::derivable_impls)]
 impl Default for Visibility {
     fn default() -> Self {
         Self::Visible

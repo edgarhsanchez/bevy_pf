@@ -45,11 +45,10 @@ impl XamlAsset {
 
 /// Collect every `ResourceDictionary Source=` reference in a document.
 fn collect_rd_sources(node: &bevy_pf_xaml::XamlNode, out: &mut Vec<String>) {
-    if node.name == "ResourceDictionary" {
-        if let Some(bevy_pf_xaml::XamlValue::Str(src)) = node.attribute("Source") {
+    if node.name == "ResourceDictionary"
+        && let Some(bevy_pf_xaml::XamlValue::Str(src)) = node.attribute("Source") {
             out.push(src.clone());
         }
-    }
     for pe in &node.property_elements {
         for el in pe.elements() {
             collect_rd_sources(el, out);

@@ -55,11 +55,10 @@ pub(crate) struct LastDynRevision(pub u64);
 pub fn resolve_dynamic(world: &World, entity: Entity, key: &ResourceKey) -> Option<PfValue> {
     let mut current = Some(entity);
     while let Some(e) = current {
-        if let Some(res) = world.get::<PfResources>(e) {
-            if let Some(v) = res.0.get(key) {
+        if let Some(res) = world.get::<PfResources>(e)
+            && let Some(v) = res.0.get(key) {
                 return Some(v.clone());
             }
-        }
         // Follow logical links first (popup content under the overlay root).
         current = world
             .get::<crate::components::PfLogicalParent>(e)

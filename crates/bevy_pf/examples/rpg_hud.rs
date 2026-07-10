@@ -116,6 +116,7 @@ fn main() {
 }
 
 fn bar(name: &str, color: &str, width: u32) -> String {
+    let vm = format!("{}_text", name.to_lowercase());
     format!(
         r##"<Border Width="{width}" Height="18" Background="#B0000000" BorderBrush="{GOLD}" BorderThickness="1" CornerRadius="3" Margin="0,3,0,0">
               <Grid>
@@ -123,7 +124,6 @@ fn bar(name: &str, color: &str, width: u32) -> String {
                 <TextBlock Text="{{Binding {vm}}}" Foreground="White" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
               </Grid>
             </Border>"##,
-        vm = format!("{}_text", name.to_lowercase()),
     )
 }
 

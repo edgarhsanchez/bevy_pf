@@ -450,7 +450,7 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
                     .iter()
                     .map(|d| (d * width).max(0.01))
                     .collect();
-                if dashes.len() % 2 != 0 {
+                if !dashes.len().is_multiple_of(2) {
                     let copy = dashes.clone();
                     dashes.extend(copy); // odd counts repeat, like WPF
                 }

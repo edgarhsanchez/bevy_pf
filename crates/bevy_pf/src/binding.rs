@@ -479,11 +479,10 @@ pub(crate) fn apply_bindings(world: &mut World) {
                         if b.mode == v::BindingMode::OneTime && b.seen_version != 0 {
                             continue;
                         }
-                        if let Some(ctx) = &ctx {
-                            if b.seen_version != ctx.version() {
+                        if let Some(ctx) = &ctx
+                            && b.seen_version != ctx.version() {
                                 updates.push((i, b.clone()));
                             }
-                        }
                     }
                     // Element sources have no version counter; re-evaluate
                     // every frame (applies are no-ops when values match).
@@ -536,19 +535,17 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
     match binding.target {
         BindingTarget::Text => {
             let text = binding.format(value);
-            if let Some(mut t) = world.get_mut::<Text>(entity) {
-                if t.0 != text {
+            if let Some(mut t) = world.get_mut::<Text>(entity)
+                && t.0 != text {
                     t.0 = text;
                 }
-            }
         }
         BindingTarget::EditableText => {
             let text = binding.format(value);
-            if let Some(mut et) = world.get_mut::<bevy::text::EditableText>(entity) {
-                if et.editor().text() != text.as_str() {
+            if let Some(mut et) = world.get_mut::<bevy::text::EditableText>(entity)
+                && et.editor().text() != text.as_str() {
                     et.editor.set_text(&text);
                 }
-            }
         }
         BindingTarget::IsChecked => {
             let Some(b) = value.as_bool() else { return };
@@ -572,11 +569,10 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
         }
         BindingTarget::ProgressValue => {
             let Some(n) = value.as_f64() else { return };
-            if let Some(mut p) = world.get_mut::<crate::components::PfProgress>(entity) {
-                if p.value != n as f32 {
+            if let Some(mut p) = world.get_mut::<crate::components::PfProgress>(entity)
+                && p.value != n as f32 {
                     p.value = n as f32;
                 }
-            }
         }
         BindingTarget::Visibility => {
             let vis = match value {
@@ -679,11 +675,10 @@ pub(crate) fn checked_write_back(
             {
                 continue;
             }
-            if let Some(ctx) = find_context_via_queries(entity, &parents, &contexts) {
-                if ctx.read_path(&binding.path).and_then(|b| b.as_bool()) != Some(value) {
+            if let Some(ctx) = find_context_via_queries(entity, &parents, &contexts)
+                && ctx.read_path(&binding.path).and_then(|b| b.as_bool()) != Some(value) {
                     ctx.write_path(&binding.path, &BoundValue::Bool(value));
                 }
-            }
         }
     };
     for entity in &added {

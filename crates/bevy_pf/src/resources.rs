@@ -472,11 +472,10 @@ pub fn parse_geometry_element(
         }
         "GeometryGroup" => {
             let mut merged = bevy_pf_xaml::geometry::PathData::default();
-            if let Some(XamlValue::Str(rule)) = node.attribute("FillRule") {
-                if rule.eq_ignore_ascii_case("nonzero") {
+            if let Some(XamlValue::Str(rule)) = node.attribute("FillRule")
+                && rule.eq_ignore_ascii_case("nonzero") {
                     merged.fill_rule = bevy_pf_xaml::geometry::FillRule::NonZero;
                 }
-            }
             let children_pe = node
                 .property_element("Children")
                 .map(|p| p.elements().collect::<Vec<_>>());
@@ -509,11 +508,10 @@ fn parse_structured_path(
     use bevy_pf_xaml::geometry::{PathData, PathFigure, PathSegment};
 
     let mut data = PathData::default();
-    if let Some(XamlValue::Str(rule)) = node.attribute("FillRule") {
-        if rule.eq_ignore_ascii_case("nonzero") {
+    if let Some(XamlValue::Str(rule)) = node.attribute("FillRule")
+        && rule.eq_ignore_ascii_case("nonzero") {
             data.fill_rule = bevy_pf_xaml::geometry::FillRule::NonZero;
         }
-    }
 
     let figures_pe = node
         .property_element("Figures")
@@ -708,8 +706,8 @@ pub fn parse_style(
     }
 
     // BasedOn="{StaticResource ...}" — merge base setters first.
-    if let Some(XamlValue::Extension(ext)) = node.attribute("BasedOn") {
-        if ext.name == "StaticResource" {
+    if let Some(XamlValue::Extension(ext)) = node.attribute("BasedOn")
+        && ext.name == "StaticResource" {
             let key = static_resource_key(ext)?;
             let base = local
                 .get(&key)
@@ -728,7 +726,6 @@ pub fn parse_style(
                 )),
             }
         }
-    }
 
     // Setters: direct children (content property) or <Style.Setters>.
     let from_property = node

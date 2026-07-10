@@ -111,20 +111,39 @@ impl Plugin for PfUiPlugin {
     }
 }
 
+/// Button chrome query: interaction + palette + the colors it drives.
+type ButtonChrome<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static Interaction,
+        &'static ButtonVisual,
+        Has<Checked>,
+        &'static mut BackgroundColor,
+        &'static mut BorderColor,
+    ),
+    (Changed<Interaction>, Without<crate::triggers::PfTriggers>),
+>;
+
+/// Slider parts whose value or range changed this frame.
+type ChangedSliders<'w, 's> = Query<
+    'w,
+    's,
+    (&'static SliderValue, &'static SliderRange, &'static PfSliderVisual),
+    Or<(Changed<SliderValue>, Changed<SliderRange>)>,
+>;
+
+/// List items whose hover state changed this frame.
+type HoveredListItems<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static Interaction, &'static ChildOf, &'static mut BackgroundColor),
+    (With<PfListBoxItem>, Changed<Interaction>),
+>;
+
 /// Swap button chrome colors on interaction changes (hover/pressed states).
 /// Checked toggle buttons stay in the pressed color while at rest.
-fn button_interaction_visuals(
-    mut buttons: Query<
-        (
-            &Interaction,
-            &ButtonVisual,
-            Has<Checked>,
-            &mut BackgroundColor,
-            &mut BorderColor,
-        ),
-        (Changed<Interaction>, Without<crate::triggers::PfTriggers>),
-    >,
-) {
+fn button_interaction_visuals(mut buttons: ButtonChrome) {
     for (interaction, visual, checked, mut bg, mut border) in &mut buttons {
         let (bg_color, border_color) = match (interaction, checked) {
             (Interaction::Pressed, _) | (Interaction::None, true) => {
@@ -177,11 +196,10 @@ fn checked_visual_sync(
                 Visibility::Hidden
             };
         }
-        if visual.accent_fills_box {
-            if let Ok(mut bg) = bg_q.get_mut(visual.box_node) {
+        if visual.accent_fills_box
+            && let Ok(mut bg) = bg_q.get_mut(visual.box_node) {
                 bg.0 = if checked { ACCENT } else { Color::WHITE };
             }
-        }
     };
     for visual in &added {
         apply(visual, true);
@@ -194,13 +212,7 @@ fn checked_visual_sync(
 }
 
 /// Keep the slider thumb positioned according to its value.
-fn slider_thumb_sync(
-    sliders: Query<
-        (&SliderValue, &SliderRange, &PfSliderVisual),
-        Or<(Changed<SliderValue>, Changed<SliderRange>)>,
-    >,
-    mut nodes: Query<&mut Node>,
-) {
+fn slider_thumb_sync(sliders: ChangedSliders, mut nodes: Query<&mut Node>) {
     for (value, range, visual) in &sliders {
         if let Ok(mut node) = nodes.get_mut(visual.thumb) {
             node.left = Val::Percent(range.thumb_position(value.0) * 100.0);
@@ -352,22 +364,15 @@ fn combo_popup_sync(
     mut popups: Query<&mut crate::overlay::PfPopup>,
 ) {
     for combo in &combos {
-        if let Ok(mut popup) = popups.get_mut(combo.popup) {
-            if popup.open != combo.open {
+        if let Ok(mut popup) = popups.get_mut(combo.popup)
+            && popup.open != combo.open {
                 popup.open = combo.open;
             }
-        }
     }
 }
 
 /// Hover highlight for unselected list items.
-fn listbox_item_hover(
-    mut items: Query<
-        (Entity, &Interaction, &ChildOf, &mut BackgroundColor),
-        (With<PfListBoxItem>, Changed<Interaction>),
-    >,
-    lists: Query<&PfListBox>,
-) {
+fn listbox_item_hover(mut items: HoveredListItems, lists: Query<&PfListBox>) {
     for (entity, interaction, parent, mut bg) in &mut items {
         let selected = lists
             .get(parent.parent())
