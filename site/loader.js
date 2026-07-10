@@ -1,5 +1,8 @@
 // Boots a bevy_pf wasm demo: picks the WebGPU bundle when the browser has a
-// working adapter, otherwise falls back to the WebGL2 bundle.
+// working adapter, otherwise falls back to the WebGL2 bundle. Every deploy
+// stamps version.js, so stale cached bundles can never outlive a release.
+import { BUILD } from './version.js';
+
 export async function boot(app) {
   const msg = document.getElementById('loading-msg');
   const overlay = document.getElementById('loading');
@@ -13,8 +16,10 @@ export async function boot(app) {
   if (msg) msg.textContent = `Starting (${backend})…`;
 
   try {
-    const mod = await import(`./wasm/${backend}/${app}.js`);
-    await mod.default();
+    const mod = await import(`./wasm/${backend}/${app}.js?v=${BUILD}`);
+    await mod.default({
+      module_or_path: new URL(`./wasm/${backend}/${app}_bg.wasm?v=${BUILD}`, import.meta.url),
+    });
     overlay?.remove();
   } catch (e) {
     // Bevy/winit escapes main() with a control-flow exception on wasm —

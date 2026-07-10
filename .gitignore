@@ -6,3 +6,4 @@
 site/wasm/
 site/assets/
 /target-wasm
+site/version.js

@@ -40,5 +40,9 @@ build_backend webgl2 ""
 mkdir -p site/assets/ui
 cp crates/bevy_pf/assets/ui/bench.png site/assets/ui/bench.png
 
-echo "site/wasm ready:"
+# Stamp the build so the loader cache-busts stale wasm after each deploy.
+STAMP="$(git rev-parse --short HEAD 2>/dev/null || echo dev)-$(date +%s)"
+echo "export const BUILD = '$STAMP';" > site/version.js
+
+echo "site/wasm ready (build $STAMP):"
 du -sh site/wasm/*
