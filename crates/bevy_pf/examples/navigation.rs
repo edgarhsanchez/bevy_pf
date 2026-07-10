@@ -37,10 +37,17 @@ fn primary_window() -> Window {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(primary_window()),
-            ..Default::default()
-        }))
+        .add_plugins({
+            let plugins = DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(primary_window()),
+                ..Default::default()
+            });
+            // No demo plays audio; skipping the plugin on the web avoids the
+            // browser's AudioContext autoplay warning.
+            #[cfg(target_arch = "wasm32")]
+            let plugins = plugins.disable::<bevy::audio::AudioPlugin>();
+            plugins
+        })
         .add_plugins(PfUiPlugin)
         .register_page(
             "home.xaml",

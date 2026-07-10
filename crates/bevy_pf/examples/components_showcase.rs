@@ -37,9 +37,33 @@ struct Vsync {
     dirty: bool,
 }
 
+fn primary_window() -> Window {
+    #[allow(unused_mut)]
+    let mut window = Window {
+        title: "bevy_pf components showcase".to_string(),
+        ..Default::default()
+    };
+    #[cfg(target_arch = "wasm32")]
+    {
+        window.canvas = Some("#bevy-canvas".to_string());
+        window.fit_canvas_to_parent = true;
+    }
+    window
+}
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+.add_plugins({
+            let plugins = DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(primary_window()),
+                ..Default::default()
+            });
+            // No demo plays audio; skipping the plugin on the web avoids the
+            // browser's AudioContext autoplay warning.
+            #[cfg(target_arch = "wasm32")]
+            let plugins = plugins.disable::<bevy::audio::AudioPlugin>();
+            plugins
+        })
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(PfUiPlugin)
         .insert_resource(Vsync { on: true, dirty: false })
