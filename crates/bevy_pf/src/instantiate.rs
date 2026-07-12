@@ -324,6 +324,12 @@ struct Pending {
     text_input: Option<Entity>,
     /// `ItemTemplate` for items controls (resource or inline DataTemplate).
     item_template: Option<std::sync::Arc<XamlNode>>,
+    /// `Template` (ControlTemplate) with the resource scope captured where
+    /// it was applied; expansion lands in a later phase.
+    control_template: Option<(
+        std::sync::Arc<crate::resources::PfControlTemplate>,
+        std::sync::Arc<ResourceScopes>,
+    )>,
     /// `DisplayMemberPath` for items controls.
     display_member: Option<String>,
     /// `IsIndeterminate` for ProgressBar.
@@ -1463,6 +1469,12 @@ impl<'w> Ctx<'w> {
             for cond in &trigger.conditions {
                 match cond {
                     crate::resources::PfTriggerCondition::Property { property, value } => {
+                        let crate::resources::PfTriggerValue::Text(value) = value else {
+                            self.warn(format!(
+                                "trigger condition `{property}={{x:Null}}` (three-state) is not supported; trigger skipped"
+                            ));
+                            continue 'triggers;
+                        };
                         let expected = value.trim().eq_ignore_ascii_case("true");
                         let condition = match property.as_str() {
                             "IsMouseOver" => {
@@ -1486,6 +1498,13 @@ impl<'w> Ctx<'w> {
                         conditions.push(condition);
                     }
                     crate::resources::PfTriggerCondition::Data { path, value } => {
+                        let crate::resources::PfTriggerValue::Text(value) = value else {
+                            self.warn(
+                                "DataTrigger Value={x:Null} is not supported; trigger skipped"
+                                    .to_string(),
+                            );
+                            continue 'triggers;
+                        };
                         conditions.push(ResolvedCondition::Data {
                             path: path.clone(),
                             expected: value.clone(),
@@ -2029,9 +2048,34 @@ impl<'w> Ctx<'w> {
                 Resolved::Value(PfValue::Template(t)) => {
                     self.pending.item_template = Some(t.clone());
                 }
+                Resolved::Value(PfValue::ControlTemplate(_)) => {
+                    return Err(PfError::instantiate(
+                        "ItemTemplate expects a DataTemplate, got a ControlTemplate",
+                    ));
+                }
                 _ => {
                     return Err(PfError::instantiate(
                         "ItemTemplate expects a DataTemplate (inline or resource)",
+                    ));
+                }
+            },
+            "Template" => match value {
+                Resolved::Value(PfValue::ControlTemplate(t)) => {
+                    // Scope captured at application time (consumer-scope
+                    // approximation, same as DataTemplate expansion).
+                    let scopes = std::sync::Arc::new(self.scopes.clone());
+                    self.pending.control_template = Some((t.clone(), scopes));
+                    // Expansion is not implemented yet (plan phase 2); the
+                    // template is recorded so styles carrying it stay clean.
+                }
+                Resolved::Value(PfValue::Template(_)) => {
+                    return Err(PfError::instantiate(
+                        "Template expects a ControlTemplate, got a DataTemplate",
+                    ));
+                }
+                _ => {
+                    return Err(PfError::instantiate(
+                        "Template expects a ControlTemplate (inline or resource)",
                     ));
                 }
             },

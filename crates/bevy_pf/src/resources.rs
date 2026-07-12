@@ -34,6 +34,19 @@ pub enum PfValue {
     Style(Arc<PfStyle>),
     /// An unexpanded `DataTemplate` subtree, instantiated per item.
     Template(Arc<XamlNode>),
+    /// An unexpanded `ControlTemplate`: replaces a control's default chrome.
+    ControlTemplate(Arc<PfControlTemplate>),
+}
+
+/// A parsed WPF `ControlTemplate`: the visual root subtree plus template
+/// triggers (whose setters may carry `TargetName`, unlike style triggers).
+#[derive(Debug, Clone)]
+pub struct PfControlTemplate {
+    pub target_type: Option<String>,
+    /// The single visual root child.
+    pub root: Arc<XamlNode>,
+    /// From `<ControlTemplate.Triggers>`.
+    pub triggers: Vec<PfTrigger>,
 }
 
 /// A parsed WPF `Style`: target type plus setters and triggers (BasedOn is
@@ -58,9 +71,19 @@ pub struct PfTrigger {
 #[derive(Debug, Clone)]
 pub enum PfTriggerCondition {
     /// `<Trigger Property="IsMouseOver" Value="True">`
-    Property { property: String, value: String },
+    Property { property: String, value: PfTriggerValue },
     /// `<DataTrigger Binding="{Binding Path}" Value="...">`
-    Data { path: String, value: String },
+    Data { path: String, value: PfTriggerValue },
+}
+
+/// A trigger condition's expected value. `Null` is parse-level support for
+/// `Value="{x:Null}"` (e.g. indeterminate `IsChecked`); evaluation of
+/// three-state conditions is not implemented — such triggers warn and skip
+/// at attach time.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PfTriggerValue {
+    Text(String),
+    Null,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +92,9 @@ pub struct PfSetter {
     pub owner: Option<String>,
     pub property: String,
     pub value: PfSetterValue,
+    /// Template-trigger setters may target a named template element
+    /// (`TargetName="border"`); always `None` outside ControlTemplates.
+    pub target_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -206,7 +232,31 @@ fn parse_resource_entry(
     };
 
     let key = if let Some(k) = &node.x_key {
-        ResourceKey::Explicit(k.clone())
+        // `x:Key="{x:Type TextBoxBase}"` keys the entry by TYPE so it meets
+        // `{StaticResource {x:Type ...}}` lookups (which resolve to
+        // ResourceKey::Type via static_resource_key).
+        let trimmed = k.trim();
+        if let Some(inner) = trimmed
+            .strip_prefix('{')
+            .and_then(|r| r.strip_suffix('}'))
+            .map(str::trim)
+            .filter(|r| r.starts_with("x:Type ") || r.starts_with("Type "))
+        {
+            let ty = inner.split_whitespace().nth(1).unwrap_or_default();
+            let ty = ty.rsplit(':').next().unwrap_or(ty);
+            if ty.is_empty() {
+                return Err(PfError::resource("x:Key {x:Type} needs a type name"));
+            }
+            ResourceKey::Type(ty.to_string())
+        } else if trimmed.starts_with('{') {
+            warnings.push(format!(
+                "{}: markup-extension x:Key `{k}` is not supported (only {{x:Type ...}}); used literally",
+                node.pos
+            ));
+            ResourceKey::Explicit(k.clone())
+        } else {
+            ResourceKey::Explicit(k.clone())
+        }
     } else if let PfValue::Style(style) = &value {
         match &style.target_type {
             Some(t) => ResourceKey::Type(t.clone()),
@@ -266,6 +316,46 @@ pub fn parse_resource_value(
                 return Err(PfError::resource("DataTemplate must have one root element"));
             }
             PfValue::Template(Arc::new(root.clone()))
+        }
+        "ControlTemplate" => {
+            let target_type = match node.attribute("TargetType") {
+                Some(XamlValue::Str(t)) => {
+                    Some(t.rsplit(':').next().unwrap_or(t).to_string())
+                }
+                Some(XamlValue::Extension(ext))
+                    if ext.name == "x:Type" || ext.name == "Type" =>
+                {
+                    ext.first_positional_str()
+                        .map(|t| t.rsplit(':').next().unwrap_or(t).to_string())
+                }
+                _ => None,
+            };
+            let mut roots = node.child_elements();
+            let root = roots
+                .next()
+                .ok_or_else(|| PfError::resource("ControlTemplate needs a root element"))?;
+            if roots.next().is_some() {
+                return Err(PfError::resource(
+                    "ControlTemplate must have one root element",
+                ));
+            }
+            let mut triggers = Vec::new();
+            if let Some(pe) = node.property_element("Triggers") {
+                for trigger in pe.elements() {
+                    match parse_trigger(trigger, scopes, local, warnings, true) {
+                        Ok(Some(t)) => triggers.push(t),
+                        Ok(None) => {}
+                        Err(e) => {
+                            warnings.push(format!("{}: skipped trigger: {e}", trigger.pos));
+                        }
+                    }
+                }
+            }
+            PfValue::ControlTemplate(Arc::new(PfControlTemplate {
+                target_type,
+                root: Arc::new(root.clone()),
+                triggers,
+            }))
         }
         // `<Geometry x:Key="X">M 0,0 ...</Geometry>` — mini-language text.
         "Geometry" => PfValue::Geometry(bevy_pf_xaml::geometry::parse_path_data(
@@ -756,7 +846,7 @@ pub fn parse_style(
     // Style.Triggers.
     if let Some(triggers_pe) = node.property_element("Triggers") {
         for trigger in triggers_pe.elements() {
-            match parse_trigger(trigger, scopes, local, warnings) {
+            match parse_trigger(trigger, scopes, local, warnings, false) {
                 Ok(Some(t)) => style.triggers.push(t),
                 Ok(None) => {}
                 Err(e) => {
@@ -776,6 +866,9 @@ fn parse_trigger(
     scopes: &ResourceScopes,
     local: &ResourceDictionary,
     warnings: &mut Vec<String>,
+    // TargetName on trigger setters is only legal inside a ControlTemplate
+    // (WPF hard-errors on it in style triggers, Style.cs:733-744).
+    allow_target_name: bool,
 ) -> Result<Option<PfTrigger>, PfError> {
     let attr_str = |el: &XamlNode, name: &str| -> Option<String> {
         match el.attribute(name) {
@@ -795,15 +888,24 @@ fn parse_trigger(
     };
     // `Value` may be an attribute or a property element whose content is
     // text (or a single element with text content, e.g. an enum value).
-    let trigger_value = |el: &XamlNode| -> Option<String> {
-        if let Some(v) = attr_str(el, "Value") {
-            return Some(v);
+    let trigger_value = |el: &XamlNode| -> Option<PfTriggerValue> {
+        match el.attribute("Value") {
+            Some(XamlValue::Str(v)) => return Some(PfTriggerValue::Text(v.clone())),
+            Some(XamlValue::Extension(ext))
+                if ext.name == "x:Null" || ext.name == "Null" =>
+            {
+                return Some(PfTriggerValue::Null);
+            }
+            _ => {}
         }
         let pe = el.property_element("Value")?;
         if let Some(inner) = pe.single_element() {
-            return inner.text_content();
+            return inner.text_content().map(PfTriggerValue::Text);
         }
-        pe.values.iter().find_map(|c| c.as_text()).map(String::from)
+        pe.values
+            .iter()
+            .find_map(|c| c.as_text())
+            .map(|t| PfTriggerValue::Text(t.to_string()))
     };
 
     let mut conditions = Vec::new();
@@ -885,9 +987,9 @@ fn parse_trigger(
         if setter.name != "Setter" {
             continue;
         }
-        if setter.attribute("TargetName").is_some() {
+        if !allow_target_name && setter.attribute("TargetName").is_some() {
             warnings.push(format!(
-                "{}: trigger setter TargetName needs templates; skipped",
+                "{}: trigger setter TargetName is only valid in ControlTemplate triggers; skipped",
                 setter.pos
             ));
             continue;
@@ -965,5 +1067,9 @@ fn parse_setter(
         owner,
         property,
         value,
+        target_name: match node.attribute("TargetName") {
+            Some(XamlValue::Str(t)) => Some(t.clone()),
+            _ => None,
+        },
     })
 }
