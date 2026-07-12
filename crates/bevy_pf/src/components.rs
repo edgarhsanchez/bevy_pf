@@ -320,3 +320,41 @@ pub struct PfDatePicker {
     pub display: Entity,
     pub selected: Option<(i32, u32, u32)>,
 }
+
+/// Toolkit `ToggleSwitch`: pill track + sliding thumb, latching `Checked`.
+#[derive(Component, Debug, Clone)]
+pub struct PfToggleSwitch {
+    pub track: Entity,
+    pub thumb: Entity,
+}
+
+/// Toolkit `NumericUpDown` state and its readout entity.
+#[derive(Component, Debug, Clone)]
+pub struct PfNumericUpDown {
+    pub value: f64,
+    pub minimum: f64,
+    pub maximum: f64,
+    pub increment: f64,
+    pub text: Entity,
+}
+
+/// Toolkit `RatingBar`: clickable pips, `value` of `maximum`.
+#[derive(Component, Debug, Clone)]
+pub struct PfRatingBar {
+    pub value: u32,
+    pub maximum: u32,
+    pub pips: Vec<Entity>,
+}
+
+/// Watermark/placeholder overlay for an empty TextBox.
+#[derive(Component, Debug, Clone)]
+pub struct PfWatermark {
+    pub overlay: Entity,
+}
+
+/// Toolkit `BusyIndicator`: dimming overlay shown while `busy`.
+#[derive(Component, Debug, Clone)]
+pub struct PfBusyIndicator {
+    pub overlay: Entity,
+    pub busy: bool,
+}

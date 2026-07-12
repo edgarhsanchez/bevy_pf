@@ -275,6 +275,36 @@ fn setup(mut commands: Commands) {
                         </Canvas>
                       </TabItem>
 
+                      <TabItem Header="Toolkit">
+                        <StackPanel Margin="12">
+                          <TextBlock Text="Ecosystem controls (MahApps / MaterialDesign / Extended Toolkit / HandyControl equivalents)" FontWeight="Bold" Margin="0,0,0,10"/>
+                          <StackPanel Orientation="Horizontal">
+                            <ToggleSwitch Content="Wi-Fi" IsOn="True" Margin="0,0,16,0"/>
+                            <ToggleSwitch Content="Bluetooth" Margin="0,0,16,0"/>
+                            <NumericUpDown Value="5" Minimum="0" Maximum="10" Margin="0,0,16,0"/>
+                            <RatingBar Value="3"/>
+                          </StackPanel>
+                          <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                            <Badge Badge="12"><Button Content="Inbox" Width="90"/></Badge>
+                            <Badge Badge="3" Margin="18,0,0,0"><Button Content="Alerts" Width="90"/></Badge>
+                            <Chip Margin="18,0,0,0"><TextBlock Text="bevy" FontSize="12"/></Chip>
+                            <Chip Margin="6,0,0,0"><TextBlock Text="xaml" FontSize="12"/></Chip>
+                            <Chip Margin="6,0,0,0"><TextBlock Text="rust" FontSize="12"/></Chip>
+                          </StackPanel>
+                          <Card Width="300" Margin="0,16,0,0" HorizontalAlignment="Left">
+                            <StackPanel>
+                              <TextBlock Text="Card" FontWeight="Bold"/>
+                              <TextBlock Text="An elevated surface: radius, shadow, padding." FontSize="12" Margin="0,4,0,0"/>
+                            </StackPanel>
+                          </Card>
+                          <BusyIndicator IsBusy="True" BusyContent="Loading..." Width="300" Height="70" Margin="0,16,0,0" HorizontalAlignment="Left">
+                            <Border Background="#FFEDEFF4" Width="300" Height="70">
+                              <TextBlock Text="content dimmed by the busy overlay" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                          </BusyIndicator>
+                        </StackPanel>
+                      </TabItem>
+
                       <TabItem Header="Styling">
                         <StackPanel Margin="12">
                           <StackPanel.Resources>

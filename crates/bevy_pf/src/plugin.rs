@@ -28,6 +28,7 @@ impl Plugin for PfUiPlugin {
         app.add_message::<crate::navigation::PfNavigated>();
         app.init_resource::<crate::navigation::PfPages>();
         app.add_systems(Update, crate::navigation::init_pending_frames);
+        app.add_systems(Update, toolkit_control_sync);
         app.init_asset::<crate::asset::XamlAsset>()
             .register_asset_loader(crate::asset::XamlAssetLoader)
             .init_resource::<crate::asset::PendingXamlViews>()
@@ -108,6 +109,59 @@ impl Plugin for PfUiPlugin {
             )
                 .chain(),
         );
+    }
+}
+
+/// Keep toolkit-control visuals in sync with their state components.
+fn toolkit_control_sync(
+    switches: Query<(Entity, &crate::components::PfToggleSwitch)>,
+    checked: Query<Has<bevy::ui::Checked>>,
+    numerics: Query<&crate::components::PfNumericUpDown, Changed<crate::components::PfNumericUpDown>>,
+    ratings: Query<&crate::components::PfRatingBar, Changed<crate::components::PfRatingBar>>,
+    busys: Query<&crate::components::PfBusyIndicator, Changed<crate::components::PfBusyIndicator>>,
+    mut nodes: Query<&mut Node>,
+    mut colors: Query<&mut BackgroundColor>,
+    mut texts: Query<&mut bevy::ui::widget::Text>,
+) {
+    for (entity, switch) in &switches {
+        let on = checked.get(entity).unwrap_or(false);
+        if let Ok(mut n) = nodes.get_mut(switch.thumb) {
+            let target = Val::Px(if on { 22.0 } else { 2.0 });
+            if n.left != target {
+                n.left = target;
+            }
+        }
+        if let Ok(mut c) = colors.get_mut(switch.track) {
+            let target = if on {
+                crate::components::ACCENT
+            } else {
+                Color::srgb_u8(0xB6, 0xB6, 0xB6)
+            };
+            if c.0 != target {
+                c.0 = target;
+            }
+        }
+    }
+    for numeric in &numerics {
+        if let Ok(mut t) = texts.get_mut(numeric.text) {
+            t.0 = format!("{}", numeric.value);
+        }
+    }
+    for rating in &ratings {
+        for (i, pip) in rating.pips.iter().enumerate() {
+            if let Ok(mut c) = colors.get_mut(*pip) {
+                c.0 = if (i as u32) < rating.value {
+                    Color::srgb_u8(0xF2, 0xB0, 0x24)
+                } else {
+                    Color::srgb_u8(0xD6, 0xD6, 0xD6)
+                };
+            }
+        }
+    }
+    for busy in &busys {
+        if let Ok(mut n) = nodes.get_mut(busy.overlay) {
+            n.display = if busy.busy { Display::Flex } else { Display::None };
+        }
     }
 }
 

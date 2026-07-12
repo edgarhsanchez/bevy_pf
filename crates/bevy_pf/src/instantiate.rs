@@ -183,6 +183,11 @@ enum ElemKind {
     Expander,
     Viewbox,
     Frame,
+    ToggleSwitch,
+    NumericUpDown,
+    RatingBar,
+    Badge,
+    BusyIndicator,
     Image,
     Shape,
     StatusBar,
@@ -232,6 +237,14 @@ impl ElemKind {
             "Expander" => Self::Expander,
             "Viewbox" => Self::Viewbox,
             "Frame" => Self::Frame,
+            "ToggleSwitch" => Self::ToggleSwitch,
+            "NumericUpDown" | "IntegerUpDown" | "DoubleUpDown" => Self::NumericUpDown,
+            "RatingBar" | "Rate" | "Rating" => Self::RatingBar,
+            "Badge" | "Badged" => Self::Badge,
+            "BusyIndicator" => Self::BusyIndicator,
+            // Toolkit presets that reuse Border's box model (chrome added in
+            // insert_defaults by element name).
+            "Card" | "Chip" | "Tag" => Self::Border,
             "Image" => Self::Image,
             "Rectangle" | "Ellipse" | "Line" | "Polyline" | "Polygon" | "Path" => Self::Shape,
             "StatusBar" => Self::StatusBar,
@@ -266,7 +279,8 @@ impl ElemKind {
             | Self::Viewbox | Self::TabControl | Self::TreeView | Self::Menu
             | Self::DataGrid | Self::Hyperlink | Self::PopupElement
             | Self::GridSplitter | Self::Calendar | Self::DatePicker
-            | Self::Frame => ParentKind::FlexColumn,
+            | Self::Frame | Self::ToggleSwitch | Self::NumericUpDown
+            | Self::RatingBar | Self::Badge | Self::BusyIndicator => ParentKind::FlexColumn,
             Self::StatusBar | Self::StatusBarItem | Self::ToolBar | Self::ToolBarTray => {
                 ParentKind::FlexRow
             }
@@ -664,6 +678,7 @@ impl<'w> Ctx<'w> {
         }
 
         self.insert_defaults(entity, kind, node);
+        self.apply_toolkit_presets(entity, kind, node);
 
         // WPF arranges a scene's root content with the full window constraint:
         // any root element fills its container. Explicit Width/Height (applied
@@ -898,6 +913,13 @@ impl<'w> Ctx<'w> {
                 flex_direction: FlexDirection::Column,
                 ..Default::default()
             },
+            ElemKind::ToggleSwitch | ElemKind::NumericUpDown | ElemKind::RatingBar => Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(6.0),
+                ..Default::default()
+            },
+            ElemKind::Badge | ElemKind::BusyIndicator => single_cell(),
             // The <Popup> placeholder never lays out; its content lives on
             // the overlay layer.
             ElemKind::PopupElement => Node {
@@ -1906,6 +1928,12 @@ impl<'w> Ctx<'w> {
             // WPF DataGrid knobs that don't apply here: columns are never
             // auto-generated, headers always show, sizing is fixed. Accepted
             // silently so verbatim WPF markup instantiates clean.
+            "IsOn" | "IsChecked" if kind == ElemKind::ToggleSwitch => {}
+            "Value" | "Minimum" | "Maximum" | "Increment" | "FormatString"
+                if kind == ElemKind::NumericUpDown => {}
+            "Value" | "Maximum" if kind == ElemKind::RatingBar => {}
+            "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
+            "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
             "AutoGenerateColumns" | "HeadersVisibility" | "CanUserResizeColumns"
             | "CanUserResizeRows" | "CanUserSortColumns" | "CanUserAddRows"
             | "CanUserDeleteRows" | "CanUserReorderColumns" | "IsReadOnly"
@@ -2467,6 +2495,11 @@ impl<'w> Ctx<'w> {
             ElemKind::Frame => {
                 self.spawn_frame(entity, node);
             }
+            ElemKind::ToggleSwitch => self.spawn_toggle_switch(entity, node),
+            ElemKind::NumericUpDown => self.spawn_numeric_up_down(entity, node),
+            ElemKind::RatingBar => self.spawn_rating_bar(entity, node),
+            ElemKind::Badge => self.spawn_badge(entity, node)?,
+            ElemKind::BusyIndicator => self.spawn_busy_indicator(entity, node)?,
             ElemKind::PopupElement => {
                 self.spawn_popup_element(entity, node)?;
             }
@@ -4060,6 +4093,275 @@ impl<'w> Ctx<'w> {
             current_title: None,
             pending_source: source,
         });
+    }
+
+
+    /// Toolkit presets that ride on Border's box model: `Card` and `Chip`.
+    fn apply_toolkit_presets(&mut self, entity: Entity, kind: ElemKind, node: &XamlNode) {
+        if kind != ElemKind::Border {
+            return;
+        }
+        match node.name.as_str() {
+            "Card" => {
+                self.world.entity_mut(entity).insert((
+                    BackgroundColor(Color::WHITE),
+                    bevy::ui::BoxShadow(vec![bevy::ui::ShadowStyle {
+                        color: Color::srgba(0.0, 0.0, 0.0, 0.18),
+                        x_offset: Val::Px(0.0),
+                        y_offset: Val::Px(2.0),
+                        spread_radius: Val::Px(0.0),
+                        blur_radius: Val::Px(8.0),
+                    }]),
+                ));
+                if let Some(mut n) = self.world.get_mut::<Node>(entity) {
+                    n.border_radius = bevy::ui::BorderRadius::all(Val::Px(8.0));
+                    if n.padding == UiRect::DEFAULT {
+                        n.padding = UiRect::all(Val::Px(14.0));
+                    }
+                }
+            }
+            "Chip" | "Tag" => {
+                self.world
+                    .entity_mut(entity)
+                    .insert(BackgroundColor(Color::srgb_u8(0xE8, 0xEC, 0xF4)));
+                if let Some(mut n) = self.world.get_mut::<Node>(entity) {
+                    n.border_radius = bevy::ui::BorderRadius::all(Val::Px(999.0));
+                    n.padding = UiRect::axes(Val::Px(10.0), Val::Px(3.0));
+                    n.align_items = AlignItems::Center;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Toolkit `ToggleSwitch`: pill track, sliding thumb, latching Checked.
+    fn spawn_toggle_switch(&mut self, entity: Entity, node: &XamlNode) {
+        use bevy::ui::Checked;
+        use crate::components::PfToggleSwitch;
+        let on = matches!(
+            node.attribute("IsOn").or_else(|| node.attribute("IsChecked")),
+            Some(XamlValue::Str(s)) if s.eq_ignore_ascii_case("true")
+        );
+        let thumb = self.world
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Px(16.0),
+                    height: Val::Px(16.0),
+                    top: Val::Px(2.0),
+                    left: Val::Px(if on { 22.0 } else { 2.0 }),
+                    border_radius: bevy::ui::BorderRadius::all(Val::Px(999.0)),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::WHITE),
+            ))
+            .id();
+        let track = self.world
+            .spawn((
+                Node {
+                    width: Val::Px(40.0),
+                    height: Val::Px(20.0),
+                    border_radius: bevy::ui::BorderRadius::all(Val::Px(999.0)),
+                    ..Default::default()
+                },
+                BackgroundColor(if on { crate::components::ACCENT } else { Color::srgb_u8(0xB6, 0xB6, 0xB6) }),
+            ))
+            .id();
+        self.world.entity_mut(track).add_children(&[thumb]);
+        self.add_children(entity, &[track]);
+        if let Some(text) = node.attribute("Content").and_then(|v| match v {
+            XamlValue::Str(s) => Some(s.clone()),
+            _ => None,
+        }) {
+            let label = self.spawn_text_child(text);
+            self.add_children(entity, &[label]);
+        }
+        let mut e = self.world.entity_mut(entity);
+        e.insert((PfToggleSwitch { track, thumb }, Interaction::default()));
+        if on {
+            e.insert(Checked);
+        }
+        self.world.entity_mut(entity).observe(
+            |click: On<Pointer<Click>>, mut commands: Commands, checked: Query<Has<Checked>>| {
+                let e = click.entity;
+                if let Ok(is_on) = checked.get(e) {
+                    if is_on {
+                        commands.entity(e).remove::<Checked>();
+                    } else {
+                        commands.entity(e).insert(Checked);
+                    }
+                }
+            },
+        );
+    }
+
+    /// Toolkit `NumericUpDown`: [-] readout [+] with Min/Max/Increment.
+    fn spawn_numeric_up_down(&mut self, entity: Entity, node: &XamlNode) {
+        use crate::components::PfNumericUpDown;
+        let get = |name: &str, default: f64| -> f64 {
+            match node.attribute(name) {
+                Some(XamlValue::Str(s)) => s.trim().parse().unwrap_or(default),
+                _ => default,
+            }
+        };
+        let value = get("Value", 0.0);
+        let (minimum, maximum, increment) =
+            (get("Minimum", f64::MIN), get("Maximum", f64::MAX), get("Increment", 1.0));
+        fn spinner_button(ctx: &mut Ctx, glyph: &str) -> Entity {
+            let this = ctx;
+            let label = this.spawn_text_child(glyph.to_string());
+            let b = this.world
+                .spawn((
+                    Node {
+                        width: Val::Px(22.0),
+                        height: Val::Px(22.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    },
+                    BackgroundColor(Color::srgb_u8(0xE6, 0xE6, 0xE6)),
+                    Interaction::default(),
+                ))
+                .id();
+            this.world.entity_mut(b).add_children(&[label]);
+            b
+        }
+        let minus = spinner_button(self, "-");
+        let text = self.spawn_text_child(format!("{value}"));
+        let plus = spinner_button(self, "+");
+        self.add_children(entity, &[minus, text, plus]);
+        self.world.entity_mut(entity).insert(PfNumericUpDown {
+            value,
+            minimum,
+            maximum,
+            increment,
+            text,
+        });
+        let owner = entity;
+        for (button, dir) in [(minus, -1.0f64), (plus, 1.0f64)] {
+            self.world.entity_mut(button).observe(
+                move |_: On<Pointer<Click>>, mut nums: Query<&mut PfNumericUpDown>| {
+                    if let Ok(mut n) = nums.get_mut(owner) {
+                        n.value = (n.value + dir * n.increment).clamp(n.minimum, n.maximum);
+                    }
+                },
+            );
+        }
+    }
+
+    /// Toolkit `RatingBar`: clickable pips.
+    fn spawn_rating_bar(&mut self, entity: Entity, node: &XamlNode) {
+        use crate::components::PfRatingBar;
+        let get_u32 = |name: &str, default: u32| match node.attribute(name) {
+            Some(XamlValue::Str(s)) => s.trim().parse().unwrap_or(default),
+            _ => default,
+        };
+        let maximum = get_u32("Maximum", 5).max(1);
+        let value = get_u32("Value", 0).min(maximum);
+        let mut pips = Vec::new();
+        for i in 0..maximum {
+            let filled = i < value;
+            let pip = self.world
+                .spawn((
+                    Node {
+                        width: Val::Px(16.0),
+                        height: Val::Px(16.0),
+                        border_radius: bevy::ui::BorderRadius::all(Val::Px(999.0)),
+                        ..Default::default()
+                    },
+                    BackgroundColor(if filled {
+                        Color::srgb_u8(0xF2, 0xB0, 0x24)
+                    } else {
+                        Color::srgb_u8(0xD6, 0xD6, 0xD6)
+                    }),
+                    Interaction::default(),
+                ))
+                .id();
+            let owner = entity;
+            self.world.entity_mut(pip).observe(
+                move |_: On<Pointer<Click>>, mut bars: Query<&mut PfRatingBar>| {
+                    if let Ok(mut bar) = bars.get_mut(owner) {
+                        bar.value = i + 1;
+                    }
+                },
+            );
+            pips.push(pip);
+        }
+        self.add_children(entity, &pips);
+        self.world.entity_mut(entity).insert(PfRatingBar { value, maximum, pips });
+    }
+
+    /// Toolkit `Badge`/`Badged`: content with a count bubble top-right.
+    fn spawn_badge(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
+        let children = self.spawn_child_elements(node, ParentKind::Grid)?;
+        self.add_children(entity, &children);
+        let badge_text = match node.attribute("Badge") {
+            Some(XamlValue::Str(s)) => s.clone(),
+            _ => String::new(),
+        };
+        if !badge_text.is_empty() {
+            let label = self.spawn_text_child(badge_text);
+            if let Some(mut t) = self.world.get_mut::<bevy::text::TextFont>(label) {
+                t.font_size = bevy::text::FontSize::Px(10.0);
+            }
+            self.world.entity_mut(label).insert(bevy::text::TextColor(Color::WHITE));
+            let bubble = self.world
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(-8.0),
+                        right: Val::Px(-8.0),
+                        min_width: Val::Px(16.0),
+                        height: Val::Px(16.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        padding: UiRect::axes(Val::Px(4.0), Val::Px(0.0)),
+                        border_radius: bevy::ui::BorderRadius::all(Val::Px(999.0)),
+                        ..Default::default()
+                    },
+                    BackgroundColor(Color::srgb_u8(0xE0, 0x3E, 0x3E)),
+                ))
+                .id();
+            self.world.entity_mut(bubble).add_children(&[label]);
+            self.add_children(entity, &[bubble]);
+        }
+        Ok(())
+    }
+
+    /// Toolkit `BusyIndicator`: content + dimming overlay while IsBusy.
+    fn spawn_busy_indicator(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
+        use crate::components::PfBusyIndicator;
+        let children = self.spawn_child_elements(node, ParentKind::Grid)?;
+        self.add_children(entity, &children);
+        let busy = matches!(
+            node.attribute("IsBusy"),
+            Some(XamlValue::Str(s)) if s.eq_ignore_ascii_case("true")
+        );
+        let busy_text = match node.attribute("BusyContent") {
+            Some(XamlValue::Str(s)) => s.clone(),
+            _ => "Working...".to_string(),
+        };
+        let label = self.spawn_text_child(busy_text);
+        let overlay = self.world
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    display: if busy { Display::Flex } else { Display::None },
+                    ..Default::default()
+                },
+                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.75)),
+            ))
+            .id();
+        self.world.entity_mut(overlay).add_children(&[label]);
+        self.add_children(entity, &[overlay]);
+        self.world.entity_mut(entity).insert(PfBusyIndicator { overlay, busy });
+        Ok(())
     }
 
     /// The raw WPF `<Popup>` element: content lives on the overlay layer,
