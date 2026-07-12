@@ -92,7 +92,7 @@ pub type ResourceDictionary = HashMap<ResourceKey, PfValue>;
 /// A stack of lexically-scoped resource dictionaries (innermost last), with
 /// the application-level dictionary as the final fallback tier (mirroring
 /// WPF's element tree -> `Application.Resources` lookup order).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ResourceScopes {
     stack: Vec<Arc<ResourceDictionary>>,
     /// Snapshot of the application resources for this instantiation.

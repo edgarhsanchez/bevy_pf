@@ -28,6 +28,9 @@ pub enum ItemsHostKind {
 pub struct PfItemsSource {
     pub path: String,
     pub template: Option<Arc<bevy_pf_xaml::XamlNode>>,
+    /// Lexical resource scope where the template was declared, so
+    /// `{StaticResource}` inside a `DataTemplate` resolves page resources.
+    pub scopes: Option<Arc<crate::resources::ResourceScopes>>,
     pub display_member: Option<String>,
     pub kind: ItemsHostKind,
     pub seen_version: u64,
@@ -120,9 +123,12 @@ pub(crate) fn sync_items_sources(world: &mut World) {
                         let wrapper = world
                             .spawn((Node::default(), DataContext(item_ctx.clone())))
                             .id();
-                        if let Err(e) =
-                            crate::instantiate::instantiate_template(world, wrapper, template)
-                        {
+                        if let Err(e) = crate::instantiate::instantiate_template(
+                            world,
+                            wrapper,
+                            template,
+                            source.scopes.as_deref(),
+                        ) {
                             warn!("bevy_pf: cell template failed: {e}");
                         }
                         wrapper
@@ -215,9 +221,12 @@ pub(crate) fn sync_items_sources(world: &mut World) {
                     world
                         .entity_mut(wrapper)
                         .insert(DataContext(item_ctx.clone()));
-                    if let Err(e) =
-                        crate::instantiate::instantiate_template(world, wrapper, template)
-                    {
+                    if let Err(e) = crate::instantiate::instantiate_template(
+                        world,
+                        wrapper,
+                        template,
+                        source.scopes.as_deref(),
+                    ) {
                         warn!("bevy_pf: item template failed: {e}");
                     }
                 }

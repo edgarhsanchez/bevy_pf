@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bevy_pf — official WPF samples, ported</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="demo-page">
+  <nav class="demo-nav">
+    <a href="index.html">&larr; bevy_pf</a>
+    <a href="showcase.html">Controls</a>
+    <a href="themes.html">Themes</a>
+    <a href="navigation.html">Navigation</a>
+    <a href="rpg.html">RPG HUD</a>
+    <a href="breakout.html">Breakout</a>
+    <a href="wpf.html">WPF Samples</a>
+    <span class="spacer"></span>
+    <a class="btn sponsor" href="https://github.com/sponsors/edgarhsanchez" target="_blank" rel="noopener">&#10084; Sponsor</a>
+  </nav>
+  <main>
+    <div class="canvas-holder">
+      <canvas id="bevy-canvas"></canvas>
+      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the WPF samples gallery&hellip;</span></div>
+    </div>
+    <p class="note">Sixteen samples from <a href="https://github.com/microsoft/WPF-Samples" target="_blank" rel="noopener">microsoft/WPF-Samples</a> (MIT), ported with minimal documented deviations: Getting Started, data binding (DataTriggers, collection currency, live-updating bids), resources, Visibility, and the 11-page ShapeElements viewer whose original <code>.xaml</code> files run as-is. Each entry is a <code>Page</code> navigated through a <code>Frame</code>, so the gallery itself is the navigation sample.</p>
+
+  <section class="howto"><h2>How it&#39;s built</h2><p>From <code>examples/wpf_samples_gallery.rs</code> — the original markup stays XAML; only the code-behind becomes Rust.</p><details><summary>1. Original .xaml files run via include_xaml!</summary><div class="step"><p>The ShapeElements pages are the sample&#39;s own files, compile-time validated and registered as routes.</p><pre><code>app.register_page(
+    "shapes/EllipseExample.xaml",
+    include_xaml!("examples/xaml/wpf_shapes/EllipseExample.xaml"),
+)</code></pre></div></details><details><summary>2. C# classes become reflected view-models</summary><div class="step"><p>DataTrigger&#39;s <code>local:Places</code> collection is a plain Rust struct behind a <code>Bindable</code>; the XAML bindings don&#39;t change shape.</p><pre><code>#[derive(Reflect, Default, Clone)]
+struct Place { name: String, state: String }
+
+&lt;ListBox ItemsSource="{Binding places}"&gt;
+  ...
+  &lt;DataTrigger Binding="{Binding state}" Value="WA"&gt;
+    &lt;Setter Property="Foreground" Value="Red"/&gt;
+  &lt;/DataTrigger&gt;</code></pre></div></details><details><summary>3. Timers and event handlers become systems</summary><div class="step"><p>PropertyChangeNotification&#39;s 2-second C# timer is a Bevy system; mutating the observable re-renders every bound row.</p><pre><code>fn raise_bids(time: Res&lt;Time&gt;, mut elapsed: Local&lt;f32&gt;, vm: Res&lt;VmHandle&gt;) {
+    *elapsed += time.delta_secs();
+    if *elapsed &lt; 2.0 { return; }
+    *elapsed = 0.0;
+    vm.0.update(|m: &amp;mut Vm| m.bids[2].bid_item_price += 10.55);
+}</code></pre></div></details><details><summary>4. CollectionView currency becomes explicit state</summary><div class="step"><p>CollectionBinding&#39;s <code>IsSynchronizedWithCurrentItem</code> maps to a <code>current</code> field kept in sync with the ListBox selection.</p><pre><code>fn sync_collection_currency(lists: Query&lt;(&amp;PfListBox, &amp;Children), Changed&lt;PfListBox&gt;&gt;, ui: PfQuery, vm: Res&lt;VmHandle&gt;) {
+    let Some(list) = ui.by_name("FriendsList") else { return };
+    // selected entity -&gt; index -&gt; m.current = m.friends[index]
+}</code></pre></div></details></section>
+</main>
+  <script type="module">
+    import { boot } from './loader.js';
+    boot('wpf');
+  </script>
+</body>
+</html>

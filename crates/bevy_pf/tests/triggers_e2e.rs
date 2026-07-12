@@ -332,3 +332,109 @@ fn x_null_trigger_setter_clears() {
     app.update();
     assert_eq!(bg(&app, b), Color::srgba_u8(0, 128, 0, 255));
 }
+
+#[derive(Reflect, Default, Clone)]
+struct City {
+    name: String,
+    state: String,
+}
+
+#[derive(Reflect, Default)]
+struct CitiesVm {
+    places: Vec<City>,
+}
+
+/// The WPF-Samples DataTrigger scenario: page-scoped styles carrying
+/// DataTrigger/MultiDataTrigger, referenced from inside an ItemTemplate,
+/// evaluated against each generated item's row DataContext.
+#[test]
+fn data_triggers_inside_scoped_item_template() {
+    let mut app = test_app();
+    let vm = Bindable::new(CitiesVm {
+        places: vec![
+            City { name: "Seattle".into(), state: "WA".into() },
+            City { name: "Portland".into(), state: "OR".into() },
+            City { name: "San Jose".into(), state: "CA".into() },
+        ],
+    });
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style x:Key="Row" TargetType="Border">
+                 <Style.Triggers>
+                   <MultiDataTrigger>
+                     <MultiDataTrigger.Conditions>
+                       <Condition Binding="{Binding name}" Value="Portland"/>
+                       <Condition Binding="{Binding state}" Value="OR"/>
+                     </MultiDataTrigger.Conditions>
+                     <Setter Property="Background" Value="Cyan"/>
+                   </MultiDataTrigger>
+                 </Style.Triggers>
+               </Style>
+               <Style x:Key="StateText" TargetType="TextBlock">
+                 <Style.Triggers>
+                   <DataTrigger Binding="{Binding state}" Value="WA">
+                     <Setter Property="Foreground" Value="Red"/>
+                   </DataTrigger>
+                 </Style.Triggers>
+               </Style>
+             </StackPanel.Resources>
+             <ItemsControl x:Name="L" ItemsSource="{Binding places}">
+               <ItemsControl.ItemTemplate>
+                 <DataTemplate>
+                   <Border Style="{StaticResource Row}">
+                     <TextBlock Style="{StaticResource StateText}" Text="{Binding state}"/>
+                   </Border>
+                 </DataTemplate>
+               </ItemsControl.ItemTemplate>
+             </ItemsControl>
+           </StackPanel>"##,
+    );
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm));
+    app.update(); // generate items
+    app.update(); // evaluate triggers
+
+    let host = named(&app, root, "L");
+    let items: Vec<Entity> = app
+        .world()
+        .get::<Children>(host)
+        .map(|c| c.iter().collect())
+        .unwrap_or_default();
+    assert_eq!(items.len(), 3);
+
+    fn subtree_colors(app: &App, e: Entity) -> (Vec<Color>, Vec<Color>) {
+        let mut bgs = Vec::new();
+        let mut fgs = Vec::new();
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            if let Some(b) = app.world().get::<BackgroundColor>(e) {
+                bgs.push(b.0);
+            }
+            if let Some(f) = app.world().get::<bevy::text::TextColor>(e) {
+                fgs.push(f.0);
+            }
+            if let Some(children) = app.world().get::<Children>(e) {
+                stack.extend(children.iter());
+            }
+        }
+        (bgs, fgs)
+    }
+
+    let cyan = Color::srgba(0.0, 1.0, 1.0, 1.0);
+    // Seattle/WA: red state text, no cyan row.
+    let (bgs, fgs) = subtree_colors(&app, items[0]);
+    assert!(fgs.contains(&RED), "WA state text turns red");
+    assert!(!bgs.contains(&cyan));
+    // Portland/OR: cyan row background, no red text.
+    let (bgs, fgs) = subtree_colors(&app, items[1]);
+    assert!(bgs.contains(&cyan), "Portland OR row turns cyan");
+    assert!(!fgs.contains(&RED));
+    // San Jose/CA: neither trigger fires.
+    let (bgs, fgs) = subtree_colors(&app, items[2]);
+    assert!(!bgs.contains(&cyan));
+    assert!(!fgs.contains(&RED));
+}

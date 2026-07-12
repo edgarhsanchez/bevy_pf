@@ -16,6 +16,12 @@ Ported examples keep the original XAML with documented, minimal deviations.
 | Data Binding / SimpleBinding | `--example wpf_samples_gallery` | `local:Person` resource -> DataContext |
 | Data Binding / DirectionalBinding | `--example wpf_samples_gallery` | `local:NetIncome` -> DataContext; TargetUpdated handler -> observer |
 | Data Binding / DataBindingToStringFormat | `--example wpf_samples_gallery` | MultiBinding half out of scope; `{0:c}` currency implemented |
+| Data Binding / DataTrigger | `--example wpf_samples_gallery` | `local:Places` -> DataContext; DataType-implicit template -> explicit ItemTemplate; ListBoxItem implicit style -> keyed styles on template elements |
+| Data Binding / CollectionBinding | `--example wpf_samples_gallery` | `local:People` -> DataContext; ToString() -> DisplayMemberPath; CollectionView currency + keyed ContentTemplate -> `current` VM field synced from ListBox selection, detail inlined |
+| Data Binding / PropertyChangeNotification | `--example wpf_samples_gallery` | `local:BidCollection` -> DataContext; C# timer -> Bevy system mutating the observable; keyed ItemTemplate -> inline |
+| Resources / DefiningResources | `--example wpf_samples_gallery` | verbatim (FontFamily attrs kept; Trebuchet resolves via family fallback) |
+| Elements / VisibiltyChanges | `--example wpf_samples_gallery` | Click code-behind -> observers driving the property store's Visibility target |
+| Graphics / ShapeElements (11 pages) | `--example wpf_samples_gallery` | original .xaml via `include_xaml!`; DrawingBrush graph paper -> solid brushes; MiterLimit's ScaleTransform copy at 1x (see examples/xaml/wpf_shapes/README.md) |
 
 ## Portable now (next in line)
 
@@ -27,16 +33,10 @@ Ported examples keep the original XAML with documented, minimal deviations.
 - **Getting Started/ComplexLayout** — Nested DockPanel/StackPanel with DockPanel.Dock attached props and 'px'-suffixed lengths (Height="30px") — good parser-conformance case.
 - **Data Binding/SimpleBinding** — TwoWay TextBox binding with UpdateSourceTrigger=PropertyChanged to an object declared in resources, implicit TargetType styles, property-element Binding syntax; Person class becomes a Rust observable.
 - **Data Binding/DirectionalBinding** — OneTime/OneWay/TwoWay + UpdateSourceTrigger matrix in one Grid — direct exercise of binding modes; TargetUpdated event handler is the only adaptation (drive the info text from the observable instead).
-- **Data Binding/DataTrigger** — Style DataTrigger + MultiDataTrigger over a custom collection with a DataTemplate — exactly the supported trigger surface; make the DataType-implicit template an explicit ItemTemplate.
-- **Data Binding/CollectionBinding** — ListBox ItemsSource + keyed DataTemplate + detail ContentControl; adapt CollectionView currency (IsSynchronizedWithCurrentItem) by wiring the detail DataContext to the ListBox selection in a system.
-- **Data Binding/PropertyChangeNotification** — ItemsControl + DataTemplate over Canvas with live-updating bid prices — INotifyPropertyChanged analog demo; the code-behind timer becomes a Bevy system mutating observables.
 - **Data Binding/DataBindingToStringFomat** — ListView+GridView DisplayMemberBinding with StringFormat=Now {0:c}! — all supported; cut the second half (MultiBinding StringFormat).
-- **Resources/DefiningResources** — Keyed SolidColorBrush + keyed styles referenced via StaticResource across TextBlock/Button/Ellipse — pure supported resource system.
 - **Resources/MergedResources** — Window-level MergedDictionaries + DynamicResource Background + StaticResource Button Content; sys:Double/sys:String primitives need mapping (string resources); code-behind dictionary-swap buttons demo runtime resource updates.
-- **Elements/VisibiltyChanges** — Visible/Hidden/Collapsed toggled by three buttons — small, tests the Visibility tri-state in layout.
 - **Elements/HeightProperties** — Height/MinHeight/MaxHeight precedence with Canvas+Rectangle and ListBox SelectionChanged handlers — plain controls, property-set systems.
 - **Sample Applications/CalculatorDemo** — Menu/MenuItem (IsCheckable), Grid keypad of Buttons, ToolTips — all supported controls; arithmetic lives in Click handlers, straightforward as Bevy systems.
-- **Graphics/ShapeElements** — Per-topic Pages of Line/Ellipse/Polygon/Polyline/Path mini-language (M10,100 C...z) with LinearGradientBrush headers; only adaptation is the DrawingBrush graph-paper background style in App.xaml (swap for a solid brush).
 
 ## Blocked (feature gaps, in dependency order)
 
@@ -70,9 +70,9 @@ Gaps fixed by the batch-2 ports: inline `Hyperlink` runs inside `TextBlock`,
 `Binding Mode=OneTime` (apply-once semantics), .NET numeric format specifiers
 in `StringFormat` (`{0:c}` currency, `F`/`N`/`P`), and code-behind event
 attributes (`Click=`, `Loaded=`, `TargetUpdated=`, ...) accepted silently so
-verbatim markup instantiates clean. Discovered gap for a later batch:
-template expansion does not capture the page's lexical resource scope, which
-blocks keyed styles inside `DataTemplate`s (affects the DataTrigger sample).
+verbatim markup instantiates clean. Template expansion now captures the declaring page's lexical resource scope
+(`PfItemsSource.scopes` snapshot, applied by `instantiate_template`), so keyed
+styles inside `DataTemplate`s resolve — this unblocked the DataTrigger port.
 
 Biggest unlocks by sample count: `ControlTemplate`, `Storyboard`,
 `IValueConverter`, `CollectionViewSource` (sort/filter/group), `RelativeSource`/`ElementName` bindings.

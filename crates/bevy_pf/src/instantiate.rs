@@ -5473,9 +5473,11 @@ impl<'w> Ctx<'w> {
                     return;
                 }
             };
+            let scopes = std::sync::Arc::new(self.scopes.clone());
             self.world.entity_mut(entity).insert(crate::items::PfItemsSource {
                 path: spec.path,
                 template: self.pending.item_template.clone(),
+                scopes: Some(scopes),
                 display_member: self.pending.display_member.clone(),
                 kind: host,
                 seen_version: 0,
@@ -5735,8 +5737,18 @@ pub fn instantiate_template(
     world: &mut World,
     parent: Entity,
     node: &XamlNode,
+    scopes: Option<&ResourceScopes>,
 ) -> Result<Entity, PfError> {
     let mut ctx = Ctx::new(world, &XamlEnv::default());
+    if let Some(declaring_scope) = scopes {
+        // Templates resolve resources against the lexical scope where they
+        // were declared (WPF semantics), falling back to app resources.
+        let fresh_app = ctx.scopes.app.take();
+        ctx.scopes = declaring_scope.clone();
+        if ctx.scopes.app.is_none() {
+            ctx.scopes.app = fresh_app;
+        }
+    }
     let entity = ctx.spawn_element(node, ParentKind::FlexColumn, None)?;
     for w in std::mem::take(&mut ctx.warnings) {
         bevy::log::warn!("bevy_pf (template): {w}");

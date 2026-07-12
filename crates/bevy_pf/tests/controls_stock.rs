@@ -360,3 +360,63 @@ fn scene_roots_fill_their_container_like_wpf() {
     assert_eq!(node.width, Val::Px(300.0));
     assert_eq!(node.height, Val::Px(200.0));
 }
+
+#[test]
+fn item_template_resolves_page_scoped_resources() {
+    // A keyed style declared in the page's resources must be visible to
+    // {StaticResource} inside a DataTemplate expanded later (WPF lexical
+    // template scope) — templates expand from a scope snapshot, not from a
+    // bare default environment.
+    let mut app = test_app();
+    let vm = Bindable::new(Vm {
+        rows: vec![Row { name: "alpha".into(), size: 1 }],
+    });
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style x:Key="Loud" TargetType="TextBlock">
+                 <Setter Property="Foreground" Value="#FFCC2200"/>
+               </Style>
+             </StackPanel.Resources>
+             <ItemsControl x:Name="I" ItemsSource="{Binding rows}">
+               <ItemsControl.ItemTemplate>
+                 <DataTemplate>
+                   <TextBlock Text="{Binding name}" Style="{StaticResource Loud}"/>
+                 </DataTemplate>
+               </ItemsControl.ItemTemplate>
+             </ItemsControl>
+           </StackPanel>"##,
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm));
+    app.update();
+
+    let host = named(&app, root, "I");
+    let items = children_of(&app, host);
+    assert_eq!(items.len(), 1);
+    // Find the templated TextBlock and check the style applied.
+    fn find_text(app: &App, e: Entity) -> Option<Entity> {
+        if app.world().get::<Text>(e).is_some() {
+            return Some(e);
+        }
+        for c in children_of(app, e) {
+            if let Some(found) = find_text(app, c) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let text = find_text(&app, items[0]).expect("templated text spawned");
+    assert_eq!(app.world().get::<Text>(text).unwrap().0, "alpha");
+    let color = app
+        .world()
+        .get::<bevy::text::TextColor>(text)
+        .expect("styled text has a color")
+        .0;
+    assert_eq!(
+        bevy_pf::instantiate::color_to_hex(color),
+        "#CC2200",
+        "page-scoped keyed style applied inside the template"
+    );
+}
