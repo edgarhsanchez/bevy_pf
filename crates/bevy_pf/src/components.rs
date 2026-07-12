@@ -409,6 +409,21 @@ pub struct PfAutoSuggestInput {
     pub owner: Entity,
 }
 
+/// A templated control's per-expansion namescope: every x:Name inside its
+/// expanded template, keyed by name (WPF `GetTemplateChild`). Includes
+/// non-PART names (Expander's `HeaderSite` style lookups need that).
+/// Upgrade path: seal-time child-index compaction once templates are shared
+/// at scale; a string map is semantically equivalent today.
+#[derive(Component, Debug, Default)]
+pub struct PfTemplateParts(pub HashMap<String, Entity>);
+
+impl PfTemplateParts {
+    /// WPF `GetTemplateChild`.
+    pub fn get(&self, name: &str) -> Option<Entity> {
+        self.0.get(name).copied()
+    }
+}
+
 /// Stamped on every element spawned inside a `ControlTemplate` expansion:
 /// points at the control the template was applied to. (Projected content is
 /// NOT stamped — it belongs to the page, not the template.)

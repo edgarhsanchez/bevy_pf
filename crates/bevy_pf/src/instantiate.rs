@@ -2418,17 +2418,11 @@ impl<'w> Ctx<'w> {
                 | ElemKind::ToggleButton
                 | ElemKind::CheckBox
                 | ElemKind::RadioButton
-                | ElemKind::Label => {
+                | ElemKind::Label
+                | ElemKind::TextBox => {
                     let (template, scopes) =
                         self.pending.control_template.take().expect("checked above");
                     return self.expand_control_template(entity, kind, node, template, scopes);
-                }
-                ElemKind::TextBox => {
-                    self.pending.control_template = None;
-                    self.warn(
-                        "TextBox templating requires PART_ContentHost support; template ignored"
-                            .to_string(),
-                    );
                 }
                 other => {
                     self.pending.control_template = None;
@@ -3089,6 +3083,11 @@ impl<'w> Ctx<'w> {
             self.project_content(entity, kind, node, host)?;
         }
 
+        // Persist the per-expansion namescope (WPF GetTemplateChild).
+        let parts = crate::components::PfTemplateParts(tc.names);
+        self.on_template_applied(entity, kind, node, &parts);
+        self.world.entity_mut(entity).insert(parts);
+
         // Per-kind behavior the default chrome used to set up.
         match kind {
             ElemKind::ToggleButton => self.finish_toggle_button(entity),
@@ -3096,6 +3095,60 @@ impl<'w> Ctx<'w> {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Per-kind wiring after a template expansion (the PART_ contract).
+    /// Runs in the parent frame with the parent's live `pending`, before
+    /// the binding attach — so `pending.text_input` set here preserves the
+    /// TwoWay `Text` -> EditableText contract.
+    fn on_template_applied(
+        &mut self,
+        entity: Entity,
+        kind: ElemKind,
+        node: &XamlNode,
+        parts: &crate::components::PfTemplateParts,
+    ) {
+        let _ = entity;
+        #[allow(clippy::single_match_else, clippy::match_like_matches_macro)]
+        #[allow(clippy::single_match)] // the PART_ table grows per control kind
+        match kind {
+            ElemKind::TextBox => {
+                let Some(host) = parts.get("PART_ContentHost") else {
+                    self.warn(
+                        "templated TextBox has no PART_ContentHost; \
+                         it renders without an editing surface"
+                            .to_string(),
+                    );
+                    return;
+                };
+                let text = match node.attribute("Text") {
+                    Some(value) => {
+                        let value = value.clone();
+                        self.resolve_text_attr(&value).unwrap_or_default()
+                    }
+                    None => String::new(),
+                };
+                let mut editable = bevy::text::EditableText::new(&text);
+                editable.allow_newlines = self.pending.accepts_return;
+                editable.max_characters = self.pending.max_length;
+                let input = self
+                    .world
+                    .spawn((
+                        Node {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        },
+                        editable,
+                        bevy::text::TextColor(convert::color(self.inherited.foreground)),
+                    ))
+                    .id();
+                self.apply_text_font(input);
+                self.pending.text_input = Some(input);
+                self.add_children(host, &[input]);
+            }
+            // Button family and Label define no parts (WPF PART_ table).
+            _ => {}
+        }
     }
 
     /// Remove the built-in chrome from a control whose template replaces it.
@@ -5849,6 +5902,14 @@ impl<'w> Ctx<'w> {
                 kind: host,
                 seen_version: 0,
             });
+            return;
+        }
+        if property == "Text" && kind == ElemKind::TextBox && self.pending.text_input.is_none() {
+            // Only reachable for a templated TextBox missing PART_ContentHost;
+            // binding into the component-less root would be a silent no-op.
+            self.warn(
+                "Text binding skipped: templated TextBox has no PART_ContentHost".to_string(),
+            );
             return;
         }
         let (target_entity, target, default_mode) = match property {

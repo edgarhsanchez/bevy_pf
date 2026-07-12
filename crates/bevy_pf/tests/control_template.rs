@@ -476,7 +476,9 @@ fn template_consumed_paint_is_suppressed_on_root() {
 }
 
 #[test]
-fn templated_textbox_warns_and_keeps_default_chrome() {
+fn templated_textbox_expands_and_strips_chrome() {
+    // Was the phase-2 deferral guard; with PART_ContentHost landed a
+    // hostless template still expands (warning) and strips default chrome.
     let mut app = test_app();
     let (root, warnings) = spawn_collect_warnings(
         &mut app,
@@ -492,11 +494,14 @@ fn templated_textbox_warns_and_keeps_default_chrome() {
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("PART_ContentHost"));
     let tb = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
-    assert!(app.world().get::<BackgroundColor>(tb).is_some(), "default chrome kept");
+    assert!(app.world().get::<BackgroundColor>(tb).is_none(), "chrome stripped");
+    let node = app.world().get::<Node>(tb).unwrap();
+    assert_eq!(node.padding, UiRect::ZERO);
+    assert!(node.min_width != Val::Auto, "sizing defaults retained");
     assert!(
         app.world()
             .get::<bevy_pf::components::PfTemplatedControl>(tb)
-            .is_none()
+            .is_some()
     );
 }
 
@@ -727,4 +732,140 @@ fn dependent_despawn_is_pruned_not_panicked() {
         deps.0.iter().all(|(_, child, _)| *child != border),
         "stale links pruned"
     );
+}
+
+// ---------------------------------------------------------------------
+// Phase 4: PfTemplateParts namescope + PART_ContentHost (TextBox).
+// ---------------------------------------------------------------------
+
+#[test]
+fn templated_textbox_edits_inside_part_content_host() {
+    #[derive(bevy::reflect::Reflect, Default)]
+    struct Vm {
+        query: String,
+    }
+    let mut app = test_app();
+    let vm = Bindable::new(Vm { query: "start".into() });
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBox x:Name="T" Text="{Binding query}">
+               <TextBox.Template>
+                 <ControlTemplate TargetType="TextBox">
+                   <Border x:Name="border" Background="{TemplateBinding Background}"
+                           BorderThickness="{TemplateBinding BorderThickness}">
+                     <Border x:Name="PART_ContentHost"/>
+                   </Border>
+                 </ControlTemplate>
+               </TextBox.Template>
+             </TextBox>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let tb = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+
+    // The editing surface lives under the PART.
+    let parts = app
+        .world()
+        .get::<bevy_pf::components::PfTemplateParts>(tb)
+        .expect("parts map present");
+    let host = parts.get("PART_ContentHost").expect("part resolves");
+    let input = app
+        .world()
+        .get::<Children>(host)
+        .and_then(|c| c.iter().next())
+        .expect("editable child under the host");
+    assert!(app.world().get::<bevy::text::EditableText>(input).is_some());
+
+    // The TwoWay Text binding still round-trips through the templated input.
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+    let shown = app
+        .world()
+        .get::<bevy::text::EditableText>(input)
+        .unwrap()
+        .editor()
+        .text()
+        .to_string();
+    assert_eq!(shown, "start", "binding applied into templated input");
+    app.world_mut()
+        .get_mut::<bevy::text::EditableText>(input)
+        .unwrap()
+        .editor
+        .set_text("typed");
+    app.update();
+    let value = vm
+        .read_path("query")
+        .map(|v| v.to_display())
+        .unwrap_or_default();
+    assert_eq!(value, "typed", "write-back from templated input");
+}
+
+#[test]
+fn templated_textbox_without_part_degrades_with_warnings() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBox x:Name="T" Text="{Binding query}">
+               <TextBox.Template>
+                 <ControlTemplate TargetType="TextBox"><Border/></ControlTemplate>
+               </TextBox.Template>
+             </TextBox>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(warnings.iter().any(|w| w.contains("no PART_ContentHost")));
+    assert!(warnings.iter().any(|w| w.contains("Text binding skipped")));
+    let tb = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+    // Still templated, still rendering — just no editing surface, and no
+    // binding mis-attached to the root.
+    assert!(
+        app.world()
+            .get::<bevy_pf::components::PfTemplatedControl>(tb)
+            .is_some()
+    );
+    assert!(app.world().get::<bevy_pf::PfBindings>(tb).is_none());
+}
+
+#[test]
+fn template_parts_are_per_instance_and_take_any_name() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style TargetType="Button">
+                 <Setter Property="Template">
+                   <Setter.Value>
+                     <ControlTemplate TargetType="Button">
+                       <Border x:Name="HeaderSite"><ContentPresenter/></Border>
+                     </ControlTemplate>
+                   </Setter.Value>
+                 </Setter>
+               </Style>
+             </StackPanel.Resources>
+             <Button x:Name="A" Content="a"/>
+             <Button x:Name="B" Content="b"/>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (a, b) = (names.get("A").unwrap(), names.get("B").unwrap());
+    let pa = app
+        .world()
+        .get::<bevy_pf::components::PfTemplateParts>(a)
+        .unwrap()
+        .get("HeaderSite")
+        .unwrap();
+    let pb = app
+        .world()
+        .get::<bevy_pf::components::PfTemplateParts>(b)
+        .unwrap()
+        .get("HeaderSite")
+        .unwrap();
+    assert_ne!(pa, pb, "per-instance namescopes");
 }
