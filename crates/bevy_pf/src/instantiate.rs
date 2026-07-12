@@ -1895,6 +1895,17 @@ impl<'w> Ctx<'w> {
         // Attached property elements of another owner (rare) and content-like
         // property elements are handled by kind-specific code; everything else
         // is a structured value (brush, style, ...) applied as a property.
+        if pe.name == "VisualStateGroups" {
+            // Consumed into PfControlTemplate.state_groups at parse time;
+            // outside a template they have no host to drive.
+            if self.template_ctx.is_empty() {
+                self.warn(format!(
+                    "{}: VisualStateGroups outside a ControlTemplate are ignored",
+                    pe.pos
+                ));
+            }
+            return;
+        }
         if pe.name == "Triggers" {
             // Element-scope triggers: WPF only allows EventTriggers here.
             let mut launchers = Vec::new();
@@ -3297,6 +3308,16 @@ impl<'w> Ctx<'w> {
         // Persist the per-expansion namescope (WPF GetTemplateChild).
         let parts = crate::components::PfTemplateParts(tc.names);
         self.on_template_applied(entity, kind, node, &parts);
+        if !template.state_groups.is_empty() {
+            let count = template.state_groups.len();
+            self.world.entity_mut(entity).insert(
+                crate::animation::PfVisualStates {
+                    groups: template.state_groups.clone(),
+                    current: vec![None; count],
+                    touched: vec![Vec::new(); count],
+                },
+            );
+        }
         if !template.triggers.is_empty() {
             self.attach_triggers(entity, &template.triggers, Some(&parts));
         }

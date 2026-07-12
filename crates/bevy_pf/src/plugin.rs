@@ -46,6 +46,7 @@ impl Plugin for PfUiPlugin {
             Update,
             (
                 crate::animation::start_pending_storyboards,
+                crate::animation::drive_visual_states,
                 crate::animation::tick_animations,
             )
                 .chain(),

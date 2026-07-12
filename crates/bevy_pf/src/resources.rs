@@ -49,6 +49,8 @@ pub struct PfControlTemplate {
     pub root: Arc<XamlNode>,
     /// From `<ControlTemplate.Triggers>`.
     pub triggers: Vec<PfTrigger>,
+    /// `<VisualStateManager.VisualStateGroups>` on the template root.
+    pub state_groups: Vec<crate::animation::PfVisualStateGroup>,
 }
 
 /// A parsed WPF `Style`: target type plus setters and triggers (BasedOn is
@@ -358,10 +360,55 @@ pub fn parse_resource_value(
                     }
                 }
             }
+            // VSM groups live as an attached property element on the
+            // template's visual root.
+            let mut state_groups = Vec::new();
+            if let Some(pe) = root
+                .property_elements
+                .iter()
+                .find(|p| p.name == "VisualStateGroups")
+            {
+                for group in pe.elements() {
+                    if group.name != "VisualStateGroup" {
+                        continue;
+                    }
+                    let name = group
+                        .x_name
+                        .clone()
+                        .unwrap_or_else(|| "CommonStates".to_string());
+                    let mut states = Vec::new();
+                    for state in group.child_elements() {
+                        match state.name.as_str() {
+                            "VisualState" => {
+                                let storyboard = state
+                                    .child_elements()
+                                    .find(|c| c.name == "Storyboard")
+                                    .map(|sb| parse_storyboard(sb, warnings))
+                                    .transpose()?
+                                    .map(Arc::new);
+                                states.push(crate::animation::PfVisualState {
+                                    name: state.x_name.clone().unwrap_or_default(),
+                                    storyboard,
+                                });
+                            }
+                            "VisualStateGroup.Transitions" | "VisualTransition" => {
+                                warnings.push(format!(
+                                    "{}: VisualTransitions are not supported yet; \
+                                     states switch instantly",
+                                    state.pos
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+                    state_groups.push(crate::animation::PfVisualStateGroup { name, states });
+                }
+            }
             PfValue::ControlTemplate(Arc::new(PfControlTemplate {
                 target_type,
                 root: Arc::new(root.clone()),
                 triggers,
+                state_groups,
             }))
         }
         // `<Geometry x:Key="X">M 0,0 ...</Geometry>` — mini-language text.

@@ -192,6 +192,32 @@ pub enum PfFill {
     Stop,
 }
 
+/// A `<VisualStateGroup>` parsed from a ControlTemplate.
+#[derive(Debug, Clone)]
+pub struct PfVisualStateGroup {
+    pub name: String,
+    pub states: Vec<PfVisualState>,
+}
+
+/// A `<VisualState>`: entering it starts its storyboard; leaving stops it
+/// and reverts the animated values structurally.
+#[derive(Debug, Clone)]
+pub struct PfVisualState {
+    pub name: String,
+    pub storyboard: Option<std::sync::Arc<PfStoryboard>>,
+}
+
+/// Visual states attached to a templated control; `current` per group.
+#[derive(Component, Debug, Clone)]
+pub struct PfVisualStates {
+    pub groups: Vec<PfVisualStateGroup>,
+    pub current: Vec<Option<String>>,
+    /// Per group: the (target, property) pairs the current state's
+    /// storyboard touched — exact revert on exit, including values a
+    /// HoldEnd retirement left composing after the animation finished.
+    pub touched: Vec<Vec<(Entity, PropertyTarget)>>,
+}
+
 /// An `EventTrigger` carrying a storyboard (style scope or element scope).
 #[derive(Debug, Clone)]
 pub struct PfEventTrigger {
@@ -219,6 +245,9 @@ struct Running {
     auto_reverse: bool,
     fill: PfFill,
     easing: PfEasing,
+    /// VSM ownership: (control, group index) — a state change stops and
+    /// reverts everything its group previously started.
+    tag: Option<(Entity, usize)>,
 }
 
 /// Every animation currently playing.
@@ -234,6 +263,19 @@ pub fn begin_storyboard(
     scope_root: Entity,
     storyboard: &PfStoryboard,
 ) {
+    begin_storyboard_tagged(world, host, scope_root, storyboard, None);
+}
+
+/// [`begin_storyboard`] with a VSM ownership tag. Returns the resolved
+/// (target, property) pairs actually started.
+pub(crate) fn begin_storyboard_tagged(
+    world: &mut World,
+    host: Entity,
+    scope_root: Entity,
+    storyboard: &PfStoryboard,
+    tag: Option<(Entity, usize)>,
+) -> Vec<(Entity, PropertyTarget)> {
+    let mut started = Vec::new();
     let now = world
         .get_resource::<Time>()
         .map(|t| t.elapsed_secs())
@@ -256,9 +298,16 @@ pub fn begin_storyboard(
         let target = match &spec.target_name {
             None => host,
             Some(name) => {
-                let found = names_root
-                    .and_then(|r| world.get::<crate::components::XamlNames>(r))
-                    .and_then(|n| n.get(name));
+                // Template-scope storyboards (VSM) resolve through the
+                // control's per-expansion parts first, then the namescope.
+                let found = world
+                    .get::<crate::components::PfTemplateParts>(scope_root)
+                    .and_then(|p| p.get(name))
+                    .or_else(|| {
+                        names_root
+                            .and_then(|r| world.get::<crate::components::XamlNames>(r))
+                            .and_then(|n| n.get(name))
+                    });
                 match found {
                     Some(e) => e,
                     None => {
@@ -299,6 +348,7 @@ pub fn begin_storyboard(
             .get_resource_or_insert_with(PfRunningAnimations::default)
             .0
             .push(Running {
+                tag,
                 target,
                 prop,
                 from,
@@ -310,7 +360,11 @@ pub fn begin_storyboard(
                 fill: spec.fill,
                 easing: spec.easing,
             });
+        if !started.contains(&(target, prop)) {
+            started.push((target, prop));
+        }
     }
+    started
 }
 
 fn pf_as_f64(v: &PfValue) -> Option<f64> {
@@ -461,6 +515,107 @@ pub fn parse_duration(s: &str) -> Option<f32> {
         ),
         [m, sec] => Some(m.parse::<f32>().ok()? * 60.0 + sec.parse::<f32>().ok()?),
         _ => None,
+    }
+}
+
+/// Stop every animation a `(control, group)` tag owns and revert its
+/// touched properties structurally (clear the Animation tier).
+fn stop_tagged(world: &mut World, tag: (Entity, usize)) {
+    let Some(mut running) = world.remove_resource::<PfRunningAnimations>() else {
+        return;
+    };
+    let mut touched: Vec<(Entity, PropertyTarget)> = Vec::new();
+    running.0.retain(|a| {
+        if a.tag == Some(tag) {
+            if !touched.contains(&(a.target, a.prop)) {
+                touched.push((a.target, a.prop));
+            }
+            false
+        } else {
+            true
+        }
+    });
+    world.insert_resource(running);
+    for (target, prop) in touched {
+        if world.get_entity(target).is_err() {
+            continue;
+        }
+        if let Some(mut store) = world.get_mut::<provider::PfPropertyStore>(target) {
+            store.clear(prop, ValueSource::Animation);
+        }
+        provider::apply_effective(world, target, prop);
+    }
+}
+
+/// WPF `VisualStateManager.GoToState`: leave the group's current state
+/// (stop + revert its storyboard) and enter the named one.
+pub fn go_to_state(world: &mut World, control: Entity, group: &str, state: &str) -> bool {
+    let Some(states) = world.get::<PfVisualStates>(control) else {
+        return false;
+    };
+    let Some(gi) = states.groups.iter().position(|g| g.name == group) else {
+        return false;
+    };
+    if states.current[gi].as_deref() == Some(state) {
+        return true; // already there
+    }
+    let Some(target_state) = states.groups[gi].states.iter().find(|s| s.name == state) else {
+        return false;
+    };
+    let storyboard = target_state.storyboard.clone();
+    let previously_touched = states.touched.get(gi).cloned().unwrap_or_default();
+
+    // Leave the old state: drop its running animations AND revert every
+    // property it touched (a HoldEnd value outlives its animation).
+    stop_tagged(world, (control, gi));
+    for (target, prop) in previously_touched {
+        if world.get_entity(target).is_err() {
+            continue;
+        }
+        if let Some(mut store) = world.get_mut::<provider::PfPropertyStore>(target) {
+            store.clear(prop, ValueSource::Animation);
+        }
+        provider::apply_effective(world, target, prop);
+    }
+
+    let touched = match storyboard {
+        Some(sb) => begin_storyboard_tagged(world, control, control, &sb, Some((control, gi))),
+        None => Vec::new(),
+    };
+    if let Some(mut states) = world.get_mut::<PfVisualStates>(control) {
+        states.current[gi] = Some(state.to_string());
+        if states.touched.len() <= gi {
+            states.touched.resize(gi + 1, Vec::new());
+        }
+        states.touched[gi] = touched;
+    }
+    true
+}
+
+/// Drive `CommonStates` (Normal/MouseOver/Pressed/Disabled) and
+/// `CheckStates` (Checked/Unchecked) from ECS state, WPF-priority order.
+pub(crate) fn drive_visual_states(world: &mut World) {
+    let mut q = world.query_filtered::<Entity, With<PfVisualStates>>();
+    let controls: Vec<Entity> = q.iter(world).collect();
+    for control in controls {
+        let disabled = world
+            .get::<bevy::ui::InteractionDisabled>(control)
+            .is_some();
+        let interaction = world.get::<Interaction>(control).copied();
+        let checked = world.get::<bevy::ui::Checked>(control).is_some();
+
+        let common = if disabled {
+            "Disabled"
+        } else {
+            match interaction {
+                Some(Interaction::Pressed) => "Pressed",
+                Some(Interaction::Hovered) => "MouseOver",
+                _ => "Normal",
+            }
+        };
+        let check = if checked { "Checked" } else { "Unchecked" };
+        go_to_state(world, control, "CommonStates", common);
+        go_to_state(world, control, "CheckStates", check);
     }
 }
 

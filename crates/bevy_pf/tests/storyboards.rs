@@ -212,3 +212,89 @@ fn style_event_trigger_and_repeat_forever() {
     let a = bg_alpha(&app, pulse);
     assert!((0.0..=1.0).contains(&a), "still animating in range");
 }
+
+// ---------------------------------------------------------------------
+// VisualStateManager over the storyboard core.
+// ---------------------------------------------------------------------
+
+#[test]
+fn visual_states_drive_hover_and_revert() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button x:Name="B" Content="Go">
+               <Button.Template>
+                 <ControlTemplate TargetType="Button">
+                   <Border x:Name="chrome" Background="#FFE1E1E1">
+                     <VisualStateManager.VisualStateGroups>
+                       <VisualStateGroup x:Name="CommonStates">
+                         <VisualState x:Name="Normal"/>
+                         <VisualState x:Name="MouseOver">
+                           <Storyboard>
+                             <ColorAnimation Storyboard.TargetName="chrome"
+                                             Storyboard.TargetProperty="Background"
+                                             To="#FFBEE6FD" Duration="0:0:0.1"/>
+                           </Storyboard>
+                         </VisualState>
+                         <VisualState x:Name="Pressed">
+                           <Storyboard>
+                             <ColorAnimation Storyboard.TargetName="chrome"
+                                             Storyboard.TargetProperty="Background"
+                                             To="#FFC4E5F6" Duration="0:0:0.1"/>
+                           </Storyboard>
+                         </VisualState>
+                       </VisualStateGroup>
+                     </VisualStateManager.VisualStateGroups>
+                     <ContentPresenter/>
+                   </Border>
+                 </ControlTemplate>
+               </Button.Template>
+             </Button>
+           </StackPanel>"##,
+    );
+    let button = named(&app, root, "B");
+    let chrome = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    app.update(); // enter Normal
+    advance(&mut app, 0.2);
+    let rest = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!((rest.red - 0.882).abs() < 0.02, "Normal keeps the template value");
+
+    // Hover: MouseOver state animates the chrome.
+    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    advance(&mut app, 0.05); // state switch + animation start
+    advance(&mut app, 0.2); // finish the 0.1s transition
+    let hover = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(hover.blue > 0.95, "MouseOver brush, got {hover:?}");
+
+    // Press: switching states stops+reverts the old before the new runs.
+    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    advance(&mut app, 0.05); // state switch + animation start
+    advance(&mut app, 0.2); // transition completes
+    let pressed = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(
+        (pressed.red - 0.769).abs() < 0.03,
+        "Pressed brush, got {pressed:?}"
+    );
+
+    // Release to rest: Normal has no storyboard — the group reverts the
+    // Animation tier and the template literal shows again.
+    app.world_mut().entity_mut(button).insert(Interaction::None);
+    advance(&mut app, 0.05);
+    advance(&mut app, 0.2);
+    let back = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!((back.red - 0.882).abs() < 0.02, "reverted, got {back:?}");
+
+    // GoToState from Rust.
+    assert!(bevy_pf::animation::go_to_state(
+        app.world_mut(),
+        button,
+        "CommonStates",
+        "Pressed"
+    ));
+}
