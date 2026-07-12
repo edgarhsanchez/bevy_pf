@@ -1931,6 +1931,7 @@ impl<'w> Ctx<'w> {
             "IsOn" | "IsChecked" if kind == ElemKind::ToggleSwitch => {}
             "Value" | "Minimum" | "Maximum" | "Increment" | "FormatString"
                 if kind == ElemKind::NumericUpDown => {}
+            "Watermark" | "PlaceholderText" if kind == ElemKind::TextBox => {}
             "Value" | "Maximum" if kind == ElemKind::RatingBar => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
@@ -2359,6 +2360,41 @@ impl<'w> Ctx<'w> {
                 self.apply_text_font(input);
                 self.pending.text_input = Some(input);
                 self.add_children(entity, &[input]);
+                // Toolkit watermark/placeholder: grey overlay while empty.
+                let watermark = node
+                    .attribute("Watermark")
+                    .or_else(|| node.attribute("PlaceholderText"));
+                if let Some(XamlValue::Str(w)) = watermark {
+                    let w = w.clone();
+                    let label = self.spawn_text_child(w);
+                    self.world.entity_mut(label).insert((
+                        bevy::text::TextColor(Color::srgb_u8(0x9A, 0x9A, 0x9A)),
+                        bevy::picking::Pickable::IGNORE,
+                    ));
+                    let overlay = self
+                        .world
+                        .spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(4.0),
+                                top: Val::Px(2.0),
+                                display: if text.is_empty() {
+                                    Display::Flex
+                                } else {
+                                    Display::None
+                                },
+                                ..Default::default()
+                            },
+                            BackgroundColor(Color::NONE),
+                            bevy::picking::Pickable::IGNORE,
+                        ))
+                        .id();
+                    self.world.entity_mut(overlay).add_children(&[label]);
+                    self.add_children(entity, &[overlay]);
+                    self.world.entity_mut(entity).insert(
+                        crate::components::PfWatermark { overlay },
+                    );
+                }
             }
             ElemKind::Slider => {
                 let pending = self.pending.clone();

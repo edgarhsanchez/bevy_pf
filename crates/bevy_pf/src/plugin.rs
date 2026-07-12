@@ -114,6 +114,9 @@ impl Plugin for PfUiPlugin {
 
 /// Keep toolkit-control visuals in sync with their state components.
 fn toolkit_control_sync(
+    watermarks: Query<(Entity, &crate::components::PfWatermark)>,
+    editables: Query<&bevy::text::EditableText>,
+    children_q: Query<&Children>,
     switches: Query<(Entity, &crate::components::PfToggleSwitch)>,
     checked: Query<Has<bevy::ui::Checked>>,
     numerics: Query<&crate::components::PfNumericUpDown, Changed<crate::components::PfNumericUpDown>>,
@@ -123,6 +126,22 @@ fn toolkit_control_sync(
     mut colors: Query<&mut BackgroundColor>,
     mut texts: Query<&mut bevy::ui::widget::Text>,
 ) {
+    for (entity, watermark) in &watermarks {
+        // Hide the placeholder as soon as the editable child has content.
+        let has_text = children_q.get(entity).ok().and_then(|kids| {
+            kids.iter()
+                .find_map(|k| editables.get(k).ok())
+                .map(|e| !e.editor().text().to_string().is_empty())
+        });
+        if let Some(has_text) = has_text
+            && let Ok(mut n) = nodes.get_mut(watermark.overlay)
+        {
+            let target = if has_text { Display::None } else { Display::Flex };
+            if n.display != target {
+                n.display = target;
+            }
+        }
+    }
     for (entity, switch) in &switches {
         let on = checked.get(entity).unwrap_or(false);
         if let Ok(mut n) = nodes.get_mut(switch.thumb) {
