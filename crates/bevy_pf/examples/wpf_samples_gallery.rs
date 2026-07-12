@@ -141,6 +141,8 @@ fn main() {
                         <TextBlock FontWeight="Bold" Text="Resources" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="DefiningResources.xaml" Margin="12,2,0,0">DefiningResources</Hyperlink>
                         <Hyperlink NavigateUri="MergedResources.xaml" Margin="12,2,0,0">MergedResources</Hyperlink>
+                        <TextBlock FontWeight="Bold" Text="Styles &amp; Templates" Margin="0,8,0,4"/>
+                        <Hyperlink NavigateUri="StylingAndTemplating.xaml" Margin="12,2,0,0">IntroToStylingAndTemplating</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Sample Applications" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="CalculatorDemo.xaml" Margin="12,2,0,0">CalculatorDemo</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Graphics" Margin="0,8,0,4"/>
@@ -510,6 +512,68 @@ fn main() {
                           </DockPanel>
                         </Border>
                       </Grid>
+                    </Page>"##
+            ),
+        )
+        .register_page(
+            "StylingAndTemplating.xaml",
+            xaml!(
+                // Deviations: the photo ListBox re-template (IsItemsHost +
+                // ScrollViewer-in-template) and the MouseEnter Storyboards
+                // are deferred features; this page keeps the sample's style
+                // pipeline — implicit TextBlock style, BasedOn TitleText
+                // with a gradient Foreground, and an implicit Button style
+                // whose ControlTemplate + triggers restyle every button.
+                r##"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="StylingAndTemplating">
+                      <Page.Resources>
+                        <Style TargetType="TextBlock">
+                          <Setter Property="HorizontalAlignment" Value="Center"/>
+                          <Setter Property="FontSize" Value="14"/>
+                        </Style>
+                        <Style BasedOn="{StaticResource {x:Type TextBlock}}"
+                               TargetType="TextBlock" x:Key="TitleText">
+                          <Setter Property="FontSize" Value="26"/>
+                          <Setter Property="Foreground" Value="#5BCCCC"/>
+                        </Style>
+                        <SolidColorBrush x:Key="Btn.Static" Color="#FFDDDDDD"/>
+                        <SolidColorBrush x:Key="Btn.Hover" Color="#FFBEE6FD"/>
+                        <SolidColorBrush x:Key="Btn.Pressed" Color="#FFC4E5F6"/>
+                        <Style TargetType="Button">
+                          <Setter Property="Background" Value="{StaticResource Btn.Static}"/>
+                          <Setter Property="Padding" Value="10,4"/>
+                          <Setter Property="Template">
+                            <Setter.Value>
+                              <ControlTemplate TargetType="Button">
+                                <Border x:Name="chrome" CornerRadius="10" BorderThickness="2"
+                                        BorderBrush="#FF3C7FB1"
+                                        Background="{TemplateBinding Background}">
+                                  <ContentPresenter Margin="{TemplateBinding Padding}"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                  <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="chrome" Property="Background" Value="{StaticResource Btn.Hover}"/>
+                                  </Trigger>
+                                  <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="chrome" Property="Background" Value="{StaticResource Btn.Pressed}"/>
+                                    <Setter TargetName="chrome" Property="BorderBrush" Value="#FF2C628B"/>
+                                  </Trigger>
+                                </ControlTemplate.Triggers>
+                              </ControlTemplate>
+                            </Setter.Value>
+                          </Setter>
+                        </Style>
+                      </Page.Resources>
+                      <StackPanel Background="White" Margin="16">
+                        <TextBlock Style="{StaticResource TitleText}">Styling and Templating</TextBlock>
+                        <TextBlock Margin="0,6,0,14" TextWrapping="Wrap" MaxWidth="480">Every TextBlock picks up the implicit style; the title extends it via BasedOn. Every Button below is re-templated by an implicit style: rounded chrome, TemplateBinding Background, and ControlTemplate.Triggers driving hover and press.</TextBlock>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                          <Button Content="Templated" Margin="0,0,10,0"/>
+                          <Button Content="Buttons" Margin="0,0,10,0"/>
+                          <Button Content="Everywhere"/>
+                        </StackPanel>
+                        <TextBlock Margin="0,14,0,0" FontSize="11" Foreground="#FF8A8A8A">Hover and press them — the triggers write through the value store and revert to the template values.</TextBlock>
+                      </StackPanel>
                     </Page>"##
             ),
         )

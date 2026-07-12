@@ -22,6 +22,7 @@ Ported examples keep the original XAML with documented, minimal deviations.
 | Resources / DefiningResources | `--example wpf_samples_gallery` | verbatim (FontFamily attrs kept; Trebuchet resolves via family fallback) |
 | Elements / VisibiltyChanges | `--example wpf_samples_gallery` | Click code-behind -> observers driving the property store's Visibility target |
 | Graphics / ShapeElements (11 pages) | `--example wpf_samples_gallery` | original .xaml via `include_xaml!`; DrawingBrush graph paper -> solid brushes; MiterLimit's ScaleTransform copy at 1x (see examples/xaml/wpf_shapes/README.md) |
+| Styles & Templates / IntroToStylingAndTemplating | `--example wpf_samples_gallery` | photo ListBox re-template (IsItemsHost) + MouseEnter Storyboards deferred; keeps implicit/BasedOn styles and the implicit-Button ControlTemplate with hover/press triggers |
 | Sample Applications / CalculatorDemo | `--example wpf_samples_gallery` | `local:MyTextBox` -> bordered TextBlocks; Click= -> observers; full arithmetic/memory/paper-tape state machine as a resource; gap fixed: MenuItem `IsCheckable` |
 | Resources / MergedResources | `--example wpf_samples_gallery` | `sys:Double`/`sys:String` primitives verbatim; Source= files inlined; dictionary #3 file round-trip -> `merge_application_resources` (DynamicResource Background re-resolves live) |
 | Elements / HeightProperties | `--example wpf_samples_gallery` | SelectionChanged -> a ListBox-selection system; ClipToBounds -> Canvas Overflow clip |
