@@ -31,6 +31,7 @@
 
 pub mod animation;
 pub mod asset;
+pub mod behaviors;
 pub mod binding;
 pub mod components;
 pub mod convert;

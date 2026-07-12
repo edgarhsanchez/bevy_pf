@@ -1712,6 +1712,204 @@ impl<'w> Ctx<'w> {
         }
     }
 
+    /// Parse and wire `<Interaction.Triggers>` behavior triggers.
+    fn apply_behavior_triggers(
+        &mut self,
+        entity: Entity,
+        pe: &bevy_pf_xaml::XamlPropertyElement,
+    ) {
+        use crate::behaviors::PfAction;
+        for trigger in pe.elements() {
+            if trigger.name == "KeyTrigger" {
+                self.warn(format!(
+                    "{}: KeyTrigger is not supported yet (task #39 tail)",
+                    trigger.pos
+                ));
+                continue;
+            }
+            if trigger.name != "EventTrigger" {
+                self.warn(format!(
+                    "{}: behavior trigger `{}` is not supported yet",
+                    trigger.pos, trigger.name
+                ));
+                continue;
+            }
+            let event = match trigger.attribute("EventName") {
+                Some(XamlValue::Str(e)) => e.clone(),
+                _ => {
+                    self.warn(format!(
+                        "{}: behavior EventTrigger needs EventName",
+                        trigger.pos
+                    ));
+                    continue;
+                }
+            };
+
+            let mut actions = Vec::new();
+            for action in trigger.child_elements() {
+                let attr = |name: &str| -> Option<String> {
+                    match action.attribute(name) {
+                        Some(XamlValue::Str(v)) => Some(v.clone()),
+                        _ => None,
+                    }
+                };
+                match action.name.as_str() {
+                    "InvokeCommandAction" => {
+                        let name = match action.attribute("Command") {
+                            Some(XamlValue::Str(c)) => Some(c.clone()),
+                            Some(XamlValue::Extension(ext))
+                                if matches!(
+                                    ext.name.as_str(),
+                                    "Binding" | "x:Bind" | "CompiledBinding"
+                                ) =>
+                            {
+                                Some(crate::binding::parse_binding_extension(ext).path)
+                            }
+                            _ => None,
+                        };
+                        let Some(name) = name else {
+                            self.warn(format!(
+                                "{}: InvokeCommandAction needs Command",
+                                action.pos
+                            ));
+                            continue;
+                        };
+                        let parameter = match action.attribute("CommandParameter") {
+                            Some(XamlValue::Str(p)) => Some(
+                                crate::binding::PfCommandParameter::Literal(p.clone()),
+                            ),
+                            Some(XamlValue::Extension(ext))
+                                if matches!(
+                                    ext.name.as_str(),
+                                    "Binding" | "x:Bind" | "CompiledBinding"
+                                ) =>
+                            {
+                                Some(crate::binding::PfCommandParameter::Path(
+                                    crate::binding::parse_binding_extension(ext).path,
+                                ))
+                            }
+                            _ => None,
+                        };
+                        actions.push(PfAction::InvokeCommand { name, parameter });
+                    }
+                    "ControlStoryboardAction" => {
+                        let sb = match action.attribute("Storyboard") {
+                            Some(XamlValue::Extension(ext)) => static_resource_key(ext)
+                                .ok()
+                                .and_then(|key| self.scopes.lookup(&key).cloned())
+                                .and_then(|v| match v {
+                                    PfValue::Storyboard(sb) => Some(sb),
+                                    _ => None,
+                                }),
+                            _ => None,
+                        };
+                        match sb {
+                            Some(storyboard) => {
+                                actions.push(PfAction::ControlStoryboard { storyboard })
+                            }
+                            None => self.warn(format!(
+                                "{}: ControlStoryboardAction Storyboard resource not found",
+                                action.pos
+                            )),
+                        }
+                    }
+                    "GoToStateAction" => match attr("StateName") {
+                        Some(state) => actions.push(PfAction::GoToState { state }),
+                        None => self.warn(format!(
+                            "{}: GoToStateAction needs StateName",
+                            action.pos
+                        )),
+                    },
+                    "ChangePropertyAction" => {
+                        let (Some(property), Some(value)) =
+                            (attr("PropertyName"), attr("Value"))
+                        else {
+                            self.warn(format!(
+                                "{}: ChangePropertyAction needs PropertyName and Value",
+                                action.pos
+                            ));
+                            continue;
+                        };
+                        actions.push(PfAction::ChangeProperty {
+                            target_name: attr("TargetName"),
+                            property,
+                            value,
+                        });
+                    }
+                    "LaunchUriOrFileAction" => match attr("Path") {
+                        Some(path) => actions.push(PfAction::LaunchUri { path }),
+                        None => self.warn(format!(
+                            "{}: LaunchUriOrFileAction needs Path",
+                            action.pos
+                        )),
+                    },
+                    "PlaySoundAction" => {
+                        self.warn(format!(
+                            "{}: PlaySoundAction is not supported yet (task #39 tail)",
+                            action.pos
+                        ));
+                    }
+                    other => self.warn(format!(
+                        "{}: behavior action `{other}` is not supported yet",
+                        action.pos
+                    )),
+                }
+            }
+            if actions.is_empty() {
+                continue;
+            }
+
+            match event.as_str() {
+                "Loaded" => {
+                    let mut e = self.world.entity_mut(entity);
+                    if let Some(mut pending) =
+                        e.get_mut::<crate::behaviors::PfPendingActions>()
+                    {
+                        pending.0.push(actions);
+                    } else {
+                        e.insert(crate::behaviors::PfPendingActions(vec![actions]));
+                    }
+                }
+                "Click" => {
+                    self.world.entity_mut(entity).observe(
+                        move |click: On<Pointer<Click>>, mut commands: Commands| {
+                            let actions = actions.clone();
+                            let host = click.entity;
+                            commands.queue(move |world: &mut World| {
+                                crate::behaviors::run_actions(world, host, &actions);
+                            });
+                        },
+                    );
+                }
+                "MouseEnter" => {
+                    self.world.entity_mut(entity).observe(
+                        move |over: On<Pointer<Over>>, mut commands: Commands| {
+                            let actions = actions.clone();
+                            let host = over.entity;
+                            commands.queue(move |world: &mut World| {
+                                crate::behaviors::run_actions(world, host, &actions);
+                            });
+                        },
+                    );
+                }
+                "MouseLeave" => {
+                    self.world.entity_mut(entity).observe(
+                        move |out: On<Pointer<Out>>, mut commands: Commands| {
+                            let actions = actions.clone();
+                            let host = out.entity;
+                            commands.queue(move |world: &mut World| {
+                                crate::behaviors::run_actions(world, host, &actions);
+                            });
+                        },
+                    );
+                }
+                other => self.warn(format!(
+                    "behavior EventName `{other}` is not supported yet"
+                )),
+            }
+        }
+    }
+
     /// Wire `EventTrigger` storyboard launchers: `Loaded` defers one frame
     /// (the namescope component must exist); pointer events start on the
     /// corresponding picking observers.
@@ -1904,6 +2102,10 @@ impl<'w> Ctx<'w> {
                     pe.pos
                 ));
             }
+            return;
+        }
+        if pe.name == "Triggers" && pe.owner == "Interaction" {
+            self.apply_behavior_triggers(entity, pe);
             return;
         }
         if pe.name == "Triggers" {
