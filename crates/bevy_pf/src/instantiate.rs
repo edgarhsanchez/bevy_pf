@@ -713,6 +713,16 @@ impl<'w> Ctx<'w> {
         self.insert_defaults(entity, kind, node);
         self.apply_toolkit_presets(entity, kind, node);
 
+        // Inside a ControlTemplate expansion, stamp the templated parent
+        // BEFORE properties/bindings apply (RelativeSource TemplatedParent
+        // resolves at attach time; PART_ lookups and TemplateBinding too).
+        if let Some(tc) = self.template_ctx.last() {
+            let parent = tc.templated_parent;
+            self.world
+                .entity_mut(entity)
+                .insert(crate::components::PfTemplatedParent(parent));
+        }
+
         // WPF arranges a scene's root content with the full window constraint:
         // any root element fills its container. Explicit Width/Height (applied
         // below) still override, exactly like fixed-size WPF content.
@@ -811,15 +821,6 @@ impl<'w> Ctx<'w> {
                     });
                 },
             );
-        }
-
-        // Inside a ControlTemplate expansion, stamp the templated parent
-        // (PART_ lookups, TemplateBinding, future RelativeSource).
-        if let Some(tc) = self.template_ctx.last() {
-            let parent = tc.templated_parent;
-            self.world
-                .entity_mut(entity)
-                .insert(crate::components::PfTemplatedParent(parent));
         }
 
         // Register x:Name. Inside a ControlTemplate expansion, names are
@@ -6220,9 +6221,27 @@ impl<'w> Ctx<'w> {
             v::BindingMode::Default => default_mode,
             explicit => explicit,
         };
-        let source = match spec.element_name {
-            Some(name) => crate::binding::PfBindingSource::Named(name),
-            None => crate::binding::PfBindingSource::DataContext,
+        let source = match (&spec.relative, spec.element_name) {
+            (Some(crate::binding::PfRelativeSource::SelfSource), _) => {
+                crate::binding::PfBindingSource::Element(entity)
+            }
+            (Some(crate::binding::PfRelativeSource::TemplatedParent), _) => {
+                match self
+                    .world
+                    .get::<crate::components::PfTemplatedParent>(entity)
+                {
+                    Some(parent) => crate::binding::PfBindingSource::Element(parent.0),
+                    None => {
+                        self.warn(
+                            "RelativeSource TemplatedParent outside a template; binding skipped"
+                                .to_string(),
+                        );
+                        return;
+                    }
+                }
+            }
+            (None, Some(name)) => crate::binding::PfBindingSource::Named(name),
+            (None, None) => crate::binding::PfBindingSource::DataContext,
         };
         let binding = PfBinding {
             target,

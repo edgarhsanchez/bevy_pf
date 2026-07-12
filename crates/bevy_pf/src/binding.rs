@@ -466,10 +466,19 @@ pub struct BindingSpec {
     pub converter_parameter: Option<String>,
     /// `FallbackValue=` used when the source path fails to resolve.
     pub fallback: Option<String>,
+    /// `RelativeSource={RelativeSource Self|TemplatedParent}`.
+    pub relative: Option<PfRelativeSource>,
     /// The first unsupported argument encountered (`Source`, `Converter`,
     /// `RelativeSource`, ...), if any — such bindings are skipped with a
     /// warning.
     pub unsupported: Option<String>,
+}
+
+/// `RelativeSource=` modes supported so far (AncestorType is tracked work).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PfRelativeSource {
+    SelfSource,
+    TemplatedParent,
 }
 
 /// Parse a `{Binding ...}` markup extension into a spec.
@@ -482,6 +491,7 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
         converter: None,
         converter_parameter: None,
         fallback: None,
+        relative: None,
         unsupported: None,
     };
     for (key, value) in &ext.named {
@@ -509,6 +519,29 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
                 spec.converter_parameter = Some(value_str.to_string());
             }
             "FallbackValue" => spec.fallback = Some(value_str.to_string()),
+            "RelativeSource" => {
+                let mode = match value {
+                    bevy_pf_xaml::markup::MarkupValue::Extension(inner) => inner
+                        .first_positional_str()
+                        .map(|m| m.to_string())
+                        .or_else(|| {
+                            inner.arg("Mode").and_then(|m| m.as_str()).map(String::from)
+                        }),
+                    _ => Some(value_str.to_string()),
+                };
+                match mode.as_deref() {
+                    Some("Self") => spec.relative = Some(PfRelativeSource::SelfSource),
+                    Some("TemplatedParent") => {
+                        spec.relative = Some(PfRelativeSource::TemplatedParent)
+                    }
+                    other => {
+                        if spec.unsupported.is_none() {
+                            spec.unsupported =
+                                Some(format!("RelativeSource {}", other.unwrap_or("?")));
+                        }
+                    }
+                }
+            }
             // Harmless to ignore.
             "UpdateSourceTrigger" | "TargetNullValue" => {}
             other => {

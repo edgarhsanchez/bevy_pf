@@ -308,3 +308,68 @@ fn value_converters_and_fallback() {
     assert_eq!(text(&app, badge), "Collapsed");
     assert_eq!(app.world().get::<Node>(panel).unwrap().display, Display::None);
 }
+
+#[test]
+fn relative_source_self_and_templated_parent() {
+    let mut app = test_app();
+    let vm = Bindable::new(ConvVm { online: true, credits: 5.0 });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <!-- Self: a toggle reporting its own checked state. -->
+             <CheckBox x:Name="Chk" Content="on?" IsChecked="True"/>
+             <TextBlock x:Name="SelfRead"
+                        Text="{Binding IsChecked, RelativeSource={RelativeSource Self}}"/>
+             <!-- TemplatedParent: template chrome reading the control. -->
+             <ToggleButton x:Name="T" Content="pin" IsChecked="True">
+               <ToggleButton.Template>
+                 <ControlTemplate TargetType="ToggleButton">
+                   <Border Background="#FF223344" Padding="4">
+                     <TextBlock x:Name="state"
+                                Text="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}}"/>
+                   </Border>
+                 </ControlTemplate>
+               </ToggleButton.Template>
+             </ToggleButton>
+           </StackPanel>"##,
+        vm,
+    );
+    app.update();
+
+    let toggle = {
+        let names = app.world().get::<XamlNames>(root).unwrap();
+        names.get("T").unwrap()
+    };
+    // Find the templated text (template-internal names are per-expansion).
+    fn find_text(app: &App, e: Entity) -> Option<Entity> {
+        if app.world().get::<bevy::ui::widget::Text>(e).is_some() {
+            return Some(e);
+        }
+        let children: Vec<Entity> = app
+            .world()
+            .get::<Children>(e)
+            .map(|c| c.iter().collect())
+            .unwrap_or_default();
+        children.into_iter().find_map(|c| find_text(app, c))
+    }
+    let chrome_root = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(toggle)
+        .unwrap()
+        .template_root;
+    let state_text = find_text(&app, chrome_root).unwrap();
+    assert_eq!(
+        app.world().get::<bevy::ui::widget::Text>(state_text).unwrap().0,
+        "True",
+        "template chrome reads the templated parent"
+    );
+
+    // Self-source stays live: uncheck -> re-renders.
+    app.world_mut().entity_mut(toggle).remove::<bevy::ui::Checked>();
+    app.update();
+    assert_eq!(
+        app.world().get::<bevy::ui::widget::Text>(state_text).unwrap().0,
+        "False"
+    );
+}
