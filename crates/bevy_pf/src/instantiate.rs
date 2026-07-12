@@ -205,6 +205,7 @@ enum ElemKind {
     ColorPicker,
     AutoSuggestBox,
     NavigationView,
+    ContentPresenter,
     Unknown,
 }
 
@@ -268,6 +269,7 @@ impl ElemKind {
             "ColorPicker" => Self::ColorPicker,
             "AutoSuggestBox" => Self::AutoSuggestBox,
             "NavigationView" | "HamburgerMenu" => Self::NavigationView,
+            "ContentPresenter" => Self::ContentPresenter,
             _ => Self::Unknown,
         }
     }
@@ -276,9 +278,8 @@ impl ElemKind {
     fn as_parent(self, orientation: v::Orientation) -> ParentKind {
         match self {
             Self::Grid | Self::Root | Self::Border | Self::Button | Self::ToggleButton
-            | Self::Label | Self::ScrollViewer | Self::ListBoxItem | Self::UniformGrid => {
-                ParentKind::Grid
-            }
+            | Self::Label | Self::ScrollViewer | Self::ListBoxItem | Self::UniformGrid
+            | Self::ContentPresenter => ParentKind::Grid,
             Self::StackPanel | Self::WrapPanel | Self::DockPanel => match orientation {
                 v::Orientation::Vertical => ParentKind::FlexColumn,
                 v::Orientation::Horizontal => ParentKind::FlexRow,
@@ -455,6 +456,15 @@ impl<'a> Resolved<'a> {
     }
 }
 
+/// One in-flight ControlTemplate expansion (see `Ctx::template_ctx`).
+struct TemplateCtx {
+    /// Per-expansion namescope: template-internal x:Names land here, never
+    /// in the page registry (each expansion re-uses the same names).
+    names: bevy::platform::collections::HashMap<String, Entity>,
+    /// The first ContentPresenter spawned during the expansion.
+    content_host: Option<Entity>,
+}
+
 struct Ctx<'w> {
     world: &'w mut World,
     scopes: ResourceScopes,
@@ -467,6 +477,10 @@ struct Ctx<'w> {
     /// The value-provider tier the current property writes land at
     /// (`Local` for attributes, `Style` while applying style setters).
     tier: crate::provider::ValueSource,
+    /// Active ControlTemplate expansions (top = innermost). While non-empty,
+    /// x:Name registrations divert into the top scope, and a
+    /// ContentPresenter records itself as the content host.
+    template_ctx: Vec<TemplateCtx>,
     /// Directory stack for resolving relative `Source=` uris while loading
     /// nested merged dictionaries.
     base_stack: Vec<String>,
@@ -495,6 +509,7 @@ impl<'w> Ctx<'w> {
             binding_entities: Vec::new(),
             env: env.clone(),
             tier: crate::provider::ValueSource::Local,
+            template_ctx: Vec::new(),
             base_stack: vec![env.base_dir.clone()],
             merge_path: std::collections::HashSet::new(),
             merged_cache: std::collections::HashMap::new(),
@@ -764,10 +779,16 @@ impl<'w> Ctx<'w> {
             self.attach_binding(entity, kind, &property, spec);
         }
 
-        // Register x:Name.
+        // Register x:Name. Inside a ControlTemplate expansion, names are
+        // per-expansion (never the page registry, and no PfName: a global
+        // by-name query must not surface template internals).
         if let Some(name) = &node.x_name {
-            self.names.push((name.clone(), entity));
-            self.world.entity_mut(entity).insert(PfName(name.clone()));
+            if let Some(tc) = self.template_ctx.last_mut() {
+                tc.names.insert(name.clone(), entity);
+            } else {
+                self.names.push((name.clone(), entity));
+                self.world.entity_mut(entity).insert(PfName(name.clone()));
+            }
         }
 
         // x:Uid: a stable identity, queryable like x:Name but never scoped.
@@ -1088,6 +1109,7 @@ impl<'w> Ctx<'w> {
                 display: Display::Grid,
                 ..Default::default()
             },
+            ElemKind::ContentPresenter => single_cell(),
             ElemKind::TextBlock | ElemKind::Image | ElemKind::Shape | ElemKind::Unknown => {
                 Node::default()
             }
@@ -2020,6 +2042,14 @@ impl<'w> Ctx<'w> {
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
             "SelectedTime" if kind == ElemKind::TimePicker => {}
+            "ContentSource" | "RecognizesAccessKey" | "ContentTemplate"
+            | "ContentTemplateSelector" | "ContentStringFormat"
+                if kind == ElemKind::ContentPresenter =>
+            {
+                self.warn(format!(
+                    "ContentPresenter {name}= is not supported yet; ignored"
+                ));
+            }
             "Kind" | "Symbol" | "Glyph" if kind == ElemKind::PackIcon => {}
             "SelectedColor" if kind == ElemKind::ColorPicker => {}
             "Suggestions" | "QueryIcon" | "PlaceholderText"
@@ -2364,6 +2394,35 @@ impl<'w> Ctx<'w> {
         kind: ElemKind,
         node: &XamlNode,
     ) -> Result<(), PfError> {
+        // A ControlTemplate replaces the default chrome of template-capable
+        // controls. Move the payload out of pending first: no borrow may be
+        // held across the &mut self expansion.
+        if self.pending.control_template.is_some() {
+            match kind {
+                ElemKind::Button
+                | ElemKind::ToggleButton
+                | ElemKind::CheckBox
+                | ElemKind::RadioButton
+                | ElemKind::Label => {
+                    let (template, scopes) =
+                        self.pending.control_template.take().expect("checked above");
+                    return self.expand_control_template(entity, kind, node, template, scopes);
+                }
+                ElemKind::TextBox => {
+                    self.pending.control_template = None;
+                    self.warn(
+                        "TextBox templating requires PART_ContentHost support; template ignored"
+                            .to_string(),
+                    );
+                }
+                other => {
+                    self.pending.control_template = None;
+                    self.warn(format!(
+                        "Template on `{other:?}` is not supported yet; template ignored"
+                    ));
+                }
+            }
+        }
         match kind {
             ElemKind::TextBlock => {
                 // WPF inlines with anchors: flow text runs and Hyperlinks as
@@ -2432,6 +2491,28 @@ impl<'w> Ctx<'w> {
                     } else {
                         self.warn("Image.Source ignored: no AssetServer".to_string());
                     }
+                }
+            }
+            ElemKind::ContentPresenter => {
+                if let Some(tc) = self.template_ctx.last_mut() {
+                    if tc.content_host.is_none() {
+                        tc.content_host = Some(entity);
+                    } else {
+                        self.warn(
+                            "a ControlTemplate projects Content into one ContentPresenter; \
+                             extra presenter left empty"
+                                .to_string(),
+                        );
+                    }
+                    // Content is projected later, in the templated parent's
+                    // frame (its Pending is unreachable here).
+                } else {
+                    self.warn(format!(
+                        "{}: ContentPresenter outside a ControlTemplate is a plain container",
+                        node.pos
+                    ));
+                    let children = self.spawn_child_elements(node, ParentKind::Grid)?;
+                    self.attach_children(entity, &children, ParentKind::Grid);
                 }
             }
             ElemKind::Button | ElemKind::ToggleButton | ElemKind::Label | ElemKind::Root
@@ -2878,6 +2959,141 @@ impl<'w> Ctx<'w> {
     // -----------------------------------------------------------------
 
     /// ContentControl semantics: `Content` attribute, child elements, or text.
+    /// Expand a `ControlTemplate` over a control: strip the default chrome,
+    /// spawn the template subtree at ParentTemplate tier under a fresh
+    /// per-expansion namescope, then project the control's Content into the
+    /// template's ContentPresenter (back in the parent frame, so projected
+    /// content gets Local-tier attrs and the page namescope).
+    fn expand_control_template(
+        &mut self,
+        entity: Entity,
+        kind: ElemKind,
+        node: &XamlNode,
+        template: std::sync::Arc<crate::resources::PfControlTemplate>,
+        scopes: std::sync::Arc<ResourceScopes>,
+    ) -> Result<(), PfError> {
+        self.strip_default_chrome(entity);
+
+        // Template literals land at ParentTemplate (9): below Local, above
+        // Style — template triggers (tier 10) override them and revert to
+        // them on deactivation.
+        let saved_tier = self.tier;
+        self.tier = crate::provider::ValueSource::ParentTemplate;
+        self.template_ctx.push(TemplateCtx {
+            names: Default::default(),
+            content_host: None,
+        });
+        // The template resolves resources against its declaring scope (app
+        // tier backfilled), not the instantiation site's.
+        let mut template_scopes = (*scopes).clone();
+        if template_scopes.app.is_none() {
+            template_scopes.app = self.scopes.app.clone();
+        }
+        let saved_scopes = std::mem::replace(&mut self.scopes, template_scopes);
+
+        let parent_kind = kind.as_parent(self.orientation_of(node));
+        let spawned = self.spawn_element(&template.root, parent_kind, None);
+
+        self.scopes = saved_scopes;
+        let tc = self.template_ctx.pop().expect("pushed above");
+        self.tier = saved_tier;
+        let root_child = spawned?;
+
+        self.add_children(entity, &[root_child]);
+        self.world
+            .entity_mut(entity)
+            .insert(crate::components::PfTemplatedControl {
+                template_root: root_child,
+            });
+
+        // Project Content. Without a presenter, content simply does not
+        // render (WPF semantics).
+        if let Some(host) = tc.content_host {
+            self.project_content(entity, kind, node, host)?;
+        }
+
+        // Per-kind behavior the default chrome used to set up.
+        match kind {
+            ElemKind::ToggleButton => self.finish_toggle_button(entity),
+            ElemKind::CheckBox | ElemKind::RadioButton => self.toggle_behavior(entity, kind),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Remove the built-in chrome from a control whose template replaces it.
+    /// Kept on the root: Node, PfElementKind, Button marker + Interaction,
+    /// PfToggleButton, names, store writes, binding contracts.
+    fn strip_default_chrome(&mut self, entity: Entity) {
+        use crate::provider::{PropertyTarget, ValueSource};
+        // The Default-tier chrome seeds exist to restore default chrome on
+        // trigger revert — exactly wrong once chrome is templated.
+        if let Some(mut store) = self
+            .world
+            .get_mut::<crate::provider::PfPropertyStore>(entity)
+        {
+            store.clear(PropertyTarget::Background, ValueSource::Default);
+            store.clear(PropertyTarget::BorderBrush, ValueSource::Default);
+        }
+        let mut e = self.world.entity_mut(entity);
+        e.remove::<BackgroundColor>();
+        e.remove::<BorderColor>();
+        e.remove::<ButtonVisual>();
+        // Padding/border reach the visuals only via TemplateBinding in WPF,
+        // and bevy_ui border width takes layout space even without a color.
+        // min_width/min_height stay: control sizing defaults, not chrome.
+        if let Some(mut n) = self.world.get_mut::<Node>(entity) {
+            n.padding = UiRect::ZERO;
+            n.border = UiRect::ZERO;
+            // Default (= stretch for grid children): the template root fills
+            // the control instead of centering like default Button content.
+            n.justify_items = JustifyItems::Default;
+            n.align_items = AlignItems::Default;
+        }
+    }
+
+    /// Project the control's Content under the template's ContentPresenter.
+    /// Runs in the parent frame (template ctx popped): projected content
+    /// gets Local-tier attrs, the enclosing namescope, and a live
+    /// `pending.content_text` for the Content binding attach.
+    fn project_content(
+        &mut self,
+        entity: Entity,
+        kind: ElemKind,
+        node: &XamlNode,
+        host: Entity,
+    ) -> Result<(), PfError> {
+        let _ = entity;
+        // Approximated content alignment (WPF: TemplateBinding
+        // H/VContentAlignment with per-control defaults; alignment property
+        // targets do not exist yet): Button centers, the rest lead-align.
+        {
+            let mut n = self.node_mut(host);
+            if matches!(kind, ElemKind::Button | ElemKind::ToggleButton) {
+                n.justify_items = JustifyItems::Center;
+                n.align_items = AlignItems::Center;
+            } else {
+                n.justify_items = JustifyItems::Start;
+                n.align_items = AlignItems::Center;
+            }
+        }
+        let has_content_binding = self.pending.bindings.iter().any(|(p, _)| p == "Content");
+        if has_content_binding {
+            let child = self.spawn_text_child(String::new());
+            self.pending.content_text = Some(child);
+            self.add_children(host, &[child]);
+        } else if let Some(value) = node.attribute("Content").cloned() {
+            if let Some(text) = self.resolve_text_attr(&value) {
+                let child = self.spawn_text_child(text);
+                self.add_children(host, &[child]);
+            }
+        } else {
+            let children = self.spawn_child_elements(node, ParentKind::Grid)?;
+            self.add_children(host, &children);
+        }
+        Ok(())
+    }
+
     fn spawn_content_control_children(
         &mut self,
         entity: Entity,
@@ -2986,15 +3202,26 @@ impl<'w> Ctx<'w> {
             self.add_children(entity, &children);
         }
 
+        self.world.entity_mut(entity).insert(PfCheckVisual {
+            box_node,
+            glyph,
+            accent_fills_box: !is_radio,
+        });
+        self.toggle_behavior(entity, kind);
+        Ok(())
+    }
+
+    /// The behavioral half of CheckBox/RadioButton — always runs, templated
+    /// or not: `Interaction` (trigger conditions and click observers bind to
+    /// the root and are inserted nowhere else), the `Checked` seed, and the
+    /// group/self-update click wiring.
+    fn toggle_behavior(&mut self, entity: Entity, kind: ElemKind) {
+        let pending = self.pending.clone();
+        let checked = pending.is_checked.unwrap_or(false);
+        let is_radio = kind == ElemKind::RadioButton;
+
         let mut e = self.world.entity_mut(entity);
-        e.insert((
-            Interaction::default(),
-            PfCheckVisual {
-                box_node,
-                glyph,
-                accent_fills_box: !is_radio,
-            },
-        ));
+        e.insert(Interaction::default());
         if checked {
             e.insert(bevy::ui::Checked);
         }
@@ -3038,7 +3265,6 @@ impl<'w> Ctx<'w> {
                 .entity_mut(entity)
                 .observe(bevy::ui_widgets::checkbox_self_update);
         }
-        Ok(())
     }
 
     fn spawn_slider(&mut self, entity: Entity, pending: &Pending) {

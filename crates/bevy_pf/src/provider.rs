@@ -195,9 +195,38 @@ pub(crate) fn collect_text_entities(world: &World, root: Entity) -> Vec<Entity> 
     out
 }
 
+/// Properties whose rendering a `ControlTemplate` takes over: on a templated
+/// control they reach the visuals only through TemplateBinding, never by
+/// painting the root. Foreground/FontSize are NOT template-consumed (they
+/// inherit to descendant text), nor are Margin/Width/Height/Visibility
+/// (they lay out the control itself in WPF too).
+pub fn is_template_consumed(target: PropertyTarget) -> bool {
+    matches!(
+        target,
+        PropertyTarget::Background
+            | PropertyTarget::BorderBrush
+            | PropertyTarget::BorderThickness
+            | PropertyTarget::Padding
+            | PropertyTarget::CornerRadius
+    )
+}
+
+/// Component/Node application is suppressed for template-consumed targets on
+/// templated roots. The STORE write stays untouched — the stored effective
+/// value is what TemplateBinding forwarding reads.
+fn template_suppressed(world: &World, entity: Entity, target: PropertyTarget) -> bool {
+    is_template_consumed(target)
+        && world
+            .get::<crate::components::PfTemplatedControl>(entity)
+            .is_some()
+}
+
 /// Apply a concrete value to components (the single component-writer for
 /// store-managed properties).
 pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTarget, value: &PfValue) {
+    if template_suppressed(world, entity, target) {
+        return;
+    }
     let as_brush = || -> Option<v::PfBrush> {
         match value {
             PfValue::Brush(b) => Some(b.clone()),
@@ -334,6 +363,9 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
 
 /// Apply the "unset" state (nothing provides a value, or `{x:Null}` wins).
 fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
+    if template_suppressed(world, entity, target) {
+        return;
+    }
     match target {
         PropertyTarget::Background => {
             world

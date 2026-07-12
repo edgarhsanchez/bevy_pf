@@ -409,6 +409,17 @@ pub struct PfAutoSuggestInput {
     pub owner: Entity,
 }
 
+/// A control whose default chrome was replaced by a `ControlTemplate`.
+/// Template-consumed properties (Background, BorderBrush/Thickness,
+/// Padding, CornerRadius) stop painting the root — in WPF they reach the
+/// visuals only through TemplateBinding inside the template.
+#[derive(Component, Debug, Clone)]
+pub struct PfTemplatedControl {
+    /// The expanded template's visual root (despawn handle for template
+    /// re-application / theme swaps).
+    pub template_root: Entity,
+}
+
 /// A checkable `MenuItem` (`IsCheckable="True"`): activation toggles
 /// `Checked` and the check glyph.
 #[derive(Component, Debug, Clone)]

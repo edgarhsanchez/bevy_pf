@@ -132,9 +132,9 @@ fn template_kinds_reject_each_other() {
 }
 
 #[test]
-fn templated_button_stores_and_renders_default_chrome_for_now() {
-    // Phase 1 regression guard: a style-delivered template is recorded and
-    // ignored; the Button renders its default chrome with zero warnings.
+fn style_template_delivery_is_warning_free() {
+    // Originally the phase-1 guard (template recorded, chrome untouched);
+    // with expansion landed it asserts the style channel expands cleanly.
     let mut app = test_app();
     let (root, warnings) = spawn_collect_warnings(
         &mut app,
@@ -157,8 +157,13 @@ fn templated_button_stores_and_renders_default_chrome_for_now() {
     assert_eq!(warnings, Vec::<String>::new());
     let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
     assert!(
-        app.world().get::<bevy_pf::ButtonVisual>(button).is_some(),
-        "default chrome still present until expansion lands"
+        app.world().get::<bevy_pf::ButtonVisual>(button).is_none(),
+        "style-delivered template replaced the default chrome"
+    );
+    assert!(
+        app.world()
+            .get::<bevy_pf::components::PfTemplatedControl>(button)
+            .is_some()
     );
 }
 
@@ -262,4 +267,280 @@ fn style_trigger_target_name_still_skips_with_warning() {
     assert!(matches!(value, Some(PfValue::Style(_))));
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("only valid in ControlTemplate"));
+}
+
+// ---------------------------------------------------------------------
+// Phase 2: expansion — chrome replacement, ContentPresenter, namescopes,
+// paint suppression.
+// ---------------------------------------------------------------------
+
+fn texts_in(app: &App, root: Entity) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(e) = stack.pop() {
+        if let Some(t) = app.world().get::<bevy::ui::widget::Text>(e) {
+            out.push(t.0.clone());
+        }
+        if let Some(children) = app.world().get::<Children>(e) {
+            stack.extend(children.iter());
+        }
+    }
+    out
+}
+
+const BUTTON_TEMPLATE_PAGE: &str = r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <Button x:Name="B" Content="Hi">
+       <Button.Template>
+         <ControlTemplate TargetType="Button">
+           <Border x:Name="border" Background="Red" BorderThickness="2" CornerRadius="6">
+             <ContentPresenter/>
+           </Border>
+         </ControlTemplate>
+       </Button.Template>
+     </Button>
+   </StackPanel>"##;
+
+#[test]
+fn inline_template_replaces_button_chrome() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(&mut app, BUTTON_TEMPLATE_PAGE);
+    assert_eq!(warnings, Vec::<String>::new());
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+
+    // Default chrome gone.
+    assert!(app.world().get::<bevy_pf::ButtonVisual>(button).is_none());
+    assert!(app.world().get::<BackgroundColor>(button).is_none());
+    let node = app.world().get::<Node>(button).unwrap();
+    assert_eq!(node.padding, UiRect::ZERO);
+    assert_eq!(node.border, UiRect::ZERO);
+    // Interaction survives (click observers + triggers bind to the root).
+    assert!(app.world().get::<Interaction>(button).is_some());
+
+    // Template subtree present, literals at ParentTemplate tier.
+    let templated = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .expect("marker present");
+    let border = templated.template_root;
+    assert_eq!(
+        app.world()
+            .get::<bevy_pf::PfElementKind>(border)
+            .unwrap()
+            .0,
+        "Border"
+    );
+    let bg = app.world().get::<BackgroundColor>(border).unwrap().0;
+    assert_eq!(bevy_pf::instantiate::color_to_hex(bg), "#FF0000");
+    let store = app
+        .world()
+        .get::<bevy_pf::PfPropertyStore>(border)
+        .expect("template child has a store");
+    assert_eq!(
+        store.effective_source(bevy_pf::provider::PropertyTarget::Background),
+        Some(bevy_pf::provider::ValueSource::ParentTemplate)
+    );
+
+    // Content projected through the presenter.
+    assert!(texts_in(&app, border).contains(&"Hi".to_string()));
+
+    // Template-internal names are per-expansion: not in the page registry.
+    assert!(app.world().get::<XamlNames>(root).unwrap().get("border").is_none());
+}
+
+#[test]
+fn style_delivered_template_expands_identically() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style TargetType="Button">
+                 <Setter Property="Template">
+                   <Setter.Value>
+                     <ControlTemplate TargetType="Button">
+                       <Border x:Name="border" Background="#336699">
+                         <ContentPresenter/>
+                       </Border>
+                     </ControlTemplate>
+                   </Setter.Value>
+                 </Setter>
+               </Style>
+             </StackPanel.Resources>
+             <Button x:Name="A" Content="one"/>
+             <Button x:Name="B" Content="two"/>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (a, b) = (names.get("A").unwrap(), names.get("B").unwrap());
+    let ra = app.world().get::<bevy_pf::components::PfTemplatedControl>(a).unwrap().template_root;
+    let rb = app.world().get::<bevy_pf::components::PfTemplatedControl>(b).unwrap().template_root;
+    assert_ne!(ra, rb, "each expansion is its own subtree");
+    assert!(texts_in(&app, ra).contains(&"one".to_string()));
+    assert!(texts_in(&app, rb).contains(&"two".to_string()));
+    assert!(names.get("border").is_none(), "shared name never leaks");
+}
+
+#[test]
+fn projected_content_keeps_page_namescope() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button x:Name="B">
+               <Button.Template>
+                 <ControlTemplate TargetType="Button">
+                   <Border><ContentPresenter/></Border>
+                 </ControlTemplate>
+               </Button.Template>
+               <Button.Content>
+                 <TextBlock x:Name="inner" Text="projected"/>
+               </Button.Content>
+             </Button>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let inner = names.get("inner").expect("projected content x:Name is page-scoped");
+    assert_eq!(
+        app.world().get::<bevy::ui::widget::Text>(inner).unwrap().0,
+        "projected"
+    );
+}
+
+#[test]
+fn templated_checkbox_keeps_behavior_loses_box_chrome() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <CheckBox x:Name="C" Content="opt" IsChecked="True">
+               <CheckBox.Template>
+                 <ControlTemplate TargetType="CheckBox">
+                   <Border Background="#EEEEEE"><ContentPresenter/></Border>
+                 </ControlTemplate>
+               </CheckBox.Template>
+             </CheckBox>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let cb = app.world().get::<XamlNames>(root).unwrap().get("C").unwrap();
+    assert!(
+        app.world()
+            .get::<bevy_pf::components::PfCheckVisual>(cb)
+            .is_none(),
+        "box/glyph chrome replaced"
+    );
+    assert!(app.world().get::<Interaction>(cb).is_some(), "behavior kept");
+    assert!(app.world().get::<bevy::ui::Checked>(cb).is_some(), "IsChecked seed kept");
+    let templated = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(cb)
+        .unwrap();
+    assert!(texts_in(&app, templated.template_root).contains(&"opt".to_string()));
+}
+
+#[test]
+fn template_consumed_paint_is_suppressed_on_root() {
+    let mut app = test_app();
+    let (root, _) = spawn_collect_warnings(&mut app, BUTTON_TEMPLATE_PAGE);
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+
+    bevy_pf::provider::set_local(
+        app.world_mut(),
+        button,
+        bevy_pf::provider::PropertyTarget::Background,
+        bevy_pf::resources::PfValue::Color(bevy_pf::xaml_ast::value::PfColor::rgb(0, 0, 255)),
+    );
+    // Store took the write...
+    let store = app.world().get::<bevy_pf::PfPropertyStore>(button).unwrap();
+    assert_eq!(
+        store.effective_source(bevy_pf::provider::PropertyTarget::Background),
+        Some(bevy_pf::provider::ValueSource::Local)
+    );
+    // ...but the root does not paint it (the template owns chrome).
+    assert!(app.world().get::<BackgroundColor>(button).is_none());
+
+    // Padding writes leave the zeroed layout untouched too.
+    bevy_pf::provider::set_local(
+        app.world_mut(),
+        button,
+        bevy_pf::provider::PropertyTarget::Padding,
+        bevy_pf::resources::PfValue::Thickness(bevy_pf::xaml_ast::value::Thickness::uniform(9.0)),
+    );
+    assert_eq!(app.world().get::<Node>(button).unwrap().padding, UiRect::ZERO);
+}
+
+#[test]
+fn templated_textbox_warns_and_keeps_default_chrome() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBox x:Name="T" Text="abc">
+               <TextBox.Template>
+                 <ControlTemplate TargetType="TextBox"><Border/></ControlTemplate>
+               </TextBox.Template>
+             </TextBox>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("PART_ContentHost"));
+    let tb = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+    assert!(app.world().get::<BackgroundColor>(tb).is_some(), "default chrome kept");
+    assert!(
+        app.world()
+            .get::<bevy_pf::components::PfTemplatedControl>(tb)
+            .is_none()
+    );
+}
+
+#[test]
+fn nested_expansions_do_not_cross_contaminate() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style TargetType="CheckBox">
+                 <Setter Property="Template">
+                   <Setter.Value>
+                     <ControlTemplate TargetType="CheckBox">
+                       <Border x:Name="inner-chrome" Background="#DDEEFF">
+                         <ContentPresenter/>
+                       </Border>
+                     </ControlTemplate>
+                   </Setter.Value>
+                 </Setter>
+               </Style>
+             </StackPanel.Resources>
+             <Button x:Name="B" Content="unused">
+               <Button.Template>
+                 <ControlTemplate TargetType="Button">
+                   <Border x:Name="outer-chrome" Background="#112233">
+                     <CheckBox Content="nested"/>
+                   </Border>
+                 </ControlTemplate>
+               </Button.Template>
+             </Button>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    assert!(names.get("outer-chrome").is_none());
+    assert!(names.get("inner-chrome").is_none());
+    let button = names.get("B").unwrap();
+    let outer = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    // The nested templated CheckBox expanded inside the outer template.
+    assert!(texts_in(&app, outer).contains(&"nested".to_string()));
 }
