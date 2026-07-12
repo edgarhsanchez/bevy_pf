@@ -241,3 +241,70 @@ fn element_name_binding_checkbox_to_text() {
     app.update();
     assert_eq!(app.world().get::<Text>(state).unwrap().0, "False");
 }
+
+#[derive(Reflect, Default)]
+struct ConvVm {
+    online: bool,
+    credits: f64,
+}
+
+#[test]
+fn value_converters_and_fallback() {
+    struct Doubler;
+    impl bevy_pf::binding::PfValueConverter for Doubler {
+        fn convert(
+            &self,
+            value: &bevy_pf::BoundValue,
+            parameter: Option<&str>,
+        ) -> Option<bevy_pf::BoundValue> {
+            let factor: f64 = parameter.and_then(|p| p.parse().ok()).unwrap_or(2.0);
+            match value {
+                bevy_pf::BoundValue::Num(n) => Some(bevy_pf::BoundValue::Num(n * factor)),
+                _ => None,
+            }
+        }
+    }
+
+    let mut app = test_app();
+    app.register_converter("Doubler", Doubler);
+    let vm = Bindable::new(ConvVm { online: true, credits: 21.0 });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBlock x:Name="Badge" Text="{Binding online, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+             <Border x:Name="Panel" Background="#FF223344" Width="40" Height="10"
+                     Visibility="{Binding online, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+             <TextBlock x:Name="Credits" Text="{Binding credits, Converter={StaticResource Doubler}, ConverterParameter=3}"/>
+             <TextBlock x:Name="Missing" Text="{Binding no_such_field, FallbackValue=offline}"/>
+           </StackPanel>"##,
+        vm.clone(),
+    );
+    app.update();
+
+    let (badge, credits, missing, panel) = {
+        let names = app.world().get::<XamlNames>(root).unwrap();
+        (
+            names.get("Badge").unwrap(),
+            names.get("Credits").unwrap(),
+            names.get("Missing").unwrap(),
+            names.get("Panel").unwrap(),
+        )
+    };
+    let text = |app: &App, e: Entity| -> String {
+        app.world().get::<bevy::ui::widget::Text>(e).unwrap().0.clone()
+    };
+    // Built-in bool->visibility converter, applied to a text target too.
+    assert_eq!(text(&app, badge), "Visible");
+    // Custom converter with a parameter: 21 * 3.
+    assert_eq!(text(&app, credits), "63");
+    // FallbackValue covers the unresolvable path (no warning spam).
+    assert_eq!(text(&app, missing), "offline");
+    // Visibility target actually toggles layout.
+    assert_ne!(app.world().get::<Node>(panel).unwrap().display, Display::None);
+
+    vm.update(|m: &mut ConvVm| m.online = false);
+    app.update();
+    assert_eq!(text(&app, badge), "Collapsed");
+    assert_eq!(app.world().get::<Node>(panel).unwrap().display, Display::None);
+}

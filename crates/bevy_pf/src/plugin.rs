@@ -39,6 +39,9 @@ impl Plugin for PfUiPlugin {
             ),
         );
         app.init_resource::<crate::animation::PfRunningAnimations>();
+        if !app.world().contains_resource::<crate::binding::PfConverters>() {
+            app.insert_resource(crate::binding::builtin_converters());
+        }
         app.add_systems(
             Update,
             (

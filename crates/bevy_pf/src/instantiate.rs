@@ -6230,6 +6230,9 @@ impl<'w> Ctx<'w> {
             path: spec.path,
             mode,
             string_format: spec.string_format,
+            converter: spec.converter,
+            converter_parameter: spec.converter_parameter,
+            fallback: spec.fallback,
             seen_version: 0,
         };
         let mut e = self.world.entity_mut(target_entity);

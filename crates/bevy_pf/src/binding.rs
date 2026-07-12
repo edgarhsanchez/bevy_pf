@@ -310,6 +310,9 @@ pub struct PfBinding {
     pub path: String,
     pub mode: v::BindingMode,
     pub string_format: Option<String>,
+    pub converter: Option<String>,
+    pub converter_parameter: Option<String>,
+    pub fallback: Option<String>,
     /// Source version last applied (0 = never). Unused for element sources,
     /// which are re-evaluated every frame (writes are no-ops when equal).
     pub seen_version: u64,
@@ -377,6 +380,76 @@ fn format_with_spec(spec: &str, raw: &str) -> String {
     }
 }
 
+/// The `IValueConverter` analog: transforms a bound value on its way to
+/// the target (and optionally back). Converters are registered by name
+/// (`app.register_converter("MyConverter", ...)`) and referenced from
+/// markup as `Converter={StaticResource MyConverter}` — the resource key IS
+/// the registry name (a documented deviation: converters are Rust values,
+/// not parseable XAML resources).
+pub trait PfValueConverter: Send + Sync {
+    fn convert(&self, value: &BoundValue, parameter: Option<&str>) -> Option<BoundValue>;
+    fn convert_back(&self, _value: &BoundValue, _parameter: Option<&str>) -> Option<BoundValue> {
+        None
+    }
+}
+
+/// Registered converters. `BooleanToVisibilityConverter` ships built in.
+#[derive(Resource, Default, Clone)]
+pub struct PfConverters(
+    pub bevy::platform::collections::HashMap<String, std::sync::Arc<dyn PfValueConverter>>,
+);
+
+struct BoolToVisibility;
+impl PfValueConverter for BoolToVisibility {
+    fn convert(&self, value: &BoundValue, _parameter: Option<&str>) -> Option<BoundValue> {
+        let b = match value {
+            BoundValue::Bool(b) => *b,
+            BoundValue::Num(n) => *n != 0.0,
+            BoundValue::Str(s) => s.eq_ignore_ascii_case("true"),
+        };
+        Some(BoundValue::Str(
+            if b { "Visible" } else { "Collapsed" }.to_string(),
+        ))
+    }
+}
+
+pub(crate) fn builtin_converters() -> PfConverters {
+    let mut map = PfConverters::default();
+    map.0.insert(
+        "BooleanToVisibilityConverter".to_string(),
+        std::sync::Arc::new(BoolToVisibility),
+    );
+    map
+}
+
+/// `App` extension for registering converters.
+pub trait PfConverterAppExt {
+    fn register_converter(
+        &mut self,
+        name: impl Into<String>,
+        converter: impl PfValueConverter + 'static,
+    ) -> &mut Self;
+}
+
+impl PfConverterAppExt for bevy::app::App {
+    fn register_converter(
+        &mut self,
+        name: impl Into<String>,
+        converter: impl PfValueConverter + 'static,
+    ) -> &mut Self {
+        let world = self.world_mut();
+        if !world.contains_resource::<PfConverters>() {
+            let built = builtin_converters();
+            world.insert_resource(built);
+        }
+        world
+            .resource_mut::<PfConverters>()
+            .0
+            .insert(name.into(), std::sync::Arc::new(converter));
+        self
+    }
+}
+
 /// All bindings targeting this entity.
 #[derive(Component, Debug, Default, Clone)]
 pub struct PfBindings(pub Vec<PfBinding>);
@@ -388,6 +461,11 @@ pub struct BindingSpec {
     pub element_name: Option<String>,
     pub mode: v::BindingMode,
     pub string_format: Option<String>,
+    /// `Converter={StaticResource name}` — the registry name.
+    pub converter: Option<String>,
+    pub converter_parameter: Option<String>,
+    /// `FallbackValue=` used when the source path fails to resolve.
+    pub fallback: Option<String>,
     /// The first unsupported argument encountered (`Source`, `Converter`,
     /// `RelativeSource`, ...), if any — such bindings are skipped with a
     /// warning.
@@ -401,6 +479,9 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
         element_name: None,
         mode: v::BindingMode::Default,
         string_format: None,
+        converter: None,
+        converter_parameter: None,
+        fallback: None,
         unsupported: None,
     };
     for (key, value) in &ext.named {
@@ -414,8 +495,22 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
                 }
             }
             "StringFormat" => spec.string_format = Some(value_str.to_string()),
+            "Converter" => {
+                // {StaticResource key} or a bare name: the key is the
+                // converter's registry name either way.
+                spec.converter = match value {
+                    bevy_pf_xaml::markup::MarkupValue::Extension(inner) => inner
+                        .first_positional_str()
+                        .map(|k| k.to_string()),
+                    _ => Some(value_str.to_string()),
+                };
+            }
+            "ConverterParameter" => {
+                spec.converter_parameter = Some(value_str.to_string());
+            }
+            "FallbackValue" => spec.fallback = Some(value_str.to_string()),
             // Harmless to ignore.
-            "UpdateSourceTrigger" | "FallbackValue" | "TargetNullValue" => {}
+            "UpdateSourceTrigger" | "TargetNullValue" => {}
             other => {
                 if spec.unsupported.is_none() {
                     spec.unsupported = Some(other.to_string());
@@ -533,10 +628,28 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 }
                 PfBindingSource::Named(_) => (None, None),
             };
+            // Converter, then FallbackValue when the source (or the
+            // converter) yields nothing.
+            let value = match (value, &binding.converter) {
+                (Some(v), Some(key)) => {
+                    let conv = world
+                        .get_resource::<PfConverters>()
+                        .and_then(|c| c.0.get(key).cloned());
+                    match conv {
+                        Some(c) => c.convert(&v, binding.converter_parameter.as_deref()),
+                        None => {
+                            warn!("bevy_pf: converter `{key}` is not registered");
+                            None
+                        }
+                    }
+                }
+                (v, _) => v,
+            };
+            let value = value.or_else(|| binding.fallback.clone().map(BoundValue::Str));
             match value {
                 Some(value) => apply_binding_value(world, entity, &binding, &value),
                 None => {
-                    if mark_version.is_some() {
+                    if mark_version.is_some() && binding.fallback.is_none() {
                         warn!(
                             "bevy_pf: binding path `{}` not found on data context",
                             binding.path
@@ -838,6 +951,9 @@ mod tests {
             path: "score".into(),
             mode: v::BindingMode::OneWay,
             string_format: Some("Score: {0} pts".into()),
+            converter: None,
+            converter_parameter: None,
+            fallback: None,
             seen_version: 0,
         };
         assert_eq!(b.format(&BoundValue::Num(3.0)), "Score: 3 pts");
