@@ -38,6 +38,13 @@ pub enum TriggerValue {
 pub struct ResolvedTriggerSetter {
     pub target: PropertyTarget,
     pub value: TriggerValue,
+    /// `None` = the entity holding `PfTriggers`; `Some` = a template child
+    /// (a `TargetName` setter in a ControlTemplate trigger).
+    pub dest: Option<Entity>,
+    /// `StyleTrigger` (7) for Style.Triggers; `TemplateTrigger` (6) for
+    /// root-targeted / `ParentTemplateTrigger` (10) for TargetName-targeted
+    /// ControlTemplate trigger setters.
+    pub tier: ValueSource,
 }
 
 #[derive(Debug, Clone)]
@@ -94,9 +101,12 @@ fn eval_condition(world: &World, entity: Entity, cond: &ResolvedCondition) -> bo
     }
 }
 
-/// Re-evaluate every entity's triggers; on any activation change, rebuild the
-/// `StyleTrigger` tier from all currently-active triggers in declaration
-/// order (last active wins) and re-apply affected properties.
+/// Re-evaluate every entity's triggers; on any activation change, rebuild
+/// each `(dest entity, tier)` pair this component's setters own from all
+/// currently-active triggers in declaration order (last active wins) and
+/// re-apply affected properties. Style-trigger setters live only at tier 7
+/// and template-trigger setters only at tiers 6/10, so per-(entity, tier)
+/// clearing keeps merged style+template blocks from clobbering each other.
 pub(crate) fn evaluate_triggers(world: &mut World) {
     let mut query = world.query_filtered::<Entity, With<PfTriggers>>();
     let entities: Vec<Entity> = query.iter(world).collect();
@@ -116,19 +126,50 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
             continue;
         }
 
-        // Rebuild the StyleTrigger tier.
-        let mut affected: Vec<PropertyTarget> = Vec::new();
-        if let Some(mut store) = world.get_mut::<PfPropertyStore>(entity) {
-            affected = store.clear_tier(ValueSource::StyleTrigger);
+        // Every (dest, tier) pair owned by this component's setters — owned
+        // tiers only, so a template rebuild never clears style-trigger
+        // entries on the same entity (and vice versa).
+        let mut pairs: Vec<(Entity, ValueSource)> = Vec::new();
+        for trigger in &list {
+            for setter in &trigger.setters {
+                let dest = setter.dest.unwrap_or(entity);
+                if !pairs.contains(&(dest, setter.tier)) {
+                    pairs.push((dest, setter.tier));
+                }
+            }
         }
+        let mut affected: Vec<(Entity, PropertyTarget)> = Vec::new();
+        let mut stale: Vec<Entity> = Vec::new();
+        for &(dest, tier) in &pairs {
+            // Cross-entity dests can be despawned (template swap, partial
+            // hot-reload rebuilds) — degrade, never panic.
+            let Ok(mut e) = world.get_entity_mut(dest) else {
+                stale.push(dest);
+                continue;
+            };
+            if let Some(mut store) = e.get_mut::<PfPropertyStore>() {
+                for target in store.clear_tier(tier) {
+                    if !affected.contains(&(dest, target)) {
+                        affected.push((dest, target));
+                    }
+                }
+            }
+        }
+
         for (trigger, active) in list.iter().zip(&new_active) {
             if !active {
                 continue;
             }
             for setter in &trigger.setters {
+                let dest = setter.dest.unwrap_or(entity);
+                if stale.contains(&dest) {
+                    continue;
+                }
                 let value: StoredValue = match &setter.value {
                     TriggerValue::Static(v) => v.clone(),
                     TriggerValue::Dynamic(key) => {
+                        // Resolved against the trigger owner: that is where
+                        // the lexical PfResources chain lives.
                         match crate::dynamic::resolve_dynamic(world, entity, key) {
                             Some(v) => Some(v),
                             None => continue, // key absent; leave lower tiers
@@ -136,26 +177,36 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
                     }
                 };
                 {
-                    let mut e = world.entity_mut(entity);
+                    let Ok(mut e) = world.get_entity_mut(dest) else {
+                        stale.push(dest);
+                        continue;
+                    };
                     if let Some(mut store) = e.get_mut::<PfPropertyStore>() {
-                        store.set(setter.target, ValueSource::StyleTrigger, value);
+                        store.set(setter.target, setter.tier, value);
                     } else {
                         let mut store = PfPropertyStore::default();
-                        store.set(setter.target, ValueSource::StyleTrigger, value);
+                        store.set(setter.target, setter.tier, value);
                         e.insert(store);
                     }
                 }
-                if !affected.contains(&setter.target) {
-                    affected.push(setter.target);
+                if !affected.contains(&(dest, setter.target)) {
+                    affected.push((dest, setter.target));
                 }
             }
         }
 
         if let Some(mut triggers) = world.get_mut::<PfTriggers>(entity) {
             triggers.active = new_active;
+            if !stale.is_empty() {
+                for trigger in &mut triggers.triggers {
+                    trigger
+                        .setters
+                        .retain(|s| !s.dest.is_some_and(|d| stale.contains(&d)));
+                }
+            }
         }
-        for target in affected {
-            provider::apply_effective(world, entity, target);
+        for (dest, target) in affected {
+            provider::apply_effective(world, dest, target);
         }
     }
 }

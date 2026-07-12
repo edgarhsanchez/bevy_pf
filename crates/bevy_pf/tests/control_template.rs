@@ -869,3 +869,254 @@ fn template_parts_are_per_instance_and_take_any_name() {
         .unwrap();
     assert_ne!(pa, pb, "per-instance namescopes");
 }
+
+// ---------------------------------------------------------------------
+// Phase 5: ControlTemplate.Triggers via the generalized trigger runtime.
+// ---------------------------------------------------------------------
+
+const TRIGGERED_TEMPLATE_PAGE: &str = r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <Button x:Name="B" Content="Go">
+       <Button.Template>
+         <ControlTemplate TargetType="Button">
+           <Border x:Name="border" Background="#E8E8E8">
+             <ContentPresenter/>
+           </Border>
+           <ControlTemplate.Triggers>
+             <Trigger Property="IsMouseOver" Value="True">
+               <Setter TargetName="border" Property="Background" Value="#BEE6FD"/>
+             </Trigger>
+             <Trigger Property="IsPressed" Value="True">
+               <Setter TargetName="border" Property="Background" Value="#C4E5F6"/>
+             </Trigger>
+           </ControlTemplate.Triggers>
+         </ControlTemplate>
+       </Button.Template>
+     </Button>
+   </StackPanel>"##;
+
+fn border_hex(app: &App, border: Entity) -> String {
+    bevy_pf::instantiate::color_to_hex(app.world().get::<BackgroundColor>(border).unwrap().0)
+}
+
+#[test]
+fn template_triggers_drive_named_children_and_revert_to_template_value() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(&mut app, TRIGGERED_TEMPLATE_PAGE);
+    assert_eq!(warnings, Vec::<String>::new());
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let border = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    app.update();
+    assert_eq!(border_hex(&app, border), "#E8E8E8", "rest state = template literal");
+
+    // Hover: the TargetName setter (tier 10) overrides the template literal.
+    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#BEE6FD");
+
+    // Pressed: IsMouseOver and IsPressed both hold — last declared wins.
+    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#C4E5F6");
+
+    // Release: revert to the ParentTemplate-tier literal — NOT the old
+    // default chrome (its Default-tier seeds were cleared at expansion).
+    app.world_mut().entity_mut(button).insert(Interaction::None);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#E8E8E8");
+    assert!(app.world().get::<BackgroundColor>(button).is_none(), "root never paints");
+}
+
+#[test]
+fn style_and_template_trigger_blocks_merge_and_style_tier_wins() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style TargetType="Button">
+                 <Style.Triggers>
+                   <Trigger Property="IsMouseOver" Value="True">
+                     <Setter Property="Background" Value="#112233"/>
+                   </Trigger>
+                 </Style.Triggers>
+                 <Setter Property="Template">
+                   <Setter.Value>
+                     <ControlTemplate TargetType="Button">
+                       <Border x:Name="border" Background="{TemplateBinding Background}">
+                         <ContentPresenter/>
+                       </Border>
+                       <ControlTemplate.Triggers>
+                         <Trigger Property="IsMouseOver" Value="True">
+                           <Setter Property="Background" Value="#AABBCC"/>
+                         </Trigger>
+                       </ControlTemplate.Triggers>
+                     </ControlTemplate>
+                   </Setter.Value>
+                 </Setter>
+               </Style>
+             </StackPanel.Resources>
+             <Button x:Name="B" Background="#008000" Content="x"/>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let border = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+
+    // Both blocks live in ONE component — neither clobbered the other.
+    let blocks = app.world().get::<bevy_pf::PfTriggers>(button).unwrap();
+    assert_eq!(blocks.triggers.len(), 2, "style + template trigger merged");
+
+    app.update();
+    // At rest the local Background forwards through the TemplateBinding.
+    // (Local 11 is the effective source; the root paints nothing.)
+    assert_eq!(border_hex(&app, border), "#008000");
+
+    // Hover: both triggers activate. On the ROOT's Background store the
+    // local value (11) still outranks StyleTrigger (7) and TemplateTrigger
+    // (6) — WPF's "trigger can't beat local" rule, which then forwards.
+    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#008000");
+    assert!(app.world().get::<BackgroundColor>(button).is_none());
+
+    // Verify tier bookkeeping directly: style tier entry exists and beats
+    // the template tier entry (the classic backwards-precedence check).
+    let store = app.world().get::<bevy_pf::PfPropertyStore>(button).unwrap();
+    assert_eq!(
+        store.effective_source(bevy_pf::provider::PropertyTarget::Background),
+        Some(bevy_pf::provider::ValueSource::Local)
+    );
+}
+
+#[test]
+fn style_and_template_triggers_without_local_value() {
+    // Same shape but no local Background: hovering must show the STYLE
+    // trigger's value (tier 7 > tier 6), forwarded into the border.
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style TargetType="Button">
+                 <Setter Property="Background" Value="#008000"/>
+                 <Style.Triggers>
+                   <Trigger Property="IsMouseOver" Value="True">
+                     <Setter Property="Background" Value="#112233"/>
+                   </Trigger>
+                 </Style.Triggers>
+                 <Setter Property="Template">
+                   <Setter.Value>
+                     <ControlTemplate TargetType="Button">
+                       <Border x:Name="border" Background="{TemplateBinding Background}">
+                         <ContentPresenter/>
+                       </Border>
+                       <ControlTemplate.Triggers>
+                         <Trigger Property="IsMouseOver" Value="True">
+                           <Setter Property="Background" Value="#AABBCC"/>
+                         </Trigger>
+                       </ControlTemplate.Triggers>
+                     </ControlTemplate>
+                   </Setter.Value>
+                 </Setter>
+               </Style>
+             </StackPanel.Resources>
+             <Button x:Name="B" Content="x"/>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let border = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    app.update();
+    assert_eq!(border_hex(&app, border), "#008000", "style setter at rest");
+
+    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#112233", "StyleTrigger(7) > TemplateTrigger(6)");
+
+    app.world_mut().entity_mut(button).insert(Interaction::None);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#008000", "clean revert per tier");
+}
+
+#[test]
+fn checked_template_trigger_on_templated_toggle() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <CheckBox x:Name="C" Content="opt">
+               <CheckBox.Template>
+                 <ControlTemplate TargetType="CheckBox">
+                   <Border x:Name="mark" Background="#FFFFFF">
+                     <ContentPresenter/>
+                   </Border>
+                   <ControlTemplate.Triggers>
+                     <Trigger Property="IsChecked" Value="True">
+                       <Setter TargetName="mark" Property="Background" Value="#0078D7"/>
+                     </Trigger>
+                   </ControlTemplate.Triggers>
+                 </ControlTemplate>
+               </CheckBox.Template>
+             </CheckBox>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let cb = app.world().get::<XamlNames>(root).unwrap().get("C").unwrap();
+    let mark = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(cb)
+        .unwrap()
+        .template_root;
+    app.update();
+    assert_eq!(border_hex(&app, mark), "#FFFFFF");
+
+    app.world_mut().entity_mut(cb).insert(bevy::ui::Checked);
+    app.update();
+    assert_eq!(border_hex(&app, mark), "#0078D7", "IsChecked trigger fired");
+
+    app.world_mut().entity_mut(cb).remove::<bevy::ui::Checked>();
+    app.update();
+    assert_eq!(border_hex(&app, mark), "#FFFFFF", "reverts to template literal");
+}
+
+#[test]
+fn despawned_target_name_dest_is_pruned_without_panic() {
+    let mut app = test_app();
+    let (root, _) = spawn_collect_warnings(&mut app, TRIGGERED_TEMPLATE_PAGE);
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let border = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    app.update();
+    app.world_mut().entity_mut(border).despawn();
+
+    // Toggling the condition must not panic — and prunes the stale setter.
+    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.update();
+    let blocks = app.world().get::<bevy_pf::PfTriggers>(button).unwrap();
+    assert!(
+        blocks
+            .triggers
+            .iter()
+            .all(|t| t.setters.iter().all(|s| s.dest != Some(border))),
+        "stale TargetName setters pruned"
+    );
+}

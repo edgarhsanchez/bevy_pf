@@ -735,7 +735,7 @@ impl<'w> Ctx<'w> {
                 self.apply_setter(entity, kind, parent_kind, &setter);
             }
             if !style.triggers.is_empty() {
-                self.attach_triggers(entity, &style.triggers);
+                self.attach_triggers(entity, &style.triggers, None);
             }
         }
 
@@ -1492,7 +1492,9 @@ impl<'w> Ctx<'w> {
 
     /// Resolve a style's triggers against the current scopes and attach the
     /// runtime component.
-    fn attach_triggers(&mut self, entity: Entity, triggers: &[crate::resources::PfTrigger]) {
+    fn attach_triggers(&mut self, entity: Entity, triggers: &[crate::resources::PfTrigger],
+        template_parts: Option<&crate::components::PfTemplateParts>,
+    ) {
         use crate::provider::PropertyTarget;
         use crate::triggers::{
             PfTriggers, ResolvedCondition, ResolvedTrigger, ResolvedTriggerSetter, TriggerValue,
@@ -1590,10 +1592,39 @@ impl<'w> Ctx<'w> {
                     PfSetterValue::Null => TriggerValue::Static(None),
                     PfSetterValue::Value(v) => TriggerValue::Static(Some(v.clone())),
                 };
+                // Tier + destination: style triggers own tier 7 on the
+                // root; ControlTemplate triggers own tier 6 on the root and
+                // tier 10 on TargetName-resolved template children.
+                let (dest, tier) = match (template_parts, &setter.target_name) {
+                    (None, Some(name)) => {
+                        self.warn(format!(
+                            "trigger setter TargetName `{name}` outside a ControlTemplate; skipped"
+                        ));
+                        continue;
+                    }
+                    (None, None) => (None, crate::provider::ValueSource::StyleTrigger),
+                    (Some(_), None) => (None, crate::provider::ValueSource::TemplateTrigger),
+                    (Some(parts), Some(name)) => match parts.get(name) {
+                        Some(dest) => {
+                            (Some(dest), crate::provider::ValueSource::ParentTemplateTrigger)
+                        }
+                        None => {
+                            self.warn(format!(
+                                "trigger setter TargetName `{name}` does not match a template x:Name; skipped"
+                            ));
+                            continue;
+                        }
+                    },
+                };
                 if matches!(target, PropertyTarget::Foreground | PropertyTarget::FontSize) {
-                    self.ensure_inherited_seed(entity, target);
+                    self.ensure_inherited_seed(dest.unwrap_or(entity), target);
                 }
-                setters.push(ResolvedTriggerSetter { target, value });
+                setters.push(ResolvedTriggerSetter {
+                    target,
+                    value,
+                    dest,
+                    tier,
+                });
             }
             if !setters.is_empty() {
                 resolved.push(ResolvedTrigger {
@@ -1606,15 +1637,26 @@ impl<'w> Ctx<'w> {
         if resolved.is_empty() {
             return;
         }
-        let count = resolved.len();
         let mut e = self.world.entity_mut(entity);
         if needs_interaction && e.get::<Interaction>().is_none() {
             e.insert(Interaction::default());
         }
-        e.insert(PfTriggers {
-            triggers: resolved,
-            active: vec![false; count],
-        });
+        // MERGE into an existing block (a control can carry Style.Triggers
+        // AND ControlTemplate.Triggers): insert would silently clobber.
+        // Cross-block ordering is irrelevant — their setters occupy
+        // disjoint tiers, and the store's max-by-tier decides.
+        if let Some(mut existing) = e.get_mut::<PfTriggers>() {
+            existing
+                .active
+                .extend(std::iter::repeat_n(false, resolved.len()));
+            existing.triggers.extend(resolved);
+        } else {
+            let count = resolved.len();
+            e.insert(PfTriggers {
+                triggers: resolved,
+                active: vec![false; count],
+            });
+        }
     }
 
     /// Apply a `{DynamicResource key}` reference: eager initial value if
@@ -3086,6 +3128,9 @@ impl<'w> Ctx<'w> {
         // Persist the per-expansion namescope (WPF GetTemplateChild).
         let parts = crate::components::PfTemplateParts(tc.names);
         self.on_template_applied(entity, kind, node, &parts);
+        if !template.triggers.is_empty() {
+            self.attach_triggers(entity, &template.triggers, Some(&parts));
+        }
         self.world.entity_mut(entity).insert(parts);
 
         // Per-kind behavior the default chrome used to set up.
