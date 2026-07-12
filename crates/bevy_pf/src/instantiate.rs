@@ -386,15 +386,8 @@ impl<'a> Resolved<'a> {
 
     fn to_f32(&self) -> Result<f32, PfError> {
         match self {
-            Resolved::Str(s) => {
-                let t = s.trim();
-                if t.eq_ignore_ascii_case("auto") || t.eq_ignore_ascii_case("nan") {
-                    Ok(f32::NAN)
-                } else {
-                    t.parse()
-                        .map_err(|e| PfError::instantiate(format!("bad number `{t}`: {e}")))
-                }
-            }
+            // WPF LengthConverter semantics: Auto/NaN, px/in/cm/pt units.
+            Resolved::Str(s) => Ok(v::parse_length(s, "length")?),
             Resolved::Value(PfValue::Double(d)) => Ok(*d as f32),
             Resolved::Value(PfValue::String(s)) => s
                 .trim()
@@ -2230,6 +2223,18 @@ impl<'w> Ctx<'w> {
             }
             "Points" if kind == ElemKind::Shape => {
                 self.pending.shape.points = Some(v::parse_points(&value.to_text()?)?)
+            }
+            "FillRule" if kind == ElemKind::Shape => {
+                let text = value.to_text()?;
+                self.pending.shape.fill_rule = Some(match text.trim().to_ascii_lowercase().as_str() {
+                    "nonzero" => bevy_pf_xaml::geometry::FillRule::NonZero,
+                    "evenodd" => bevy_pf_xaml::geometry::FillRule::EvenOdd,
+                    other => {
+                        return Err(PfError::instantiate(format!(
+                            "unknown FillRule `{other}`"
+                        )));
+                    }
+                });
             }
             "Data" if kind == ElemKind::Shape => {
                 self.pending.shape.data = Some(match value {

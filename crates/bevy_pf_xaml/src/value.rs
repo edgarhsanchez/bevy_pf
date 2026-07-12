@@ -61,6 +61,14 @@ fn parse_f32(s: &str, target: &'static str) -> XamlResult<f32> {
     parse_unit_length(t, s, target)
 }
 
+/// Parse a WPF length with `LengthConverter` semantics: `Auto` -> NaN,
+/// optional `px`/`in`/`cm`/`pt` unit suffix (the runtime's device-independent
+/// pixel conversion). The engine's generic numeric attribute path uses this,
+/// so `Height="30px"` and `FontSize="14pt"` convert everywhere.
+pub fn parse_length(s: &str, target: &'static str) -> XamlResult<f32> {
+    parse_f32(s, target)
+}
+
 // ---------------------------------------------------------------------------
 // Thickness
 // ---------------------------------------------------------------------------

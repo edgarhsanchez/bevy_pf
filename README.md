@@ -186,6 +186,7 @@ cargo run -p bevy_pf --example styling          # resources, implicit styles, Ba
 cargo run -p bevy_pf --example grid_layout      # Grid tracks/spans + named-button click handler
 cargo run -p bevy_pf --example xaml_file        # include_xaml!("....xaml")
 cargo run -p bevy_pf --example controls_gallery # the whole control set
+cargo run -p bevy_pf --example world_space_ui   # diegetic XAML panels in a 3D scene
 cargo run -p bevy_pf --example shapes           # vector shapes + path mini-language
 cargo run -p bevy_pf --example data_binding     # MVVM view-model binding, TwoWay
 cargo run -p bevy_pf --example triggers_theming # Style.Triggers + light/dark theme swap

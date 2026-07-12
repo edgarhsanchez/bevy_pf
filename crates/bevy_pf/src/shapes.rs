@@ -49,6 +49,8 @@ pub struct PfShape {
     /// Dash pattern in units of `stroke_thickness`, like WPF.
     pub stroke_dash_array: Vec<f32>,
     pub stroke_dash_offset: f32,
+    /// Polygon/Polyline `FillRule=` (None -> WPF default EvenOdd).
+    pub fill_rule: Option<FillRule>,
 }
 
 /// Tracks the pixel size of the last rasterization to avoid redundant work.
@@ -69,6 +71,7 @@ impl PfShape {
             stroke_miter_limit: 10.0,
             stroke_dash_array: Vec::new(),
             stroke_dash_offset: 0.0,
+            fill_rule: None,
         }
     }
 
@@ -372,7 +375,11 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
             if *closed {
                 pb.close();
             }
-            (pb.finish()?, tiny_skia::FillRule::EvenOdd)
+            let rule = match shape.fill_rule {
+                Some(FillRule::NonZero) => tiny_skia::FillRule::Winding,
+                _ => tiny_skia::FillRule::EvenOdd, // WPF default
+            };
+            (pb.finish()?, rule)
         }
         ShapeGeometry::Path(data) => {
             let rule = match data.fill_rule {
@@ -517,6 +524,8 @@ pub(crate) fn rasterize_shapes(
 #[derive(Debug, Clone, Default)]
 pub struct ShapeParams {
     pub fill: Option<v::PfBrush>,
+    /// Polygon/Polyline `FillRule=` (WPF default: EvenOdd).
+    pub fill_rule: Option<FillRule>,
     pub stroke: Option<v::PfBrush>,
     pub stroke_thickness: Option<f32>,
     pub stretch: Option<v::Stretch>,
@@ -592,6 +601,7 @@ pub(crate) fn build_shape(name: &str, p: ShapeParams) -> Option<PfShape> {
     if let Some(offset) = p.stroke_dash_offset {
         shape.stroke_dash_offset = offset;
     }
+    shape.fill_rule = p.fill_rule;
     Some(shape)
 }
 
@@ -637,6 +647,30 @@ mod tests {
         let data = rasterize_shape(&shape, 40, 40).unwrap();
         assert_eq!(pixel(&data, 40, 20, 20), [255, 0, 0, 255]); // center
         assert_eq!(pixel(&data, 40, 1, 1)[3], 0); // corner transparent
+    }
+
+    #[test]
+    fn polygon_fill_rule_evenodd_vs_nonzero() {
+        // Five-point star drawn with crossing edges on a 40x40 grid.
+        let star = vec![
+            v::Point::new(20.0, 2.0),
+            v::Point::new(31.0, 38.0),
+            v::Point::new(2.0, 15.0),
+            v::Point::new(38.0, 15.0),
+            v::Point::new(9.0, 38.0),
+        ];
+        let geometry = ShapeGeometry::Polyline { points: star, closed: true };
+
+        // WPF default (EvenOdd): the pentagon core is a hole.
+        let evenodd = shape(geometry.clone(), Some(red()), None, 0.0, v::Stretch::None);
+        let data = rasterize_shape(&evenodd, 40, 40).unwrap();
+        assert_eq!(pixel(&data, 40, 20, 18)[3], 0, "star core hollow under EvenOdd");
+
+        // FillRule="NonZero": the core fills.
+        let mut nonzero = shape(geometry, Some(red()), None, 0.0, v::Stretch::None);
+        nonzero.fill_rule = Some(FillRule::NonZero);
+        let data = rasterize_shape(&nonzero, 40, 40).unwrap();
+        assert_eq!(pixel(&data, 40, 20, 18), [255, 0, 0, 255], "core filled under NonZero");
     }
 
     #[test]

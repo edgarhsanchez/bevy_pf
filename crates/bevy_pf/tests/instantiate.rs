@@ -821,3 +821,27 @@ fn gradient_stop_colors_from_resources() {
     ));
     assert!(world.get::<bevy::ui::BackgroundGradient>(root).is_some());
 }
+
+#[test]
+fn numeric_attributes_accept_wpf_length_units() {
+    // WPF LengthConverter units flow through the generic numeric path:
+    // Height="30px", Width="1in", FontSize="14pt" (96dpi: 1pt = 4/3 px).
+    let (world, root) = spawn(
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border x:Name="B" Height="30px" Width="1in"/>
+             <TextBlock x:Name="T" FontSize="14pt" Text="pt-sized"/>
+           </StackPanel>"#,
+    );
+    let names = world.get::<XamlNames>(root).unwrap();
+    let b = names.get("B").unwrap();
+    let node = world.get::<Node>(b).unwrap();
+    assert_eq!(node.height, Val::Px(30.0));
+    assert_eq!(node.width, Val::Px(96.0));
+    let t = names.get("T").unwrap();
+    let font = world.get::<bevy::text::TextFont>(t).unwrap();
+    let bevy::text::FontSize::Px(px) = font.font_size else {
+        panic!("expected px font size");
+    };
+    assert!((px - 14.0 * 96.0 / 72.0).abs() < 0.01, "14pt = {px}px");
+}
