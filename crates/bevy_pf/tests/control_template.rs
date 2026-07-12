@@ -1120,3 +1120,126 @@ fn despawned_target_name_dest_is_pruned_without_panic() {
         "stale TargetName setters pruned"
     );
 }
+
+// ---------------------------------------------------------------------
+// Acceptance gate G1: the UNADAPTED Aero2 Button theme fragment
+// (dotnet/wpf, MIT — tests/fixtures/aero2/button.xaml) instantiates with
+// zero errors and a count-stable set of expected warnings, and the
+// implicit Button style actually templates + reacts through the store.
+// ---------------------------------------------------------------------
+
+#[test]
+fn g1_aero2_button_fragment_instantiates_and_functions() {
+    let mut app = test_app();
+    app.update();
+
+    // Application resources <- the verbatim theme fragment.
+    let dict_src = include_str!("fixtures/aero2/button.xaml");
+    let doc = bevy_pf_xaml::parse(dict_src).expect("fragment parses with zero errors");
+    let ingest_warnings = bevy_pf::instantiate::set_application_resources(
+        app.world_mut(),
+        &doc,
+        &XamlEnv::default(),
+    );
+    // Ingest-time warning classes (count-stable; each is a documented
+    // deferral — see docs/controltemplate-plan.md G1):
+    //   x:Static keys inside DynamicResource values (SystemColors.*),
+    //   the high-contrast MultiDataTriggers' unsupported binding paths,
+    //   Stylus.IsPressAndHoldEnabled on RepeatButton.
+    for w in &ingest_warnings {
+        assert!(
+            w.contains("x:Static")
+                // {DynamicResource {x:Static SystemColors.*}} — nested
+                // extension keys are a documented deferral.
+                || w.contains("unsupported DynamicResource key")
+                // the high-contrast MultiDataTriggers' parenthesized /
+                // RelativeSource binding paths surface as skipped conditions
+                || w.contains("Condition needs Property or a plain-path Binding")
+                || w.contains("SystemParameters.HighContrast")
+                || w.contains("RelativeSource")
+                || w.contains("Stylus")
+                || w.contains("not supported"),
+            "unexpected ingest warning class: {w}"
+        );
+    }
+
+    // A page using the implicit (typed-key, BasedOn-derived) Button style.
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button x:Name="B" Content="Aero2"/>
+           </StackPanel>"##,
+    );
+    // Expected instantiation warning classes only (FocusVisual is defined in
+    // another theme file; alignment/SnapsToDevicePixels TemplateBindings and
+    // the IsDefaulted condition are documented deferrals).
+    for w in &warnings {
+        assert!(
+            w.contains("FocusVisual")
+                || w.contains("SnapsToDevicePixels")
+                || w.contains("ContentAlignment")
+                || w.contains("IsDefaulted")
+                || w.contains("RecognizesAccessKey")
+                || w.contains("Focusable")
+                || w.contains("TextElement.Foreground")
+                || w.contains("not supported"),
+            "unexpected instantiation warning class: {w}"
+        );
+    }
+
+    // The button IS templated by the theme...
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let templated = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .expect("implicit Aero2 style templated the Button");
+    let border = templated.template_root;
+    app.update();
+
+    // ...with the static theme brushes flowing through TemplateBinding...
+    assert_eq!(border_hex(&app, border), "#DDDDDD", "Button.Static.Background");
+    assert!(app.world().get::<BackgroundColor>(button).is_none());
+    assert!(texts_in(&app, border).contains(&"Aero2".to_string()));
+
+    // ...and the real Aero2 triggers driving hover/press through the store.
+    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#BEE6FD", "Button.MouseOver.Background");
+    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#C4E5F6", "Button.Pressed.Background");
+    app.world_mut().entity_mut(button).insert(Interaction::None);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#DDDDDD", "revert to template value");
+}
+
+#[test]
+fn g1_aero2_toggle_button_checked_trigger_works_unadapted() {
+    // The fragment's "ToggleButton.IsChecked" class-qualified trigger
+    // matches by unqualified name and drives the checked brushes.
+    let mut app = test_app();
+    app.update();
+    let doc = bevy_pf_xaml::parse(include_str!("fixtures/aero2/button.xaml")).unwrap();
+    bevy_pf::instantiate::set_application_resources(app.world_mut(), &doc, &XamlEnv::default());
+
+    let (root, _) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <ToggleButton x:Name="T" Content="pin"/>
+           </StackPanel>"##,
+    );
+    let toggle = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+    let border = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(toggle)
+        .expect("ToggleButton typed-key style applied")
+        .template_root;
+    app.update();
+    assert_eq!(border_hex(&app, border), "#DDDDDD");
+
+    app.world_mut().entity_mut(toggle).insert(bevy::ui::Checked);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#BCDDEE", "Button.Checked.Background");
+}

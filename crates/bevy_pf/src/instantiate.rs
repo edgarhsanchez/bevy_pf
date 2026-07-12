@@ -1515,7 +1515,12 @@ impl<'w> Ctx<'w> {
                             continue 'triggers;
                         };
                         let expected = value.trim().eq_ignore_ascii_case("true");
-                        let condition = match property.as_str() {
+                        // Class-qualified condition properties from theme
+                        // markup ("ToggleButton.IsChecked") match by their
+                        // unqualified name, like WPF's owner resolution.
+                        let unqualified =
+                            property.rsplit('.').next().unwrap_or(property.as_str());
+                        let condition = match unqualified {
                             "IsMouseOver" => {
                                 needs_interaction = true;
                                 ResolvedCondition::MouseOver(expected)
@@ -1527,9 +1532,9 @@ impl<'w> Ctx<'w> {
                             "IsChecked" => ResolvedCondition::Checked(expected),
                             "IsEnabled" => ResolvedCondition::Enabled(expected),
                             "IsSelected" => ResolvedCondition::Selected(expected),
-                            other => {
+                            _ => {
                                 self.warn(format!(
-                                    "trigger condition `{other}` is not supported yet; trigger skipped"
+                                    "trigger condition `{property}` is not supported yet; trigger skipped"
                                 ));
                                 continue 'triggers;
                             }

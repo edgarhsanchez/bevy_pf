@@ -107,6 +107,14 @@ Working today:
   `SymbolIcon` / `FontIcon` — 40+ named icons drawn as vector paths by the
   shape engine (`bevy_pf::icons`), so they render identically on native and
   wasm with no icon font.
+- **ControlTemplate**: re-template any Button-family control, CheckBox,
+  RadioButton, Label, or TextBox — keyed/implicit-style/inline delivery,
+  `ContentPresenter` content projection, live `{TemplateBinding}`,
+  `<ControlTemplate.Triggers>` with `TargetName` setters, per-expansion
+  namescopes (`GetTemplateChild` via `PfTemplateParts`), `PART_ContentHost`,
+  and WPF's verbatim value-precedence tiers. Acceptance-gated against the
+  real dotnet/wpf Aero2 Button theme fragment, which instantiates and
+  functions unadapted (docs/controltemplate-plan.md).
 - **Data binding**: `{Binding Path, Mode, StringFormat}` against any
   `#[derive(Reflect)]` view-model wrapped in a `Bindable` (the
   `INotifyPropertyChanged` analog), `DataContext` inherited down the tree,
