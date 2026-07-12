@@ -50,6 +50,8 @@ pub enum PropertyTarget {
     Width,
     Height,
     Visibility,
+    /// WPF `UIElement.Opacity`, approximated subtree-wide (see [`PfOpacity`]).
+    Opacity,
 }
 
 /// Map a XAML property name to a store-managed target.
@@ -65,6 +67,7 @@ pub fn property_target_for(property: &str) -> Option<PropertyTarget> {
         "CornerRadius" => PropertyTarget::CornerRadius,
         "Width" => PropertyTarget::Width,
         "Height" => PropertyTarget::Height,
+        "Opacity" => PropertyTarget::Opacity,
         "Visibility" => PropertyTarget::Visibility,
         _ => return None,
     })
@@ -171,7 +174,10 @@ pub fn apply_effective(world: &mut World, entity: Entity, target: PropertyTarget
         .get::<PfPropertyStore>(entity)
         .and_then(|s| s.effective(target).cloned());
     match value {
-        Some((_, Some(v))) => apply_value(world, entity, target, &v),
+        Some((_, Some(v))) => {
+            apply_value(world, entity, target, &v);
+            after_apply_value(world, entity, target);
+        }
         Some((_, None)) | None => apply_unset(world, entity, target),
     }
     // TemplateBinding: forward the (possibly suppressed-on-root) effective
@@ -246,6 +252,152 @@ pub(crate) fn collect_text_entities(world: &World, root: Entity) -> Vec<Entity> 
         }
     }
     out
+}
+
+/// WPF `UIElement.Opacity` state. bevy_ui has no per-node opacity, so the
+/// value is approximated by alpha-multiplying every color component in the
+/// subtree (Background, BorderColor sides, TextColor). `originals` caches
+/// each entity's UNSCALED alphas: re-application and unset are exact, and
+/// the color apply-arms below keep the cache fresh when a trigger or style
+/// rewrites a color while opacity is active. Children spawned after the
+/// last (re-)application pick the scale up on the next Opacity write, and
+/// nested Opacity holders compose approximately rather than multiplying
+/// exactly — documented v1 limitations.
+#[derive(Component, Debug, Default)]
+pub struct PfOpacity {
+    pub value: f32,
+    originals: bevy::platform::collections::HashMap<Entity, OriginalAlphas>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct OriginalAlphas {
+    bg: Option<f32>,
+    border: Option<[f32; 4]>,
+    text: Option<f32>,
+}
+
+/// Cheap global gate so color writes skip the ancestor walk when no
+/// opacity is active anywhere (the common case).
+#[derive(Resource, Default)]
+pub(crate) struct PfOpacityCount(pub(crate) usize);
+
+fn set_alpha(color: &mut Color, alpha: f32) {
+    let mut c = color.to_srgba();
+    c.alpha = alpha;
+    *color = Color::Srgba(c);
+}
+
+/// (Re-)apply a subtree opacity from `root` with factor `value`.
+fn apply_subtree_opacity(world: &mut World, root: Entity, value: f32) {
+    let had = world.get::<PfOpacity>(root).is_some();
+    let mut state = world
+        .entity_mut(root)
+        .take::<PfOpacity>()
+        .unwrap_or_default();
+    if !had {
+        let mut count = world.get_resource_or_insert_with(PfOpacityCount::default);
+        count.0 += 1;
+    }
+    state.value = value;
+
+    let mut stack = vec![root];
+    while let Some(e) = stack.pop() {
+        let orig = state.originals.entry(e).or_default();
+        if let Some(mut bg) = world.get_mut::<bevy::ui::BackgroundColor>(e) {
+            let base = *orig.bg.get_or_insert_with(|| bg.0.alpha());
+            set_alpha(&mut bg.0, base * value);
+        }
+        if let Some(mut border) = world.get_mut::<bevy::ui::BorderColor>(e) {
+            let base = *orig.border.get_or_insert([
+                border.top.alpha(),
+                border.right.alpha(),
+                border.bottom.alpha(),
+                border.left.alpha(),
+            ]);
+            set_alpha(&mut border.top, base[0] * value);
+            set_alpha(&mut border.right, base[1] * value);
+            set_alpha(&mut border.bottom, base[2] * value);
+            set_alpha(&mut border.left, base[3] * value);
+        }
+        if let Some(mut text) = world.get_mut::<bevy::text::TextColor>(e) {
+            let base = *orig.text.get_or_insert_with(|| text.0.alpha());
+            set_alpha(&mut text.0, base * value);
+        }
+        if let Some(children) = world.get::<Children>(e) {
+            stack.extend(children.iter());
+        }
+    }
+    world.entity_mut(root).insert(state);
+}
+
+/// Re-run an entity's own active opacity over its (possibly new) subtree —
+/// instantiation applies the attribute before content children spawn.
+pub(crate) fn reapply_opacity(world: &mut World, root: Entity) {
+    if let Some(value) = world.get::<PfOpacity>(root).map(|o| o.value) {
+        apply_subtree_opacity(world, root, value);
+    }
+}
+
+/// Remove a subtree opacity: restore unscaled alphas.
+fn unset_subtree_opacity(world: &mut World, root: Entity) {
+    let Some(state) = world.entity_mut(root).take::<PfOpacity>() else {
+        return;
+    };
+    if let Some(mut count) = world.get_resource_mut::<PfOpacityCount>() {
+        count.0 = count.0.saturating_sub(1);
+    }
+    for (e, orig) in state.originals {
+        if world.get_entity(e).is_err() {
+            continue;
+        }
+        if let (Some(alpha), Some(mut bg)) = (orig.bg, world.get_mut::<bevy::ui::BackgroundColor>(e)) {
+            set_alpha(&mut bg.0, alpha);
+        }
+        if let Some(sides) = orig.border
+            && let Some(mut border) = world.get_mut::<bevy::ui::BorderColor>(e)
+        {
+            set_alpha(&mut border.top, sides[0]);
+            set_alpha(&mut border.right, sides[1]);
+            set_alpha(&mut border.bottom, sides[2]);
+            set_alpha(&mut border.left, sides[3]);
+        }
+        if let (Some(alpha), Some(mut text)) = (orig.text, world.get_mut::<bevy::text::TextColor>(e)) {
+            set_alpha(&mut text.0, alpha);
+        }
+    }
+}
+
+/// After UNSCALED color writes land on `changed` (all under `entity`),
+/// refresh the nearest active opacity holder's cache for them and re-scale
+/// — so trigger/style color changes respect an active Opacity immediately.
+fn rescale_after_color_writes(world: &mut World, entity: Entity, changed: &[Entity]) {
+    if world
+        .get_resource::<PfOpacityCount>()
+        .is_none_or(|c| c.0 == 0)
+    {
+        return;
+    }
+    // Nearest ancestor-or-self holding PfOpacity.
+    let mut holder = entity;
+    loop {
+        if world.get::<PfOpacity>(holder).is_some() {
+            break;
+        }
+        match world.get::<ChildOf>(holder) {
+            Some(parent) => holder = parent.parent(),
+            None => return,
+        }
+    }
+    let value = world.get::<PfOpacity>(holder).map(|o| o.value).unwrap_or(1.0);
+    // Recapture the freshly written (unscaled) channels.
+    if let Some(mut state) = world.entity_mut(holder).take::<PfOpacity>() {
+        for e in changed {
+            state.originals.remove(e);
+        }
+        world.entity_mut(holder).insert(state);
+    }
+    // Re-apply via the shared walk (correctness over micro-optimization).
+    apply_subtree_opacity(world, holder, value);
 }
 
 /// TemplateBinding liveness links on a templated control: when `src`'s
@@ -401,6 +553,10 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
                 }
             }
         }
+        PropertyTarget::Opacity => {
+            let Some(v) = as_f32() else { return };
+            apply_subtree_opacity(world, entity, v.clamp(0.0, 1.0));
+        }
         PropertyTarget::Visibility => {
             let vis = match value {
                 PfValue::String(s) => s.parse::<v::Visibility>().ok(),
@@ -419,6 +575,19 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
                 }
             }
         }
+    }
+}
+
+/// Post-write hook: keep active subtree opacities exact when a color
+/// target is rewritten (the write above landed UNSCALED).
+fn after_apply_value(world: &mut World, entity: Entity, target: PropertyTarget) {
+    let changed: Vec<Entity> = match target {
+        PropertyTarget::Background | PropertyTarget::BorderBrush => vec![entity],
+        PropertyTarget::Foreground => collect_text_entities(world, entity),
+        _ => Vec::new(),
+    };
+    if !changed.is_empty() {
+        rescale_after_color_writes(world, entity, &changed);
     }
 }
 
@@ -453,6 +622,9 @@ fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
             if let Some(mut node) = world.get_mut::<Node>(entity) {
                 node.padding = UiRect::ZERO;
             }
+        }
+        PropertyTarget::Opacity => {
+            unset_subtree_opacity(world, entity);
         }
         PropertyTarget::CornerRadius => {
             if let Some(mut node) = world.get_mut::<Node>(entity) {

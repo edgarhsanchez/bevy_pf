@@ -441,6 +441,14 @@ pub struct PfTemplatedControl {
     pub template_root: Entity,
 }
 
+/// A `Command=` source: activation invokes the named command against the
+/// DataContext (see `bevy_pf::binding::invoke_command`).
+#[derive(Component, Debug, Clone)]
+pub struct PfCommand {
+    pub name: String,
+    pub parameter: Option<crate::binding::PfCommandParameter>,
+}
+
 /// A checkable `MenuItem` (`IsCheckable="True"`): activation toggles
 /// `Checked` and the check glyph.
 #[derive(Component, Debug, Clone)]

@@ -25,6 +25,7 @@ impl Plugin for PfUiPlugin {
     fn build(&self, app: &mut App) {
         crate::fonts::register_builtin_fonts(app);
         app.add_message::<crate::dialog::PfDialogResult>();
+        app.add_message::<crate::binding::PfCommandInvoked>();
         app.add_message::<crate::navigation::PfNavigated>();
         app.init_resource::<crate::navigation::PfPages>();
         app.add_systems(Update, crate::navigation::init_pending_frames);

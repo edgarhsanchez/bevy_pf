@@ -325,6 +325,10 @@ struct Pending {
     text_input: Option<Entity>,
     /// `ItemTemplate` for items controls (resource or inline DataTemplate).
     item_template: Option<std::sync::Arc<XamlNode>>,
+    /// `Command=` name (literal or `{Binding path}` — the path IS the name).
+    command: Option<String>,
+    /// `CommandParameter=`, resolved at activation time.
+    command_parameter: Option<crate::binding::PfCommandParameter>,
     /// `Template` (ControlTemplate) with the resource scope captured where
     /// it was applied; expansion lands in a later phase.
     control_template: Option<(
@@ -772,6 +776,37 @@ impl<'w> Ctx<'w> {
         let bindings = std::mem::take(&mut self.pending.bindings);
         for (property, spec) in bindings {
             self.attach_binding(entity, kind, &property, spec);
+        }
+
+        // An Opacity attribute applied before content spawned covers the
+        // full subtree now.
+        crate::provider::reapply_opacity(self.world, entity);
+
+        // Command= source: activation runs the DataContext's registered
+        // command and writes PfCommandInvoked.
+        if let Some(name) = self.pending.command.take() {
+            let parameter = self.pending.command_parameter.take();
+            self.world
+                .entity_mut(entity)
+                .insert(crate::components::PfCommand { name, parameter });
+            let source = entity;
+            self.world.entity_mut(entity).observe(
+                move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        let Some(cmd) =
+                            world.get::<crate::components::PfCommand>(source).cloned()
+                        else {
+                            return;
+                        };
+                        crate::binding::invoke_command(
+                            world,
+                            source,
+                            &cmd.name,
+                            cmd.parameter.as_ref(),
+                        );
+                    });
+                },
+            );
         }
 
         // Inside a ControlTemplate expansion, stamp the templated parent
@@ -1379,6 +1414,21 @@ impl<'w> Ctx<'w> {
                 self.apply_property(entity, kind, parent_kind, owner, name, &Resolved::Str(s))
             }
             XamlValue::Extension(ext)
+                if matches!(name, "Command" | "CommandParameter")
+                    && matches!(ext.name.as_str(), "Binding" | "x:Bind" | "CompiledBinding") =>
+            {
+                let spec = crate::binding::parse_binding_extension(ext);
+                if name == "Command" {
+                    // WPF resolves the command object through the binding;
+                    // here the path names the registered command.
+                    self.pending.command = Some(spec.path);
+                } else {
+                    self.pending.command_parameter =
+                        Some(crate::binding::PfCommandParameter::Path(spec.path));
+                }
+                Ok(())
+            }
+            XamlValue::Extension(ext)
                 if matches!(ext.name.as_str(), "Binding" | "x:Bind" | "CompiledBinding") =>
             {
                 self.record_binding(name, ext);
@@ -1476,7 +1526,7 @@ impl<'w> Ctx<'w> {
             T::Background | T::BorderBrush | T::Foreground => PfValue::Brush(s.parse()?),
             T::BorderThickness | T::Margin | T::Padding => PfValue::Thickness(s.parse()?),
             T::CornerRadius => PfValue::CornerRadius(s.parse()?),
-            T::Width | T::Height | T::FontSize => {
+            T::Width | T::Height | T::FontSize | T::Opacity => {
                 PfValue::Double(Resolved::Str(s).to_f32()? as f64)
             }
             T::Visibility => PfValue::String(s.to_string()),
@@ -1916,6 +1966,14 @@ impl<'w> Ctx<'w> {
                 let px = value.to_f32()?;
                 self.store_apply(entity, crate::provider::PropertyTarget::Height, PfValue::Double(px as f64));
             }
+            "Opacity" => {
+                let v = value.to_f32()?;
+                self.store_apply(
+                    entity,
+                    crate::provider::PropertyTarget::Opacity,
+                    PfValue::Double(f64::from(v.clamp(0.0, 1.0))),
+                );
+            }
             "MinWidth" => {
                 let px = value.to_f32()?;
                 self.node_mut(entity).min_width = convert::dimension(px);
@@ -2096,6 +2154,13 @@ impl<'w> Ctx<'w> {
             "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
+            "Command" => {
+                self.pending.command = Some(value.to_text()?);
+            }
+            "CommandParameter" => {
+                self.pending.command_parameter =
+                    Some(crate::binding::PfCommandParameter::Literal(value.to_text()?));
+            }
             "SelectedTime" if kind == ElemKind::TimePicker => {}
             "ContentSource" | "RecognizesAccessKey" | "ContentTemplate"
             | "ContentTemplateSelector" | "ContentStringFormat"
@@ -4212,6 +4277,53 @@ impl<'w> Ctx<'w> {
             self.world.entity_mut(overlay).add_children(&[popup]);
             Some(popup)
         };
+
+        // MenuItem Command= (menu items are built outside spawn_element).
+        let command = match node.attribute("Command") {
+            Some(XamlValue::Str(c)) => Some(c.clone()),
+            Some(XamlValue::Extension(ext))
+                if matches!(ext.name.as_str(), "Binding" | "x:Bind" | "CompiledBinding") =>
+            {
+                Some(crate::binding::parse_binding_extension(ext).path)
+            }
+            _ => None,
+        };
+        if let Some(name) = command {
+            let parameter = match node.attribute("CommandParameter") {
+                Some(XamlValue::Str(p)) => {
+                    Some(crate::binding::PfCommandParameter::Literal(p.clone()))
+                }
+                Some(XamlValue::Extension(ext))
+                    if matches!(ext.name.as_str(), "Binding" | "x:Bind" | "CompiledBinding") =>
+                {
+                    Some(crate::binding::PfCommandParameter::Path(
+                        crate::binding::parse_binding_extension(ext).path,
+                    ))
+                }
+                _ => None,
+            };
+            self.world
+                .entity_mut(item)
+                .insert(crate::components::PfCommand { name, parameter });
+            let source = item;
+            self.world.entity_mut(item).observe(
+                move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        let Some(cmd) =
+                            world.get::<crate::components::PfCommand>(source).cloned()
+                        else {
+                            return;
+                        };
+                        crate::binding::invoke_command(
+                            world,
+                            source,
+                            &cmd.name,
+                            cmd.parameter.as_ref(),
+                        );
+                    });
+                },
+            );
+        }
 
         self.world.entity_mut(item).insert(PfMenuItem {
             menu_root,

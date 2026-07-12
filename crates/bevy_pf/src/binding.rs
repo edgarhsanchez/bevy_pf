@@ -30,9 +30,15 @@ use crate::convert;
 // Bindable source
 // ---------------------------------------------------------------------------
 
+type CommandFn = dyn Fn(&mut World, Option<String>) + Send + Sync;
+
 struct BindableInner {
     value: std::sync::RwLock<Box<dyn Reflect + Send + Sync>>,
     version: AtomicU64,
+    /// ICommand analog: named commands invokable from `Command=` bindings.
+    commands: std::sync::RwLock<
+        bevy::platform::collections::HashMap<String, std::sync::Arc<CommandFn>>,
+    >,
 }
 
 /// A shared, change-tracked view-model. Clone freely; clones share state.
@@ -51,6 +57,7 @@ impl Bindable {
             inner: Arc::new(BindableInner {
                 value: std::sync::RwLock::new(Box::new(value)),
                 version: AtomicU64::new(1),
+                commands: Default::default(),
             }),
             prefix: None,
         }
@@ -77,6 +84,29 @@ impl Bindable {
 
     fn full_path(&self, path: &str) -> String {
         Self::join(self.prefix.as_deref(), path)
+    }
+
+    /// Register a named command (the `ICommand` analog): invoked by
+    /// `Command="{Binding Name}"` (or `Command="Name"`) on Button-family
+    /// controls, MenuItems, and Hyperlinks, with the resolved
+    /// `CommandParameter` as the argument. Registration is shared by every
+    /// clone and scoped view of this model.
+    pub fn on_command(
+        &self,
+        name: impl Into<String>,
+        f: impl Fn(&mut World, Option<String>) + Send + Sync + 'static,
+    ) -> &Self {
+        self.inner
+            .commands
+            .write()
+            .unwrap()
+            .insert(name.into(), std::sync::Arc::new(f));
+        self
+    }
+
+    /// Look up a registered command by name.
+    pub(crate) fn command(&self, name: &str) -> Option<std::sync::Arc<CommandFn>> {
+        self.inner.commands.read().unwrap().get(name).cloned()
     }
 
     /// Current change version (bumped by every mutation).
@@ -812,4 +842,48 @@ mod tests {
         };
         assert_eq!(b.format(&BoundValue::Num(3.0)), "Score: 3 pts");
     }
+}
+
+/// Written whenever a `Command=` control is activated. If the DataContext's
+/// `Bindable` has a matching registered command it runs first; the message
+/// is written either way, so apps can also handle commands centrally.
+#[derive(bevy::ecs::message::Message, Debug, Clone)]
+pub struct PfCommandInvoked {
+    pub source: Entity,
+    pub command: String,
+    pub parameter: Option<String>,
+}
+
+/// How a `CommandParameter=` resolves at activation time.
+#[derive(Debug, Clone)]
+pub enum PfCommandParameter {
+    Literal(String),
+    /// `{Binding path}` against the activation-time DataContext.
+    Path(String),
+}
+
+/// Activate a command control: resolve the parameter, run the registered
+/// command (if any), and write [`PfCommandInvoked`].
+pub fn invoke_command(
+    world: &mut World,
+    source: Entity,
+    name: &str,
+    parameter: Option<&PfCommandParameter>,
+) {
+    let ctx = find_context(world, source);
+    let parameter = parameter.and_then(|p| match p {
+        PfCommandParameter::Literal(s) => Some(s.clone()),
+        PfCommandParameter::Path(path) => ctx
+            .as_ref()
+            .and_then(|c| c.read_path(path))
+            .map(|v| v.to_display()),
+    });
+    if let Some(cmd) = ctx.as_ref().and_then(|c| c.command(name)) {
+        cmd(world, parameter.clone());
+    }
+    world.write_message(PfCommandInvoked {
+        source,
+        command: name.to_string(),
+        parameter,
+    });
 }
