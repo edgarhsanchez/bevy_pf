@@ -9,9 +9,10 @@
 //!
 //! Delivery in this phase: `<EventTrigger RoutedEvent="Loaded|MouseEnter|
 //! MouseLeave|Click">` with `<BeginStoryboard>` at style scope or in an
-//! element's `<X.Triggers>`, plus [`begin_storyboard`] from Rust. Keyframes,
-//! easing functions, and indexed property paths are phase 2b; VisualStates
-//! build on this in a later increment.
+//! element's `<X.Triggers>`, plus [`begin_storyboard`] from Rust, with the
+//! full WPF easing-function set. Keyframe collections and indexed transform
+//! property paths remain (phase 2b tail); VisualStates build on this in a
+//! later increment.
 
 use bevy::prelude::*;
 
@@ -41,12 +42,139 @@ pub struct PfAnimationSpec {
     pub repeat: PfRepeat,
     pub auto_reverse: bool,
     pub fill: PfFill,
+    pub easing: PfEasing,
 }
 
 #[derive(Debug, Clone)]
 pub enum PfAnimKind {
     Double { from: Option<f64>, to: f64 },
     Color { from: Option<v::PfColor>, to: v::PfColor },
+}
+
+/// WPF easing functions (`<DoubleAnimation.EasingFunction>`), plus the
+/// Acceleration/DecelerationRatio trapezoid.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum PfEasing {
+    #[default]
+    Linear,
+    Quadratic(EasingMode),
+    Cubic(EasingMode),
+    Quartic(EasingMode),
+    Quintic(EasingMode),
+    Sine(EasingMode),
+    Circle(EasingMode),
+    Back(EasingMode),
+    Elastic(EasingMode),
+    Bounce(EasingMode),
+    Exponential(EasingMode),
+    AccelDecel { accel: f32, decel: f32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EasingMode {
+    In,
+    #[default]
+    Out,
+    InOut,
+}
+
+impl PfEasing {
+    /// Map linear progress `t` in [0,1] through the curve.
+    pub fn ease(self, t: f32) -> f32 {
+        fn with_mode(mode: EasingMode, f: impl Fn(f32) -> f32, t: f32) -> f32 {
+            match mode {
+                EasingMode::In => f(t),
+                EasingMode::Out => 1.0 - f(1.0 - t),
+                EasingMode::InOut => {
+                    if t < 0.5 {
+                        f(t * 2.0) / 2.0
+                    } else {
+                        1.0 - f((1.0 - t) * 2.0) / 2.0
+                    }
+                }
+            }
+        }
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            PfEasing::Linear => t,
+            PfEasing::Quadratic(m) => with_mode(m, |x| x * x, t),
+            PfEasing::Cubic(m) => with_mode(m, |x| x * x * x, t),
+            PfEasing::Quartic(m) => with_mode(m, |x| x * x * x * x, t),
+            PfEasing::Quintic(m) => with_mode(m, |x| x * x * x * x * x, t),
+            PfEasing::Sine(m) => {
+                with_mode(m, |x| 1.0 - (x * std::f32::consts::FRAC_PI_2).cos(), t)
+            }
+            PfEasing::Circle(m) => with_mode(m, |x| 1.0 - (1.0 - x * x).max(0.0).sqrt(), t),
+            PfEasing::Back(m) => with_mode(
+                m,
+                |x| x * x * x - x * 1.0 * (std::f32::consts::PI * x).sin(),
+                t,
+            ),
+            PfEasing::Elastic(m) => with_mode(
+                m,
+                |x| {
+                    if x <= 0.0 {
+                        0.0
+                    } else {
+                        // WPF ElasticEase defaults: Oscillations=3, Springiness=3.
+                        let osc = 3.0_f32;
+                        let spring = 3.0_f32;
+                        ((spring * x).exp() - 1.0) / (spring.exp() - 1.0)
+                            * (x * std::f32::consts::TAU * (osc + 0.5)).sin()
+                    }
+                },
+                t,
+            ),
+            PfEasing::Bounce(m) => with_mode(
+                m,
+                |x| {
+                    // WPF BounceEase defaults: Bounces=3, Bounciness=2 —
+                    // use the common piecewise-parabola approximation.
+                    let x = 1.0 - x;
+                    let v = if x < 1.0 / 2.75 {
+                        7.5625 * x * x
+                    } else if x < 2.0 / 2.75 {
+                        let x = x - 1.5 / 2.75;
+                        7.5625 * x * x + 0.75
+                    } else if x < 2.5 / 2.75 {
+                        let x = x - 2.25 / 2.75;
+                        7.5625 * x * x + 0.9375
+                    } else {
+                        let x = x - 2.625 / 2.75;
+                        7.5625 * x * x + 0.984375
+                    };
+                    1.0 - v
+                },
+                t,
+            ),
+            PfEasing::Exponential(m) => with_mode(
+                m,
+                |x| {
+                    // WPF ExponentialEase default Exponent=2.
+                    ((2.0_f32 * x).exp() - 1.0) / (2.0_f32.exp() - 1.0)
+                },
+                t,
+            ),
+            PfEasing::AccelDecel { accel, decel } => {
+                // WPF's Accel/DecelRatio trapezoidal velocity profile.
+                let a = accel.clamp(0.0, 1.0);
+                let d = decel.clamp(0.0, 1.0 - a);
+                let denom = 1.0 - a / 2.0 - d / 2.0;
+                if denom <= 0.0 {
+                    return t;
+                }
+                let v = 1.0 / denom;
+                if t < a {
+                    v * t * t / (2.0 * a)
+                } else if t <= 1.0 - d {
+                    v * (t - a / 2.0)
+                } else {
+                    let tail = 1.0 - t;
+                    1.0 - v * tail * tail / (2.0 * d)
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -90,6 +218,7 @@ struct Running {
     repeat: PfRepeat,
     auto_reverse: bool,
     fill: PfFill,
+    easing: PfEasing,
 }
 
 /// Every animation currently playing.
@@ -179,6 +308,7 @@ pub fn begin_storyboard(
                 repeat: spec.repeat,
                 auto_reverse: spec.auto_reverse,
                 fill: spec.fill,
+                easing: spec.easing,
             });
     }
 }
@@ -255,12 +385,13 @@ pub(crate) fn tick_animations(world: &mut World) {
             raw
         };
 
+        let eased = anim.easing.ease(progress);
         let value = match (&anim.from, &anim.to) {
             (PfValue::Double(a), PfValue::Double(b)) => {
-                PfValue::Double(a + (b - a) * f64::from(progress))
+                PfValue::Double(a + (b - a) * f64::from(eased))
             }
             (PfValue::Color(a), PfValue::Color(b)) => {
-                PfValue::Color(lerp_color(*a, *b, progress))
+                PfValue::Color(lerp_color(*a, *b, eased))
             }
             _ => continue,
         };
@@ -336,6 +467,28 @@ pub fn parse_duration(s: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn easing_endpoints_and_shape() {
+        use EasingMode::*;
+        let curves = [
+            PfEasing::Linear,
+            PfEasing::Quadratic(In),
+            PfEasing::Cubic(Out),
+            PfEasing::Sine(InOut),
+            PfEasing::Circle(Out),
+            PfEasing::Bounce(Out),
+            PfEasing::Exponential(In),
+            PfEasing::AccelDecel { accel: 0.3, decel: 0.3 },
+        ];
+        for c in curves {
+            assert!(c.ease(0.0).abs() < 1e-4, "{c:?} starts at 0");
+            assert!((c.ease(1.0) - 1.0).abs() < 1e-3, "{c:?} ends at 1");
+        }
+        // EaseOut runs ahead of linear; EaseIn lags behind.
+        assert!(PfEasing::Cubic(Out).ease(0.25) > 0.25);
+        assert!(PfEasing::Cubic(In).ease(0.25) < 0.25);
+    }
 
     #[test]
     fn durations_parse() {

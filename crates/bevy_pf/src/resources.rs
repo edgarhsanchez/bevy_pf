@@ -964,7 +964,59 @@ pub(crate) fn parse_storyboard(
             Some(f) if f.eq_ignore_ascii_case("stop") => PfFill::Stop,
             _ => PfFill::HoldEnd,
         };
+        // <DoubleAnimation.EasingFunction><CubicEase EasingMode=".."/>
+        // or AccelerationRatio/DecelerationRatio attrs.
+        let easing = if let Some(pe) = child.property_element("EasingFunction") {
+            match pe.single_element() {
+                Some(f) => {
+                    use crate::animation::{EasingMode, PfEasing};
+                    let mode = match f.attribute("EasingMode") {
+                        Some(XamlValue::Str(m)) if m.eq_ignore_ascii_case("easein") => {
+                            EasingMode::In
+                        }
+                        Some(XamlValue::Str(m)) if m.eq_ignore_ascii_case("easeinout") => {
+                            EasingMode::InOut
+                        }
+                        _ => EasingMode::Out, // WPF default
+                    };
+                    match f.name.as_str() {
+                        "QuadraticEase" => PfEasing::Quadratic(mode),
+                        "CubicEase" => PfEasing::Cubic(mode),
+                        "QuarticEase" => PfEasing::Quartic(mode),
+                        "QuinticEase" => PfEasing::Quintic(mode),
+                        "SineEase" => PfEasing::Sine(mode),
+                        "CircleEase" => PfEasing::Circle(mode),
+                        "BackEase" => PfEasing::Back(mode),
+                        "ElasticEase" => PfEasing::Elastic(mode),
+                        "BounceEase" => PfEasing::Bounce(mode),
+                        "ExponentialEase" => PfEasing::Exponential(mode),
+                        "PowerEase" => PfEasing::Quadratic(mode),
+                        other => {
+                            warnings.push(format!(
+                                "{}: easing `{other}` is not supported; Linear used",
+                                f.pos
+                            ));
+                            PfEasing::Linear
+                        }
+                    }
+                }
+                None => crate::animation::PfEasing::Linear,
+            }
+        } else {
+            let accel = attr("AccelerationRatio")
+                .and_then(|a| a.trim().parse::<f32>().ok())
+                .unwrap_or(0.0);
+            let decel = attr("DecelerationRatio")
+                .and_then(|d| d.trim().parse::<f32>().ok())
+                .unwrap_or(0.0);
+            if accel > 0.0 || decel > 0.0 {
+                crate::animation::PfEasing::AccelDecel { accel, decel }
+            } else {
+                crate::animation::PfEasing::Linear
+            }
+        };
         children.push(PfAnimationSpec {
+            easing,
             target_name: attached("TargetName"),
             target_property,
             kind,
