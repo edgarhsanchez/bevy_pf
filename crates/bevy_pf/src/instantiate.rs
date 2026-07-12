@@ -200,6 +200,11 @@ enum ElemKind {
     GridSplitter,
     Calendar,
     DatePicker,
+    TimePicker,
+    PackIcon,
+    ColorPicker,
+    AutoSuggestBox,
+    NavigationView,
     Unknown,
 }
 
@@ -258,6 +263,11 @@ impl ElemKind {
             "GridSplitter" => Self::GridSplitter,
             "Calendar" => Self::Calendar,
             "DatePicker" => Self::DatePicker,
+            "TimePicker" => Self::TimePicker,
+            "PackIcon" | "FontIcon" | "SymbolIcon" => Self::PackIcon,
+            "ColorPicker" => Self::ColorPicker,
+            "AutoSuggestBox" => Self::AutoSuggestBox,
+            "NavigationView" | "HamburgerMenu" => Self::NavigationView,
             _ => Self::Unknown,
         }
     }
@@ -283,10 +293,10 @@ impl ElemKind {
             | Self::GridSplitter | Self::Calendar | Self::DatePicker
             | Self::Frame | Self::ToggleSwitch | Self::NumericUpDown
             | Self::RatingBar | Self::Badge | Self::BusyIndicator
-            | Self::RangeSlider => ParentKind::FlexColumn,
-            Self::StatusBar | Self::StatusBarItem | Self::ToolBar | Self::ToolBarTray => {
-                ParentKind::FlexRow
-            }
+            | Self::RangeSlider | Self::TimePicker | Self::PackIcon
+            | Self::ColorPicker | Self::AutoSuggestBox => ParentKind::FlexColumn,
+            Self::StatusBar | Self::StatusBarItem | Self::ToolBar | Self::ToolBarTray
+            | Self::NavigationView => ParentKind::FlexRow,
         }
     }
 }
@@ -960,6 +970,49 @@ impl<'w> Ctx<'w> {
                 column_gap: Val::Px(6.0),
                 ..Default::default()
             },
+            ElemKind::TimePicker => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                min_width: Val::Px(110.0),
+                min_height: Val::Px(26.0),
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                column_gap: Val::Px(6.0),
+                ..Default::default()
+            },
+            ElemKind::ColorPicker => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                min_height: Val::Px(26.0),
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                column_gap: Val::Px(6.0),
+                ..Default::default()
+            },
+            ElemKind::AutoSuggestBox => Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                min_width: Val::Px(120.0),
+                min_height: Val::Px(24.0),
+                ..Default::default()
+            },
+            ElemKind::PackIcon => Node {
+                width: Val::Px(16.0),
+                height: Val::Px(16.0),
+                flex_shrink: 0.0,
+                ..Default::default()
+            },
+            ElemKind::NavigationView => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Stretch,
+                flex_grow: 1.0,
+                ..Default::default()
+            },
             ElemKind::Slider => Node {
                 display: Display::Flex,
                 align_items: AlignItems::Center,
@@ -1140,7 +1193,11 @@ impl<'w> Ctx<'w> {
                     Interaction::default(),
                 ));
             }
-            ElemKind::Calendar | ElemKind::DatePicker => {
+            ElemKind::Calendar
+            | ElemKind::DatePicker
+            | ElemKind::TimePicker
+            | ElemKind::ColorPicker
+            | ElemKind::AutoSuggestBox => {
                 e.insert((
                     BackgroundColor(Color::WHITE),
                     BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
@@ -1943,6 +2000,14 @@ impl<'w> Ctx<'w> {
             "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
+            "SelectedTime" if kind == ElemKind::TimePicker => {}
+            "Kind" | "Symbol" | "Glyph" if kind == ElemKind::PackIcon => {}
+            "SelectedColor" if kind == ElemKind::ColorPicker => {}
+            "Suggestions" | "QueryIcon" | "PlaceholderText"
+                if kind == ElemKind::AutoSuggestBox => {}
+            "PaneDisplayMode" | "IsPaneOpen" | "OpenPaneLength" | "IsBackButtonVisible"
+            | "IsSettingsVisible"
+                if kind == ElemKind::NavigationView => {}
             "AutoGenerateColumns" | "HeadersVisibility" | "CanUserResizeColumns"
             | "CanUserResizeRows" | "CanUserSortColumns" | "CanUserAddRows"
             | "CanUserDeleteRows" | "CanUserReorderColumns" | "IsReadOnly"
@@ -2545,6 +2610,11 @@ impl<'w> Ctx<'w> {
             ElemKind::Badge => self.spawn_badge(entity, node)?,
             ElemKind::BusyIndicator => self.spawn_busy_indicator(entity, node)?,
             ElemKind::RangeSlider => self.spawn_range_slider(entity, node),
+            ElemKind::TimePicker => self.spawn_time_picker(entity, node)?,
+            ElemKind::PackIcon => self.spawn_pack_icon(entity, node),
+            ElemKind::ColorPicker => self.spawn_color_picker(entity, node),
+            ElemKind::AutoSuggestBox => self.spawn_auto_suggest_box(entity, node)?,
+            ElemKind::NavigationView => self.spawn_navigation_view(entity, node),
             ElemKind::PopupElement => {
                 self.spawn_popup_element(entity, node)?;
             }
@@ -4510,6 +4580,585 @@ impl<'w> Ctx<'w> {
         }
     }
 
+    /// Toolkit `TimePicker`: a display box with an hour/minute dropdown
+    /// (MaterialDesignInXaml / HandyControl equivalents).
+    fn spawn_time_picker(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
+        use crate::components::PfTimePicker;
+        use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
+
+        // SelectedTime="HH:MM".
+        let mut hour = None;
+        let mut minute = None;
+        if let Some(XamlValue::Str(t)) = node.attribute("SelectedTime") {
+            let mut it = t.split(':');
+            hour = it
+                .next()
+                .and_then(|h| h.trim().parse::<u32>().ok())
+                .filter(|h| *h < 24);
+            minute = it
+                .next()
+                .and_then(|m| m.trim().parse::<u32>().ok())
+                .filter(|m| *m < 60);
+        }
+
+        let display = self.spawn_text_child("Select time".to_string());
+        {
+            let mut n = self.node_mut(display);
+            n.flex_grow = 1.0;
+        }
+        let arrow = self.spawn_text_child("\u{25BE}".to_string());
+        self.add_children(entity, &[display, arrow]);
+
+        let overlay = ensure_overlay_root(self.world);
+        let popup = self.world
+            .spawn((
+                PfPopup {
+                    anchor: entity,
+                    placement: PfPlacement::Bottom,
+                    open: false,
+                    match_anchor_width: false,
+                },
+                crate::components::PfLogicalParent(entity),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::None,
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(4.0),
+                    padding: UiRect::all(Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                bevy::ui::GlobalZIndex(i32::MAX - 900),
+            ))
+            .id();
+        let backdrop = spawn_backdrop(self.world, popup);
+        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+
+        let hours: Vec<u32> = (0..24).collect();
+        let minutes: Vec<u32> = (0..60).step_by(5).collect();
+        let hour_col = self.spawn_time_column(entity, &hours, true);
+        let minute_col = self.spawn_time_column(entity, &minutes, false);
+        self.add_children(popup, &[hour_col, minute_col]);
+
+        self.world.entity_mut(entity).insert((
+            PfTimePicker {
+                hour,
+                minute,
+                display,
+                popup,
+            },
+            Interaction::default(),
+        ));
+        if hour.is_some() || minute.is_some() {
+            time_picker_set(self.world, entity, hour, minute);
+        }
+
+        let popup_entity = popup;
+        self.world.entity_mut(entity).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = !p.open;
+                }
+            },
+        );
+        self.world.entity_mut(backdrop).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = false;
+                }
+            },
+        );
+        Ok(())
+    }
+
+    /// One scrollable column of clickable time values.
+    fn spawn_time_column(&mut self, picker: Entity, values: &[u32], is_hour: bool) -> Entity {
+        let column = self.world
+            .spawn(Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                max_height: Val::Px(190.0),
+                overflow: bevy::ui::Overflow::scroll_y(),
+                ..Default::default()
+            })
+            .id();
+        for &value in values {
+            let label = self.spawn_text_child(format!("{value:02}"));
+            let cell = self.world
+                .spawn((
+                    Node {
+                        padding: UiRect::axes(Val::Px(12.0), Val::Px(2.0)),
+                        justify_content: JustifyContent::Center,
+                        ..Default::default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    Interaction::default(),
+                ))
+                .id();
+            self.add_children(cell, &[label]);
+            self.world.entity_mut(cell).observe(
+                move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        if is_hour {
+                            time_picker_set(world, picker, Some(value), None);
+                        } else {
+                            time_picker_set(world, picker, None, Some(value));
+                        }
+                    });
+                },
+            );
+            self.add_children(column, &[cell]);
+        }
+        column
+    }
+
+    /// Toolkit `PackIcon` / `SymbolIcon` / `FontIcon`: vector icons rendered
+    /// by the shape engine (see [`crate::icons`]) — no icon font, identical
+    /// output on native and wasm.
+    fn spawn_pack_icon(&mut self, entity: Entity, node: &XamlNode) {
+        // FontIcon: a literal glyph from the current font.
+        if let Some(XamlValue::Str(glyph)) = node.attribute("Glyph") {
+            let glyph = glyph.clone();
+            let label = self.spawn_text_child(glyph);
+            self.add_children(entity, &[label]);
+            return;
+        }
+        let kind = match node.attribute("Kind").or_else(|| node.attribute("Symbol")) {
+            Some(XamlValue::Str(k)) => k.clone(),
+            _ => {
+                self.warn(format!("{}: {} needs Kind= or Symbol=", node.pos, node.name));
+                return;
+            }
+        };
+        let Some(data) = crate::icons::icon_path(&kind) else {
+            self.warn(format!("{}: unknown icon kind '{kind}'", node.pos));
+            let label = self.spawn_text_child("?".to_string());
+            self.add_children(entity, &[label]);
+            return;
+        };
+        let geometry = bevy_pf_xaml::geometry::parse_path_data(data)
+            .expect("icon path data is pre-validated");
+        let shape = crate::shapes::build_shape(
+            "Path",
+            crate::shapes::ShapeParams {
+                data: Some(geometry),
+                fill: Some(v::PfBrush::Solid(self.inherited.foreground)),
+                stretch: Some(v::Stretch::Uniform),
+                ..Default::default()
+            },
+        )
+        .expect("icon shape");
+        let inner = self.world
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    ..Default::default()
+                },
+                shape,
+                crate::shapes::PfShapeRendered::default(),
+            ))
+            .id();
+        self.add_children(entity, &[inner]);
+    }
+
+    /// Toolkit `ColorPicker`: a swatch button opening a palette grid plus a
+    /// hex entry. (HSV canvas: deferred; the palette + hex path covers the
+    /// ecosystem's common usage.)
+    fn spawn_color_picker(&mut self, entity: Entity, node: &XamlNode) {
+        use crate::components::{PfColorHexInput, PfColorPicker};
+        use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
+
+        let selected = match node.attribute("SelectedColor") {
+            Some(XamlValue::Str(t)) => t
+                .parse::<v::PfColor>()
+                .map(convert::color)
+                .unwrap_or(Color::srgb_u8(0x33, 0x66, 0xCC)),
+            _ => Color::srgb_u8(0x33, 0x66, 0xCC),
+        };
+
+        let swatch = self.world
+            .spawn((
+                Node {
+                    width: Val::Px(18.0),
+                    height: Val::Px(18.0),
+                    border_radius: BorderRadius::all(Val::Px(3.0)),
+                    flex_shrink: 0.0,
+                    ..Default::default()
+                },
+                BackgroundColor(selected),
+            ))
+            .id();
+        let arrow = self.spawn_text_child("\u{25BE}".to_string());
+        self.add_children(entity, &[swatch, arrow]);
+
+        let overlay = ensure_overlay_root(self.world);
+        let popup = self.world
+            .spawn((
+                PfPopup {
+                    anchor: entity,
+                    placement: PfPlacement::Bottom,
+                    open: false,
+                    match_anchor_width: false,
+                },
+                crate::components::PfLogicalParent(entity),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::None,
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(8.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                bevy::ui::GlobalZIndex(i32::MAX - 900),
+            ))
+            .id();
+        let backdrop = spawn_backdrop(self.world, popup);
+        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+
+        // 20-color palette (5x4): a practical designer set.
+        const PALETTE: [(u8, u8, u8); 20] = [
+            (0x00, 0x00, 0x00), (0x44, 0x44, 0x44), (0x88, 0x88, 0x88), (0xCC, 0xCC, 0xCC), (0xFF, 0xFF, 0xFF),
+            (0xE8, 0x1B, 0x23), (0xFF, 0x8C, 0x00), (0xFF, 0xD4, 0x00), (0x33, 0x99, 0x33), (0x00, 0x7F, 0x5F),
+            (0x00, 0xB7, 0xC3), (0x33, 0x66, 0xCC), (0x00, 0x3D, 0x99), (0x68, 0x21, 0x7A), (0xC2, 0x39, 0x8A),
+            (0x8B, 0x45, 0x13), (0xF4, 0xA0, 0x8C), (0xB5, 0xE6, 0x1D), (0x9B, 0xB7, 0xD4), (0x1A, 0x1A, 0x2E),
+        ];
+        let grid = self.world
+            .spawn(Node {
+                display: Display::Grid,
+                grid_template_columns: vec![RepeatedGridTrack::px(5, 22.0)],
+                row_gap: Val::Px(4.0),
+                column_gap: Val::Px(4.0),
+                ..Default::default()
+            })
+            .id();
+        for (r, g, b) in PALETTE {
+            let cell = self.world
+                .spawn((
+                    Node {
+                        width: Val::Px(22.0),
+                        height: Val::Px(22.0),
+                        border_radius: BorderRadius::all(Val::Px(3.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..Default::default()
+                    },
+                    BackgroundColor(Color::srgb_u8(r, g, b)),
+                    BorderColor::all(Color::srgb_u8(0xD0, 0xD0, 0xD0)),
+                    Interaction::default(),
+                ))
+                .id();
+            let picker = entity;
+            self.world.entity_mut(cell).observe(
+                move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        color_picker_set(world, picker, Color::srgb_u8(r, g, b), true);
+                    });
+                },
+            );
+            self.add_children(grid, &[cell]);
+        }
+
+        // Hex entry row.
+        let hex = color_to_hex(selected);
+        let hex_input = self.world
+            .spawn((
+                Node {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                },
+                bevy::text::EditableText::new(&hex),
+                bevy::text::TextColor(convert::color(self.inherited.foreground)),
+                PfColorHexInput { owner: entity },
+            ))
+            .id();
+        self.apply_text_font(hex_input);
+        let hex_row = self.world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    min_height: Val::Px(22.0),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+            ))
+            .id();
+        self.add_children(hex_row, &[hex_input]);
+        self.add_children(popup, &[grid, hex_row]);
+
+        self.world.entity_mut(entity).insert((
+            PfColorPicker {
+                selected,
+                swatch,
+                hex_input,
+                popup,
+            },
+            Interaction::default(),
+        ));
+
+        let popup_entity = popup;
+        self.world.entity_mut(entity).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = !p.open;
+                }
+            },
+        );
+        self.world.entity_mut(backdrop).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = false;
+                }
+            },
+        );
+    }
+
+    /// WinUI `AutoSuggestBox`: an editable text box with a prefix-filtered
+    /// suggestion dropdown. Suggestions come from a comma-separated
+    /// `Suggestions=` attribute and/or inline string children.
+    fn spawn_auto_suggest_box(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
+        use crate::components::{PfAutoSuggestBox, PfAutoSuggestInput};
+        use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
+
+        let text = match node.attribute("Text") {
+            Some(value) => {
+                let value = value.clone();
+                self.resolve_text_attr(&value).unwrap_or_default()
+            }
+            None => String::new(),
+        };
+        let mut editable = bevy::text::EditableText::new(&text);
+        editable.allow_newlines = false;
+        let input = self.world
+            .spawn((
+                Node {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                },
+                editable,
+                bevy::text::TextColor(convert::color(self.inherited.foreground)),
+                PfAutoSuggestInput { owner: entity },
+            ))
+            .id();
+        self.apply_text_font(input);
+        self.add_children(entity, &[input]);
+
+        let mut items: Vec<String> = Vec::new();
+        if let Some(XamlValue::Str(list)) = node.attribute("Suggestions") {
+            items.extend(
+                list.split(',')
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty()),
+            );
+        }
+        for child in &node.children {
+            if let Some(el) = child.as_element()
+                && let Some(t) = el.text_content() {
+                    let t = t.trim().to_string();
+                    if !t.is_empty() {
+                        items.push(t);
+                    }
+                }
+        }
+
+        let overlay = ensure_overlay_root(self.world);
+        let popup = self.world
+            .spawn((
+                PfPopup {
+                    anchor: entity,
+                    placement: PfPlacement::Bottom,
+                    open: false,
+                    match_anchor_width: true,
+                },
+                crate::components::PfLogicalParent(entity),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::None,
+                    flex_direction: FlexDirection::Column,
+                    border: UiRect::all(Val::Px(1.0)),
+                    padding: UiRect::all(Val::Px(1.0)),
+                    max_height: Val::Px(200.0),
+                    overflow: bevy::ui::Overflow::scroll_y(),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                bevy::ui::GlobalZIndex(i32::MAX - 900),
+            ))
+            .id();
+        let backdrop = spawn_backdrop(self.world, popup);
+        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+
+        self.world
+            .entity_mut(entity)
+            .insert((PfAutoSuggestBox { input, popup, items }, Interaction::default()));
+
+        let popup_entity = popup;
+        self.world.entity_mut(backdrop).observe(
+            move |_click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+                if let Ok(mut p) = popups.get_mut(popup_entity) {
+                    p.open = false;
+                }
+            },
+        );
+        Ok(())
+    }
+
+    /// WinUI `NavigationView` (v1: `PaneDisplayMode=Left`): a pane of
+    /// icon+label items driving an embedded chrome-less [`Frame`].
+    /// Items navigate to their `Tag=` route (see `register_page`).
+    fn spawn_navigation_view(&mut self, entity: Entity, node: &XamlNode) {
+        use crate::components::{PfFrame, PfNavigationView};
+
+        let pane = self.world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Px(170.0),
+                    flex_shrink: 0.0,
+                    padding: UiRect::all(Val::Px(6.0)),
+                    row_gap: Val::Px(2.0),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::srgb_u8(0xF2, 0xF2, 0xF2)),
+                PfElementKind("NavigationView.Pane".to_string()),
+            ))
+            .id();
+
+        let content = self.world
+            .spawn(Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                ..Default::default()
+            })
+            .id();
+        let frame = self.world
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    flex_grow: 1.0,
+                    padding: UiRect::all(Val::Px(10.0)),
+                    ..Default::default()
+                },
+                PfElementKind("Frame".to_string()),
+            ))
+            .id();
+        self.add_children(frame, &[content]);
+        self.world.entity_mut(frame).insert(PfFrame {
+            content,
+            chrome: None,
+            back: Vec::new(),
+            forward: Vec::new(),
+            current: None,
+            current_title: None,
+            pending_source: None,
+        });
+        self.add_children(entity, &[pane, frame]);
+
+        let mut items = Vec::new();
+        let mut first_tag: Option<String> = None;
+        for child in &node.children {
+            let Some(el) = child.as_element() else { continue };
+            if el.name != "NavigationViewItem" {
+                self.warn(format!(
+                    "{}: NavigationView only takes NavigationViewItem children, got {}",
+                    el.pos, el.name
+                ));
+                continue;
+            }
+            let label = match el.attribute("Content") {
+                Some(XamlValue::Str(t)) => t.clone(),
+                _ => String::new(),
+            };
+            let tag = match el.attribute("Tag") {
+                Some(XamlValue::Str(t)) => t.clone(),
+                _ => label.clone(),
+            };
+
+            let row = self.world
+                .spawn((
+                    Node {
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(8.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                        ..Default::default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    Interaction::default(),
+                ))
+                .id();
+            if let Some(XamlValue::Str(kind)) = el.attribute("Icon")
+                && let Some(data) = crate::icons::icon_path(kind) {
+                    let geometry = bevy_pf_xaml::geometry::parse_path_data(data)
+                        .expect("icon path data is pre-validated");
+                    let shape = crate::shapes::build_shape(
+                        "Path",
+                        crate::shapes::ShapeParams {
+                            data: Some(geometry),
+                            fill: Some(v::PfBrush::Solid(v::PfColor::rgb(0x44, 0x44, 0x44))),
+                            stretch: Some(v::Stretch::Uniform),
+                            ..Default::default()
+                        },
+                    )
+                    .expect("icon shape");
+                    let icon = self.world
+                        .spawn((
+                            Node {
+                                width: Val::Px(16.0),
+                                height: Val::Px(16.0),
+                                flex_shrink: 0.0,
+                                ..Default::default()
+                            },
+                            shape,
+                            crate::shapes::PfShapeRendered::default(),
+                        ))
+                        .id();
+                    self.add_children(row, &[icon]);
+                }
+            let text = self.spawn_text_child(label);
+            self.add_children(row, &[text]);
+
+            let index = items.len();
+            let view = entity;
+            let route = tag.clone();
+            self.world.entity_mut(row).observe(
+                move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                    let route = route.clone();
+                    commands.queue(move |world: &mut World| {
+                        nav_view_invoke(world, view, index, &route);
+                    });
+                },
+            );
+            items.push(row);
+            if first_tag.is_none() {
+                first_tag = Some(tag);
+            }
+        }
+        self.add_children(pane, &items);
+        self.world.entity_mut(entity).insert(PfNavigationView {
+            frame,
+            items,
+            selected: None,
+        });
+        if let Some(tag) = first_tag {
+            nav_view_invoke(self.world, entity, 0, &tag);
+        }
+    }
+
     /// The raw WPF `<Popup>` element: content lives on the overlay layer,
     /// anchored to the popup's XAML parent (resolved by a plugin system once
     /// the tree is assembled). `IsOpen` sets the initial state.
@@ -5438,6 +6087,167 @@ pub fn calendar_shift_month(world: &mut World, calendar: Entity, delta: i32) {
         state.year = y;
     }
     calendar_rebuild(world, calendar);
+}
+
+/// Set a TimePicker's hour and/or minute; updates the display and closes the
+/// popup once a minute is chosen.
+pub fn time_picker_set(
+    world: &mut World,
+    picker: Entity,
+    hour: Option<u32>,
+    minute: Option<u32>,
+) {
+    use crate::components::PfTimePicker;
+    let Some(mut p) = world.get_mut::<PfTimePicker>(picker) else {
+        return;
+    };
+    if hour.is_some() {
+        p.hour = hour;
+    }
+    if minute.is_some() {
+        p.minute = minute;
+    }
+    let (h, m, display, popup) = (p.hour, p.minute, p.display, p.popup);
+    let text = match (h, m) {
+        (Some(h), Some(m)) => format!("{h:02}:{m:02}"),
+        (Some(h), None) => format!("{h:02}:--"),
+        (None, Some(m)) => format!("--:{m:02}"),
+        (None, None) => "Select time".to_string(),
+    };
+    set_text(world, display, text);
+    if minute.is_some()
+        && let Some(mut pop) = world.get_mut::<crate::overlay::PfPopup>(popup) {
+            pop.open = false;
+        }
+}
+
+/// `#RRGGBB` for a color (alpha dropped).
+pub fn color_to_hex(color: Color) -> String {
+    let c = color.to_srgba();
+    format!(
+        "#{:02X}{:02X}{:02X}",
+        (c.red * 255.0).round() as u8,
+        (c.green * 255.0).round() as u8,
+        (c.blue * 255.0).round() as u8
+    )
+}
+
+/// Set a ColorPicker's color; updates the swatch (and the hex entry unless
+/// the change came from typing in it).
+pub fn color_picker_set(world: &mut World, picker: Entity, color: Color, update_hex: bool) {
+    use crate::components::PfColorPicker;
+    let Some(mut p) = world.get_mut::<PfColorPicker>(picker) else {
+        return;
+    };
+    p.selected = color;
+    let (swatch, hex_input) = (p.swatch, p.hex_input);
+    if let Some(mut bg) = world.get_mut::<BackgroundColor>(swatch) {
+        bg.0 = color;
+    }
+    if update_hex
+        && let Some(mut et) = world.get_mut::<bevy::text::EditableText>(hex_input) {
+            et.editor.set_text(&color_to_hex(color));
+        }
+}
+
+/// Refilter an AutoSuggestBox's dropdown against its current text.
+pub(crate) fn rebuild_suggestions(world: &mut World, owner: Entity) {
+    use crate::components::PfAutoSuggestBox;
+    use crate::overlay::PfPopup;
+
+    let Some(sugg) = world.get::<PfAutoSuggestBox>(owner).cloned() else {
+        return;
+    };
+    let text = world
+        .get::<bevy::text::EditableText>(sugg.input)
+        .map(|et| et.editor().text().to_string())
+        .unwrap_or_default();
+    let needle = text.trim().to_lowercase();
+    let matches: Vec<String> = if needle.is_empty() {
+        Vec::new()
+    } else {
+        sugg.items
+            .iter()
+            .filter(|item| {
+                let lower = item.to_lowercase();
+                lower.starts_with(&needle) && lower != needle
+            })
+            .take(8)
+            .cloned()
+            .collect()
+    };
+
+    let old: Vec<Entity> = world
+        .get::<Children>(sugg.popup)
+        .map(|c| c.iter().collect())
+        .unwrap_or_default();
+    for row in old {
+        world.entity_mut(row).despawn();
+    }
+    let open = !matches.is_empty();
+    for item in matches {
+        let label = world
+            .spawn((
+                Node::default(),
+                bevy::ui::widget::Text::new(&item),
+                bevy::text::TextFont {
+                    font_size: bevy::text::FontSize::Px(13.0),
+                    font: crate::fonts::default_font(),
+                    ..Default::default()
+                },
+                bevy::text::TextColor(Color::srgb_u8(0x1A, 0x1A, 0x1A)),
+            ))
+            .id();
+        let row = world
+            .spawn((
+                Node {
+                    padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::NONE),
+                Interaction::default(),
+            ))
+            .id();
+        world.entity_mut(row).add_children(&[label]);
+        let (input, popup) = (sugg.input, sugg.popup);
+        world.entity_mut(row).observe(
+            move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                let chosen = item.clone();
+                commands.queue(move |world: &mut World| {
+                    if let Some(mut et) = world.get_mut::<bevy::text::EditableText>(input) {
+                        et.editor.set_text(&chosen);
+                    }
+                    if let Some(mut p) = world.get_mut::<PfPopup>(popup) {
+                        p.open = false;
+                    }
+                });
+            },
+        );
+        world.entity_mut(sugg.popup).add_children(&[row]);
+    }
+    if let Some(mut p) = world.get_mut::<PfPopup>(sugg.popup) {
+        p.open = open;
+    }
+}
+
+/// Select a NavigationView item: highlight it and navigate the embedded frame.
+pub fn nav_view_invoke(world: &mut World, view: Entity, index: usize, route: &str) {
+    use crate::components::PfNavigationView;
+    let Some(mut nav) = world.get_mut::<PfNavigationView>(view) else {
+        return;
+    };
+    nav.selected = Some(index);
+    let (frame, items) = (nav.frame, nav.items.clone());
+    for (i, row) in items.into_iter().enumerate() {
+        if let Some(mut bg) = world.get_mut::<BackgroundColor>(row) {
+            bg.0 = if i == index {
+                Color::srgb_u8(0xDD, 0xE6, 0xF5)
+            } else {
+                Color::NONE
+            };
+        }
+    }
+    crate::navigation::navigate(world, frame, route);
 }
 
 /// Select a date on a Calendar; reports to the owning DatePicker if any.

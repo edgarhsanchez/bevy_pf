@@ -67,6 +67,30 @@ fn main() {
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(PfUiPlugin)
         .insert_resource(Vsync { on: true, dirty: false })
+        .register_page("nav-dashboard", xaml!(
+            r#"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Dashboard">
+                 <StackPanel>
+                   <TextBlock Text="Dashboard" FontWeight="Bold"/>
+                   <TextBlock Text="This page was navigated to by the NavigationView pane." FontSize="12" Margin="0,4,0,0"/>
+                 </StackPanel>
+               </Page>"#
+        ))
+        .register_page("nav-reports", xaml!(
+            r#"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Reports">
+                 <StackPanel>
+                   <TextBlock Text="Reports" FontWeight="Bold"/>
+                   <TextBlock Text="Each item's Tag routes the embedded Frame." FontSize="12" Margin="0,4,0,0"/>
+                 </StackPanel>
+               </Page>"#
+        ))
+        .register_page("nav-settings", xaml!(
+            r#"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Settings">
+                 <StackPanel>
+                   <TextBlock Text="Settings" FontWeight="Bold"/>
+                   <TextBlock Text="Pages are plain registered XAML scenes." FontSize="12" Margin="0,4,0,0"/>
+                 </StackPanel>
+               </Page>"#
+        ))
         .add_systems(Startup, setup)
         .add_systems(Update, (wire_vsync_menu, apply_vsync, live_updates))
         .run();
@@ -92,6 +116,28 @@ fn wire_vsync_menu(
             vsync.dirty = true;
         },
     );
+    if let Some(dialog_btn) = ui.by_name("DialogBtn") {
+        commands.entity(dialog_btn).observe(
+            |_: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(|world: &mut World| {
+                    bevy_pf::dialog::show_content(
+                        world,
+                        "About this dialog",
+                        &xaml!(
+                            r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+                                 <TextBlock Text="ContentDialog hosts any XAML scene." FontSize="13"/>
+                                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                   <PackIcon Kind="Info" Width="18" Height="18" Foreground="#FF3366CC" Margin="0,0,8,0"/>
+                                   <TextBlock Text="Buttons report via PfDialogResult." FontSize="12"/>
+                                 </StackPanel>
+                               </StackPanel>"##
+                        ),
+                        &["OK", "Cancel"],
+                    );
+                });
+            },
+        );
+    }
     if let Some(toast_btn) = ui.by_name("ToastBtn") {
         commands.entity(toast_btn).observe(
             |_: On<Pointer<Click>>, mut commands: Commands| {
@@ -316,6 +362,45 @@ fn setup(mut commands: Commands) {
                             <RangeSlider Width="220" Minimum="0" Maximum="100" LowerValue="25" UpperValue="70"/>
                             <Button x:Name="ToastBtn" Content="Show toast" Width="110" Margin="16,0,0,0"/>
                           </StackPanel>
+                          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                            <TextBlock Text="TimePicker:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TimePicker SelectedTime="09:30" Margin="0,0,16,0"/>
+                            <TextBlock Text="ColorPicker:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ColorPicker SelectedColor="#3366CC" Margin="0,0,16,0"/>
+                            <Button x:Name="DialogBtn" Content="ContentDialog" Width="120"/>
+                          </StackPanel>
+                          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                            <TextBlock Text="AutoSuggestBox:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <AutoSuggestBox Width="200" Suggestions="Amsterdam,Athens,Berlin,Bern,Bogota,Boston,Brasilia,Brussels,Budapest,Buenos Aires,Cairo,Canberra,Caracas,Copenhagen"/>
+                            <TextBlock Text="(type a city: a, b, c...)" FontSize="11" Foreground="#FF8A8A8A" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                          </StackPanel>
+                          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                            <TextBlock Text="PackIcon:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <PackIcon Kind="Home" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Settings" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Search" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Check" Width="20" Height="20" Foreground="#FF33A033" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Close" Width="20" Height="20" Foreground="#FFC03030" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Star" Width="20" Height="20" Foreground="#FFE8B400" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Heart" Width="20" Height="20" Foreground="#FFD6336C" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Warning" Width="20" Height="20" Foreground="#FFCC8800" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Info" Width="20" Height="20" Foreground="#FF3366CC" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Bell" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Folder" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Mail" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Lock" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Person" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Clock" Width="20" Height="20" Margin="0,0,8,0"/>
+                            <PackIcon Kind="Refresh" Width="20" Height="20"/>
+                          </StackPanel>
+                          <TextBlock Text="NavigationView (items drive the embedded Frame):" FontWeight="Bold" Margin="0,16,0,6"/>
+                          <Border BorderBrush="#FFC8C8C8" BorderThickness="1" Width="520" Height="150" HorizontalAlignment="Left">
+                            <NavigationView>
+                              <NavigationViewItem Content="Dashboard" Icon="Home" Tag="nav-dashboard"/>
+                              <NavigationViewItem Content="Reports" Icon="Document" Tag="nav-reports"/>
+                              <NavigationViewItem Content="Settings" Icon="Settings" Tag="nav-settings"/>
+                            </NavigationView>
+                          </Border>
                           <BusyIndicator IsBusy="True" BusyContent="Loading..." Width="300" Height="70" Margin="0,16,0,0" HorizontalAlignment="Left">
                             <Border Background="#FFEDEFF4" Width="300" Height="70">
                               <TextBlock Text="content dimmed by the busy overlay" HorizontalAlignment="Center" VerticalAlignment="Center"/>

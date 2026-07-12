@@ -37,6 +37,7 @@ pub mod dialog;
 pub mod dynamic;
 pub mod error;
 pub mod fonts;
+pub mod icons;
 pub mod instantiate;
 pub mod items;
 pub mod navigation;

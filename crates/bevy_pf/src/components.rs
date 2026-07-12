@@ -370,3 +370,49 @@ pub struct PfRangeSlider {
     pub thumb_upper: Entity,
     pub fill: Entity,
 }
+
+/// Toolkit `TimePicker`: a display box with an hour/minute dropdown.
+#[derive(Component, Debug, Clone)]
+pub struct PfTimePicker {
+    pub hour: Option<u32>,
+    pub minute: Option<u32>,
+    pub display: Entity,
+    pub popup: Entity,
+}
+
+/// Toolkit `ColorPicker`: a swatch button with a palette dropdown.
+#[derive(Component, Debug, Clone)]
+pub struct PfColorPicker {
+    pub selected: Color,
+    pub swatch: Entity,
+    pub hex_input: Entity,
+    pub popup: Entity,
+}
+
+/// Marks the hex `EditableText` inside a [`PfColorPicker`] popup.
+#[derive(Component, Debug, Clone)]
+pub struct PfColorHexInput {
+    pub owner: Entity,
+}
+
+/// Toolkit `AutoSuggestBox`: a TextBox with a filtered suggestion dropdown.
+#[derive(Component, Debug, Clone)]
+pub struct PfAutoSuggestBox {
+    pub input: Entity,
+    pub popup: Entity,
+    pub items: Vec<String>,
+}
+
+/// Marks the `EditableText` inside a [`PfAutoSuggestBox`].
+#[derive(Component, Debug, Clone)]
+pub struct PfAutoSuggestInput {
+    pub owner: Entity,
+}
+
+/// WinUI-style `NavigationView`: a pane of items driving an embedded frame.
+#[derive(Component, Debug, Clone)]
+pub struct PfNavigationView {
+    pub frame: Entity,
+    pub items: Vec<Entity>,
+    pub selected: Option<usize>,
+}

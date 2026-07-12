@@ -28,7 +28,15 @@ impl Plugin for PfUiPlugin {
         app.add_message::<crate::navigation::PfNavigated>();
         app.init_resource::<crate::navigation::PfPages>();
         app.add_systems(Update, crate::navigation::init_pending_frames);
-        app.add_systems(Update, (toolkit_control_sync, crate::toast::expire_toasts));
+        app.add_systems(
+            Update,
+            (
+                toolkit_control_sync,
+                auto_suggest_watch,
+                color_hex_watch,
+                crate::toast::expire_toasts,
+            ),
+        );
         app.init_asset::<crate::asset::XamlAsset>()
             .register_asset_loader(crate::asset::XamlAssetLoader)
             .init_resource::<crate::asset::PendingXamlViews>()
@@ -116,6 +124,7 @@ impl Plugin for PfUiPlugin {
 }
 
 /// Keep toolkit-control visuals in sync with their state components.
+#[allow(clippy::too_many_arguments)] // one query set per toolkit control family
 fn toolkit_control_sync(
     watermarks: Query<(Entity, &crate::components::PfWatermark)>,
     editables: Query<&bevy::text::EditableText>,
@@ -524,5 +533,48 @@ impl PfCommandsExt for Commands<'_, '_> {
         self.entity(root)
             .insert(crate::binding::DataContext(context));
         root
+    }
+}
+
+/// Refilter AutoSuggestBox dropdowns when their text changes.
+fn auto_suggest_watch(
+    changed: Query<
+        (&crate::components::PfAutoSuggestInput, Ref<bevy::text::EditableText>),
+        Changed<bevy::text::EditableText>,
+    >,
+    mut commands: Commands,
+) {
+    for (marker, editable) in &changed {
+        if editable.is_added() {
+            continue; // initial spawn, not typing
+        }
+        let owner = marker.owner;
+        commands.queue(move |world: &mut World| {
+            crate::instantiate::rebuild_suggestions(world, owner);
+        });
+    }
+}
+
+/// Apply typed `#RRGGBB` hex values to the owning ColorPicker.
+fn color_hex_watch(
+    changed: Query<
+        (&crate::components::PfColorHexInput, Ref<bevy::text::EditableText>),
+        Changed<bevy::text::EditableText>,
+    >,
+    mut commands: Commands,
+) {
+    for (marker, editable) in &changed {
+        if editable.is_added() {
+            continue;
+        }
+        let text = editable.editor().text().to_string();
+        let Ok(color) = text.trim().parse::<bevy_pf_xaml::value::PfColor>() else {
+            continue; // incomplete/invalid hex while typing
+        };
+        let owner = marker.owner;
+        let color = crate::convert::color(color);
+        commands.queue(move |world: &mut World| {
+            crate::instantiate::color_picker_set(world, owner, color, false);
+        });
     }
 }

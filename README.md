@@ -97,6 +97,16 @@ Working today:
   template columns), `GridSplitter` (drag-resizes grid tracks), `Popup`,
   `Hyperlink` (opens `NavigateUri`), `ProgressBar IsIndeterminate`,
   `Calendar` + `DatePicker`, and `bevy_pf::dialog` MessageBox-style modals.
+- **Ecosystem "toolkit" controls** (MahApps / MaterialDesignInXaml /
+  Extended WPF Toolkit / HandyControl / WinUI equivalents): `ToggleSwitch`,
+  `NumericUpDown`, `RatingBar`, `Badge`, `Card`/`Chip` presets,
+  `BusyIndicator`, `TextBox Watermark=`, `RangeSlider`, `bevy_pf::toast`
+  notifications, `TimePicker`, `ColorPicker` (palette + hex entry),
+  `AutoSuggestBox`, `NavigationView` (pane items drive an embedded `Frame`),
+  `bevy_pf::dialog::show_content` ContentDialog, and `PackIcon` /
+  `SymbolIcon` / `FontIcon` — 40+ named icons drawn as vector paths by the
+  shape engine (`bevy_pf::icons`), so they render identically on native and
+  wasm with no icon font.
 - **Data binding**: `{Binding Path, Mode, StringFormat}` against any
   `#[derive(Reflect)]` view-model wrapped in a `Bindable` (the
   `INotifyPropertyChanged` analog), `DataContext` inherited down the tree,

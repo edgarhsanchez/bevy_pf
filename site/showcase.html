@@ -63,6 +63,13 @@ commands.spawn_xaml_bound(xaml!(r##"&lt;Window ...&gt;
 &lt;BusyIndicator IsBusy="True" BusyContent="Loading..."&gt; ... &lt;/BusyIndicator&gt;
 &lt;RangeSlider Minimum="0" Maximum="100" LowerValue="25" UpperValue="70"/&gt;
 &lt;TextBox Watermark="Search..."/&gt;
+&lt;TimePicker SelectedTime="09:30"/&gt;
+&lt;ColorPicker SelectedColor="#3366CC"/&gt;
+&lt;AutoSuggestBox Suggestions="Amsterdam,Athens,Berlin,Bern"/&gt;
+&lt;PackIcon Kind="Home" Width="20" Height="20"/&gt;  &lt;!-- 40+ vector icons --&gt;
+&lt;NavigationView&gt;
+  &lt;NavigationViewItem Content="Dashboard" Icon="Home" Tag="nav-dashboard"/&gt;
+&lt;/NavigationView&gt;
 // and from any system:
 bevy_pf::toast::show_with(world, "Saved!", Severity::Success, 4.0);</code></pre></div></details><details><summary>5. Wire a menu item with an observer</summary><div class="step"><p>The View &gt; Vsync toggle: find by name once, observe clicks, flip real window state.</p><pre><code>commands.entity(toggle).observe(
     |_click: On&lt;Pointer&lt;Click&gt;&gt;, mut vsync: ResMut&lt;Vsync&gt;| {
