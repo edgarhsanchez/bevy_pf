@@ -29,6 +29,7 @@
 //! }
 //! ```
 
+pub mod animation;
 pub mod asset;
 pub mod binding;
 pub mod components;

@@ -36,6 +36,8 @@ pub enum PfValue {
     Template(Arc<XamlNode>),
     /// An unexpanded `ControlTemplate`: replaces a control's default chrome.
     ControlTemplate(Arc<PfControlTemplate>),
+    /// A parsed `<Storyboard>`, startable by EventTriggers or from Rust.
+    Storyboard(Arc<crate::animation::PfStoryboard>),
 }
 
 /// A parsed WPF `ControlTemplate`: the visual root subtree plus template
@@ -58,6 +60,8 @@ pub struct PfStyle {
     pub target_type: Option<String>,
     pub setters: Vec<PfSetter>,
     pub triggers: Vec<PfTrigger>,
+    /// `<EventTrigger RoutedEvent=...>` storyboard launchers.
+    pub event_triggers: Vec<crate::animation::PfEventTrigger>,
 }
 
 /// A `Style.Triggers` entry: all conditions must hold (one for `Trigger` /
@@ -316,6 +320,9 @@ pub fn parse_resource_value(
                 return Err(PfError::resource("DataTemplate must have one root element"));
             }
             PfValue::Template(Arc::new(root.clone()))
+        }
+        "Storyboard" => {
+            PfValue::Storyboard(Arc::new(parse_storyboard(node, warnings)?))
         }
         "ControlTemplate" => {
             let target_type = match node.attribute("TargetType") {
@@ -846,6 +853,12 @@ pub fn parse_style(
     // Style.Triggers.
     if let Some(triggers_pe) = node.property_element("Triggers") {
         for trigger in triggers_pe.elements() {
+            if trigger.name == "EventTrigger" {
+                if let Some(et) = parse_event_trigger(trigger, scopes, local, warnings) {
+                    style.event_triggers.push(et);
+                }
+                continue;
+            }
             match parse_trigger(trigger, scopes, local, warnings, false) {
                 Ok(Some(t)) => style.triggers.push(t),
                 Ok(None) => {}
@@ -861,6 +874,170 @@ pub fn parse_style(
 
 /// Parse one `Style.Triggers` entry. `Ok(None)` = recognized-but-unsupported
 /// (warned).
+/// Parse a `<Storyboard>`: Double/Color animations with Storyboard.Target*
+/// attached attributes. Keyframe/easing forms warn (plan phase 2b).
+pub(crate) fn parse_storyboard(
+    node: &XamlNode,
+    warnings: &mut Vec<String>,
+) -> Result<crate::animation::PfStoryboard, PfError> {
+    use crate::animation::{PfAnimKind, PfAnimationSpec, PfFill, PfRepeat, parse_duration};
+    let mut children = Vec::new();
+    for child in node.child_elements() {
+        let attr = |name: &str| -> Option<String> {
+            match child.attribute(name) {
+                Some(XamlValue::Str(s)) => Some(s.clone()),
+                _ => None,
+            }
+        };
+        let attached = |name: &str| -> Option<String> {
+            match child.attached_attribute("Storyboard", name) {
+                Some(XamlValue::Str(s)) => Some(s.clone()),
+                _ => None,
+            }
+        };
+        let kind = match child.name.as_str() {
+            "DoubleAnimation" => {
+                let Some(to) = attr("To").and_then(|t| t.trim().parse::<f64>().ok()) else {
+                    warnings.push(format!(
+                        "{}: DoubleAnimation needs To= (By= is phase 2b); skipped",
+                        child.pos
+                    ));
+                    continue;
+                };
+                PfAnimKind::Double {
+                    from: attr("From").and_then(|f| f.trim().parse().ok()),
+                    to,
+                }
+            }
+            "ColorAnimation" => {
+                let Some(to) = attr("To").and_then(|t| t.parse::<v::PfColor>().ok()) else {
+                    warnings.push(format!("{}: ColorAnimation needs To=; skipped", child.pos));
+                    continue;
+                };
+                PfAnimKind::Color {
+                    from: attr("From").and_then(|f| f.parse().ok()),
+                    to,
+                }
+            }
+            other => {
+                warnings.push(format!(
+                    "{}: animation `{other}` is not supported yet (plan phase 2b); skipped",
+                    child.pos
+                ));
+                continue;
+            }
+        };
+        let Some(target_property) = attached("TargetProperty") else {
+            warnings.push(format!(
+                "{}: animation needs Storyboard.TargetProperty; skipped",
+                child.pos
+            ));
+            continue;
+        };
+        // Strip WPF path parentheses: "(Panel.Background)" / "Opacity".
+        let target_property = target_property
+            .trim()
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .rsplit('.')
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let duration = attr("Duration")
+            .and_then(|d| parse_duration(&d))
+            .unwrap_or(1.0);
+        let begin_time = attr("BeginTime")
+            .and_then(|d| parse_duration(&d))
+            .unwrap_or(0.0);
+        let repeat = match attr("RepeatBehavior").as_deref() {
+            None => PfRepeat::Once,
+            Some(r) if r.eq_ignore_ascii_case("forever") => PfRepeat::Forever,
+            Some(r) => match r.trim().trim_end_matches(['x', 'X']).parse::<f32>() {
+                Ok(n) => PfRepeat::Count(n),
+                Err(_) => {
+                    warnings.push(format!("{}: bad RepeatBehavior `{r}`; using Once", child.pos));
+                    PfRepeat::Once
+                }
+            },
+        };
+        let fill = match attr("FillBehavior").as_deref() {
+            Some(f) if f.eq_ignore_ascii_case("stop") => PfFill::Stop,
+            _ => PfFill::HoldEnd,
+        };
+        children.push(PfAnimationSpec {
+            target_name: attached("TargetName"),
+            target_property,
+            kind,
+            duration,
+            begin_time,
+            repeat,
+            auto_reverse: attr("AutoReverse")
+                .map(|a| a.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            fill,
+        });
+    }
+    Ok(crate::animation::PfStoryboard { children })
+}
+
+/// Parse `<EventTrigger RoutedEvent="..."><BeginStoryboard>...` into a
+/// storyboard launcher. `None` (with a warning) when unsupported.
+pub(crate) fn parse_event_trigger(
+    node: &XamlNode,
+    scopes: &ResourceScopes,
+    local: &ResourceDictionary,
+    warnings: &mut Vec<String>,
+) -> Option<crate::animation::PfEventTrigger> {
+    let event = match node.attribute("RoutedEvent") {
+        Some(XamlValue::Str(e)) => e.rsplit('.').next().unwrap_or(e).to_string(),
+        _ => {
+            warnings.push(format!("{}: EventTrigger needs RoutedEvent", node.pos));
+            return None;
+        }
+    };
+    if !matches!(event.as_str(), "Loaded" | "MouseEnter" | "MouseLeave" | "Click") {
+        warnings.push(format!(
+            "{}: EventTrigger RoutedEvent `{event}` is not supported yet",
+            node.pos
+        ));
+        return None;
+    }
+    let begin = node
+        .child_elements()
+        .find(|c| c.name == "BeginStoryboard")?;
+    // Inline <Storyboard> or Storyboard="{StaticResource key}".
+    let storyboard = if let Some(sb) = begin.child_elements().find(|c| c.name == "Storyboard") {
+        match parse_storyboard(sb, warnings) {
+            Ok(sb) => std::sync::Arc::new(sb),
+            Err(e) => {
+                warnings.push(format!("{}: {e}", node.pos));
+                return None;
+            }
+        }
+    } else if let Some(XamlValue::Extension(ext)) = begin.attribute("Storyboard") {
+        match static_resource_key(ext)
+            .ok()
+            .and_then(|key| local.get(&key).or_else(|| scopes.lookup(&key)))
+        {
+            Some(PfValue::Storyboard(sb)) => sb.clone(),
+            _ => {
+                warnings.push(format!(
+                    "{}: BeginStoryboard Storyboard resource not found",
+                    begin.pos
+                ));
+                return None;
+            }
+        }
+    } else {
+        warnings.push(format!(
+            "{}: BeginStoryboard needs an inline Storyboard or a resource",
+            begin.pos
+        ));
+        return None;
+    };
+    Some(crate::animation::PfEventTrigger { event, storyboard })
+}
+
 fn parse_trigger(
     node: &XamlNode,
     scopes: &ResourceScopes,

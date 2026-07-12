@@ -34,6 +34,9 @@ pub enum ValueSource {
     ParentTemplate = 9,
     ParentTemplateTrigger = 10,
     Local = 11,
+    /// The animation layer: composes ABOVE every base tier (WPF: an active
+    /// animation beats even a local value; clearing it reverts structurally).
+    Animation = 12,
 }
 
 /// The properties the store manages (the dynamically-writable set).
@@ -124,6 +127,20 @@ impl PfPropertyStore {
     /// The tier of the effective value, if any.
     pub fn effective_source(&self, target: PropertyTarget) -> Option<ValueSource> {
         self.effective(target).map(|(s, _)| *s)
+    }
+
+    /// The effective entry considering only tiers strictly below `ceiling`
+    /// (the animation layer snapshots its From value from the base).
+    pub fn effective_below(
+        &self,
+        target: PropertyTarget,
+        ceiling: ValueSource,
+    ) -> Option<&(ValueSource, StoredValue)> {
+        self.entries
+            .get(&target)?
+            .iter()
+            .filter(|(s, _)| *s < ceiling)
+            .max_by_key(|(s, _)| *s)
     }
 }
 

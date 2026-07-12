@@ -38,6 +38,15 @@ impl Plugin for PfUiPlugin {
                 crate::toast::expire_toasts,
             ),
         );
+        app.init_resource::<crate::animation::PfRunningAnimations>();
+        app.add_systems(
+            Update,
+            (
+                crate::animation::start_pending_storyboards,
+                crate::animation::tick_animations,
+            )
+                .chain(),
+        );
         app.init_asset::<crate::asset::XamlAsset>()
             .register_asset_loader(crate::asset::XamlAssetLoader)
             .init_resource::<crate::asset::PendingXamlViews>()

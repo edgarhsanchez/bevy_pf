@@ -734,6 +734,10 @@ impl<'w> Ctx<'w> {
             if !style.triggers.is_empty() {
                 self.attach_triggers(entity, &style.triggers, None);
             }
+            if !style.event_triggers.is_empty() {
+                let event_triggers = style.event_triggers.clone();
+                self.attach_event_triggers(entity, &event_triggers);
+            }
         }
 
         // Local attribute values (highest precedence).
@@ -1707,6 +1711,67 @@ impl<'w> Ctx<'w> {
         }
     }
 
+    /// Wire `EventTrigger` storyboard launchers: `Loaded` defers one frame
+    /// (the namescope component must exist); pointer events start on the
+    /// corresponding picking observers.
+    fn attach_event_triggers(
+        &mut self,
+        entity: Entity,
+        launchers: &[crate::animation::PfEventTrigger],
+    ) {
+        for launcher in launchers {
+            let sb = launcher.storyboard.clone();
+            match launcher.event.as_str() {
+                "Loaded" => {
+                    let mut e = self.world.entity_mut(entity);
+                    if let Some(mut pending) =
+                        e.get_mut::<crate::animation::PfPendingStoryboards>()
+                    {
+                        pending.0.push(sb);
+                    } else {
+                        e.insert(crate::animation::PfPendingStoryboards(vec![sb]));
+                    }
+                }
+                "MouseEnter" => {
+                    self.world.entity_mut(entity).observe(
+                        move |over: On<Pointer<Over>>, mut commands: Commands| {
+                            let sb = sb.clone();
+                            let host = over.entity;
+                            commands.queue(move |world: &mut World| {
+                                crate::animation::begin_storyboard(world, host, host, &sb);
+                            });
+                        },
+                    );
+                }
+                "MouseLeave" => {
+                    self.world.entity_mut(entity).observe(
+                        move |out: On<Pointer<Out>>, mut commands: Commands| {
+                            let sb = sb.clone();
+                            let host = out.entity;
+                            commands.queue(move |world: &mut World| {
+                                crate::animation::begin_storyboard(world, host, host, &sb);
+                            });
+                        },
+                    );
+                }
+                "Click" => {
+                    self.world.entity_mut(entity).observe(
+                        move |click: On<Pointer<Click>>, mut commands: Commands| {
+                            let sb = sb.clone();
+                            let host = click.entity;
+                            commands.queue(move |world: &mut World| {
+                                crate::animation::begin_storyboard(world, host, host, &sb);
+                            });
+                        },
+                    );
+                }
+                other => {
+                    self.warn(format!("EventTrigger `{other}` is not supported yet"));
+                }
+            }
+        }
+    }
+
     /// Apply a `{DynamicResource key}` reference: eager initial value if
     /// resolvable, plus a recorded entry so later dictionary changes (or a
     /// key that only appears after a theme merge) re-apply it at the tier it
@@ -1829,6 +1894,34 @@ impl<'w> Ctx<'w> {
         // Attached property elements of another owner (rare) and content-like
         // property elements are handled by kind-specific code; everything else
         // is a structured value (brush, style, ...) applied as a property.
+        if pe.name == "Triggers" {
+            // Element-scope triggers: WPF only allows EventTriggers here.
+            let mut launchers = Vec::new();
+            for trigger in pe.elements() {
+                if trigger.name == "EventTrigger" {
+                    let dict = ResourceDictionary::new();
+                    let mut warnings = std::mem::take(&mut self.warnings);
+                    if let Some(et) = crate::resources::parse_event_trigger(
+                        trigger,
+                        &self.scopes,
+                        &dict,
+                        &mut warnings,
+                    ) {
+                        launchers.push(et);
+                    }
+                    self.warnings = warnings;
+                } else {
+                    self.warn(format!(
+                        "{}: only EventTriggers are valid in element Triggers",
+                        trigger.pos
+                    ));
+                }
+            }
+            if !launchers.is_empty() {
+                self.attach_event_triggers(entity, &launchers);
+            }
+            return;
+        }
         if matches!(
             pe.name.as_str(),
             "Content" | "Child" | "Children" | "Header" | "Columns" | "View"
