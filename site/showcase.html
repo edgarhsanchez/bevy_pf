@@ -71,6 +71,24 @@ commands.spawn_xaml_bound(xaml!(r##"&lt;Window ...&gt;
 &lt;NavigationView&gt;
   &lt;NavigationViewItem Content="Dashboard" Icon="Home" Tag="nav-dashboard"/&gt;
 &lt;/NavigationView&gt;
+&lt;!-- Animation tab: storyboards, visual states, behaviors --&gt;
+&lt;EventTrigger RoutedEvent="Loaded"&gt;
+  &lt;BeginStoryboard&gt;&lt;Storyboard&gt;
+    &lt;DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:1.2"&gt;
+      &lt;DoubleAnimation.EasingFunction&gt;&lt;CubicEase EasingMode="EaseOut"/&gt;&lt;/DoubleAnimation.EasingFunction&gt;
+    &lt;/DoubleAnimation&gt;
+  &lt;/Storyboard&gt;&lt;/BeginStoryboard&gt;
+&lt;/EventTrigger&gt;
+&lt;VisualState x:Name="MouseOver"&gt;
+  &lt;Storyboard&gt;&lt;ColorAnimation Storyboard.TargetName="chrome"
+      Storyboard.TargetProperty="Background" To="#FF5B8DEF" Duration="0:0:0.15"/&gt;&lt;/Storyboard&gt;
+&lt;/VisualState&gt;
+&lt;Interaction.Triggers&gt;
+  &lt;EventTrigger EventName="Click"&gt;
+    &lt;InvokeCommandAction Command="{Binding save}"/&gt;
+    &lt;ControlStoryboardAction Storyboard="{StaticResource Nudge}"/&gt;
+  &lt;/EventTrigger&gt;
+&lt;/Interaction.Triggers&gt;
 // and from any system:
 bevy_pf::toast::show_with(world, "Saved!", Severity::Success, 4.0);</code></pre></div></details><details><summary>5. Wire a menu item with an observer</summary><div class="step"><p>The View &gt; Vsync toggle: find by name once, observe clicks, flip real window state.</p><pre><code>commands.entity(toggle).observe(
     |_click: On&lt;Pointer&lt;Click&gt;&gt;, mut vsync: ResMut&lt;Vsync&gt;| {

@@ -335,6 +335,100 @@ fn setup(mut commands: Commands) {
                         </Canvas>
                       </TabItem>
 
+                      <TabItem Header="Animation">
+                        <StackPanel Margin="12">
+                          <TextBlock Text="Storyboards, visual states, and behaviors" FontWeight="Bold" Margin="0,0,0,10"/>
+
+                          <TextBlock Text="Loaded storyboard: this card fades in (DoubleAnimation on Opacity, CubicEase)." FontSize="12"/>
+                          <Border Background="#FF2B3342" CornerRadius="8" Padding="14" Width="360" HorizontalAlignment="Left" Margin="0,4,0,0">
+                            <Border.Triggers>
+                              <EventTrigger RoutedEvent="Loaded">
+                                <BeginStoryboard>
+                                  <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:1.2">
+                                      <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                      </DoubleAnimation.EasingFunction>
+                                    </DoubleAnimation>
+                                  </Storyboard>
+                                </BeginStoryboard>
+                              </EventTrigger>
+                            </Border.Triggers>
+                            <TextBlock Text="faded in on load" Foreground="#FFDCE6F5"/>
+                          </Border>
+
+                          <TextBlock Text="Forever pulse: AutoReverse + RepeatBehavior=Forever." FontSize="12" Margin="0,14,0,0"/>
+                          <Border Background="#FF35E0E8" CornerRadius="4" Width="220" Height="10" HorizontalAlignment="Left" Margin="0,4,0,0">
+                            <Border.Triggers>
+                              <EventTrigger RoutedEvent="Loaded">
+                                <BeginStoryboard>
+                                  <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0.15"
+                                                     Duration="0:0:0.8" AutoReverse="True" RepeatBehavior="Forever">
+                                      <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut"/>
+                                      </DoubleAnimation.EasingFunction>
+                                    </DoubleAnimation>
+                                  </Storyboard>
+                                </BeginStoryboard>
+                              </EventTrigger>
+                            </Border.Triggers>
+                          </Border>
+
+                          <TextBlock Text="VisualStateManager: hover and press this templated button." FontSize="12" Margin="0,14,0,0"/>
+                          <Button Content="stateful button" Width="180" Margin="0,4,0,0" HorizontalAlignment="Left">
+                            <Button.Template>
+                              <ControlTemplate TargetType="Button">
+                                <Border x:Name="chrome" Background="#FF3C4658" CornerRadius="8" Padding="10,6">
+                                  <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                      <VisualState x:Name="Normal"/>
+                                      <VisualState x:Name="MouseOver">
+                                        <Storyboard>
+                                          <ColorAnimation Storyboard.TargetName="chrome" Storyboard.TargetProperty="Background"
+                                                          To="#FF5B8DEF" Duration="0:0:0.15"/>
+                                        </Storyboard>
+                                      </VisualState>
+                                      <VisualState x:Name="Pressed">
+                                        <Storyboard>
+                                          <ColorAnimation Storyboard.TargetName="chrome" Storyboard.TargetProperty="Background"
+                                                          To="#FF2C628B" Duration="0:0:0.05"/>
+                                        </Storyboard>
+                                      </VisualState>
+                                    </VisualStateGroup>
+                                  </VisualStateManager.VisualStateGroups>
+                                  <ContentPresenter/>
+                                </Border>
+                              </ControlTemplate>
+                            </Button.Template>
+                          </Button>
+
+                          <TextBlock Text="Behaviors: clicking runs ChangePropertyAction + a keyed storyboard." FontSize="12" Margin="0,14,0,0"/>
+                          <StackPanel.Resources>
+                            <Storyboard x:Key="Nudge">
+                              <DoubleAnimation Storyboard.TargetName="BehaviorBar" Storyboard.TargetProperty="Width"
+                                               From="40" To="260" Duration="0:0:0.6" FillBehavior="HoldEnd">
+                                <DoubleAnimation.EasingFunction>
+                                  <BackEase EasingMode="EaseOut"/>
+                                </DoubleAnimation.EasingFunction>
+                              </DoubleAnimation>
+                            </Storyboard>
+                          </StackPanel.Resources>
+                          <Border x:Name="BehaviorCard" Background="#FF303030" CornerRadius="6" Padding="10" Width="300" HorizontalAlignment="Left" Margin="0,4,0,0">
+                            <Interaction.Triggers>
+                              <EventTrigger EventName="Click">
+                                <ChangePropertyAction TargetName="BehaviorCard" PropertyName="Background" Value="#FF224422"/>
+                                <ControlStoryboardAction Storyboard="{StaticResource Nudge}"/>
+                              </EventTrigger>
+                            </Interaction.Triggers>
+                            <StackPanel>
+                              <TextBlock Text="click me" Foreground="#FFB5E61D"/>
+                              <Border x:Name="BehaviorBar" Background="#FFB5E61D" Height="6" Width="40" CornerRadius="3" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                            </StackPanel>
+                          </Border>
+                        </StackPanel>
+                      </TabItem>
+
                       <TabItem Header="Toolkit">
                         <StackPanel Margin="12">
                           <TextBlock Text="Ecosystem controls (MahApps / MaterialDesign / Extended Toolkit / HandyControl equivalents)" FontWeight="Bold" Margin="0,0,0,10"/>
