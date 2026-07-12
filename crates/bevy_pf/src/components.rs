@@ -358,3 +358,15 @@ pub struct PfBusyIndicator {
     pub overlay: Entity,
     pub busy: bool,
 }
+
+/// Toolkit `RangeSlider`: two thumbs selecting an interval.
+#[derive(Component, Debug, Clone)]
+pub struct PfRangeSlider {
+    pub lower: f32,
+    pub upper: f32,
+    pub minimum: f32,
+    pub maximum: f32,
+    pub thumb_lower: Entity,
+    pub thumb_upper: Entity,
+    pub fill: Entity,
+}

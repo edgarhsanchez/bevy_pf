@@ -28,7 +28,7 @@ impl Plugin for PfUiPlugin {
         app.add_message::<crate::navigation::PfNavigated>();
         app.init_resource::<crate::navigation::PfPages>();
         app.add_systems(Update, crate::navigation::init_pending_frames);
-        app.add_systems(Update, toolkit_control_sync);
+        app.add_systems(Update, (toolkit_control_sync, crate::toast::expire_toasts));
         app.init_asset::<crate::asset::XamlAsset>()
             .register_asset_loader(crate::asset::XamlAssetLoader)
             .init_resource::<crate::asset::PendingXamlViews>()
@@ -98,7 +98,9 @@ impl Plugin for PfUiPlugin {
                 .after(bevy::ui::UiSystems::Layout),
         );
         // Data binding: write control state back to sources, then apply
-        // source changes to targets.
+        // source changes to targets. Runs after item generation so freshly
+        // templated rows bind in the same frame (deterministically, not by
+        // schedule luck).
         app.add_systems(
             Update,
             (
@@ -107,7 +109,8 @@ impl Plugin for PfUiPlugin {
                 crate::binding::slider_write_back,
                 crate::binding::apply_bindings,
             )
-                .chain(),
+                .chain()
+                .after(crate::items::sync_items_sources),
         );
     }
 }
@@ -122,6 +125,7 @@ fn toolkit_control_sync(
     numerics: Query<&crate::components::PfNumericUpDown, Changed<crate::components::PfNumericUpDown>>,
     ratings: Query<&crate::components::PfRatingBar, Changed<crate::components::PfRatingBar>>,
     busys: Query<&crate::components::PfBusyIndicator, Changed<crate::components::PfBusyIndicator>>,
+    ranges: Query<&crate::components::PfRangeSlider, Changed<crate::components::PfRangeSlider>>,
     mut nodes: Query<&mut Node>,
     mut colors: Query<&mut BackgroundColor>,
     mut texts: Query<&mut bevy::ui::widget::Text>,
@@ -175,6 +179,21 @@ fn toolkit_control_sync(
                     Color::srgb_u8(0xD6, 0xD6, 0xD6)
                 };
             }
+        }
+    }
+    for rs in &ranges {
+        let span = (rs.maximum - rs.minimum).max(f32::EPSILON);
+        let lo = (rs.lower - rs.minimum) / span;
+        let hi = (rs.upper - rs.minimum) / span;
+        if let Ok(mut n) = nodes.get_mut(rs.thumb_lower) {
+            n.left = Val::Percent(lo * 100.0);
+        }
+        if let Ok(mut n) = nodes.get_mut(rs.thumb_upper) {
+            n.left = Val::Percent(hi * 100.0);
+        }
+        if let Ok(mut n) = nodes.get_mut(rs.fill) {
+            n.left = Val::Percent(lo * 100.0);
+            n.right = Val::Percent((1.0 - hi) * 100.0);
         }
     }
     for busy in &busys {

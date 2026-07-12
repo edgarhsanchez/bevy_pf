@@ -92,6 +92,20 @@ fn wire_vsync_menu(
             vsync.dirty = true;
         },
     );
+    if let Some(toast_btn) = ui.by_name("ToastBtn") {
+        commands.entity(toast_btn).observe(
+            |_: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(|world: &mut World| {
+                    bevy_pf::toast::show_with(
+                        world,
+                        "Saved! (a toast from bevy_pf::toast)",
+                        bevy_pf::toast::Severity::Success,
+                        4.0,
+                    );
+                });
+            },
+        );
+    }
     *wired = true;
 }
 
@@ -297,6 +311,11 @@ fn setup(mut commands: Commands) {
                               <TextBlock Text="An elevated surface: radius, shadow, padding." FontSize="12" Margin="0,4,0,0"/>
                             </StackPanel>
                           </Card>
+                          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                            <TextBlock Text="RangeSlider:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <RangeSlider Width="220" Minimum="0" Maximum="100" LowerValue="25" UpperValue="70"/>
+                            <Button x:Name="ToastBtn" Content="Show toast" Width="110" Margin="16,0,0,0"/>
+                          </StackPanel>
                           <BusyIndicator IsBusy="True" BusyContent="Loading..." Width="300" Height="70" Margin="0,16,0,0" HorizontalAlignment="Left">
                             <Border Background="#FFEDEFF4" Width="300" Height="70">
                               <TextBlock Text="content dimmed by the busy overlay" HorizontalAlignment="Center" VerticalAlignment="Center"/>

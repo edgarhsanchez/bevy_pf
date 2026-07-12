@@ -60,7 +60,11 @@ commands.spawn_xaml_bound(xaml!(r##"&lt;Window ...&gt;
 &lt;Badge Badge="12"&gt;&lt;Button Content="Inbox"/&gt;&lt;/Badge&gt;
 &lt;Chip&gt;&lt;TextBlock Text="bevy"/&gt;&lt;/Chip&gt;
 &lt;Card&gt;&lt;StackPanel&gt; ... &lt;/StackPanel&gt;&lt;/Card&gt;
-&lt;BusyIndicator IsBusy="True" BusyContent="Loading..."&gt; ... &lt;/BusyIndicator&gt;</code></pre></div></details><details><summary>5. Wire a menu item with an observer</summary><div class="step"><p>The View &gt; Vsync toggle: find by name once, observe clicks, flip real window state.</p><pre><code>commands.entity(toggle).observe(
+&lt;BusyIndicator IsBusy="True" BusyContent="Loading..."&gt; ... &lt;/BusyIndicator&gt;
+&lt;RangeSlider Minimum="0" Maximum="100" LowerValue="25" UpperValue="70"/&gt;
+&lt;TextBox Watermark="Search..."/&gt;
+// and from any system:
+bevy_pf::toast::show_with(world, "Saved!", Severity::Success, 4.0);</code></pre></div></details><details><summary>5. Wire a menu item with an observer</summary><div class="step"><p>The View &gt; Vsync toggle: find by name once, observe clicks, flip real window state.</p><pre><code>commands.entity(toggle).observe(
     |_click: On&lt;Pointer&lt;Click&gt;&gt;, mut vsync: ResMut&lt;Vsync&gt;| {
         vsync.on = !vsync.on;
         vsync.dirty = true;    // apply_vsync flips Window.present_mode

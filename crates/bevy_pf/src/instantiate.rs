@@ -188,6 +188,7 @@ enum ElemKind {
     RatingBar,
     Badge,
     BusyIndicator,
+    RangeSlider,
     Image,
     Shape,
     StatusBar,
@@ -242,6 +243,7 @@ impl ElemKind {
             "RatingBar" | "Rate" | "Rating" => Self::RatingBar,
             "Badge" | "Badged" => Self::Badge,
             "BusyIndicator" => Self::BusyIndicator,
+            "RangeSlider" => Self::RangeSlider,
             // Toolkit presets that reuse Border's box model (chrome added in
             // insert_defaults by element name).
             "Card" | "Chip" | "Tag" => Self::Border,
@@ -280,7 +282,8 @@ impl ElemKind {
             | Self::DataGrid | Self::Hyperlink | Self::PopupElement
             | Self::GridSplitter | Self::Calendar | Self::DatePicker
             | Self::Frame | Self::ToggleSwitch | Self::NumericUpDown
-            | Self::RatingBar | Self::Badge | Self::BusyIndicator => ParentKind::FlexColumn,
+            | Self::RatingBar | Self::Badge | Self::BusyIndicator
+            | Self::RangeSlider => ParentKind::FlexColumn,
             Self::StatusBar | Self::StatusBarItem | Self::ToolBar | Self::ToolBarTray => {
                 ParentKind::FlexRow
             }
@@ -920,6 +923,11 @@ impl<'w> Ctx<'w> {
                 ..Default::default()
             },
             ElemKind::Badge | ElemKind::BusyIndicator => single_cell(),
+            ElemKind::RangeSlider => Node {
+                height: Val::Px(20.0),
+                min_width: Val::Px(120.0),
+                ..Default::default()
+            },
             // The <Popup> placeholder never lays out; its content lives on
             // the overlay layer.
             ElemKind::PopupElement => Node {
@@ -1932,6 +1940,7 @@ impl<'w> Ctx<'w> {
             "Value" | "Increment" | "FormatString" if kind == ElemKind::NumericUpDown => {}
             "Watermark" | "PlaceholderText" if kind == ElemKind::TextBox => {}
             "Value" if kind == ElemKind::RatingBar => {}
+            "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
             "AutoGenerateColumns" | "HeadersVisibility" | "CanUserResizeColumns"
@@ -2535,6 +2544,7 @@ impl<'w> Ctx<'w> {
             ElemKind::RatingBar => self.spawn_rating_bar(entity, node),
             ElemKind::Badge => self.spawn_badge(entity, node)?,
             ElemKind::BusyIndicator => self.spawn_busy_indicator(entity, node)?,
+            ElemKind::RangeSlider => self.spawn_range_slider(entity, node),
             ElemKind::PopupElement => {
                 self.spawn_popup_element(entity, node)?;
             }
@@ -4397,6 +4407,107 @@ impl<'w> Ctx<'w> {
         self.add_children(entity, &[overlay]);
         self.world.entity_mut(entity).insert(PfBusyIndicator { overlay, busy });
         Ok(())
+    }
+
+
+    /// Toolkit `RangeSlider`: track, highlighted interval, two drag thumbs.
+    fn spawn_range_slider(&mut self, entity: Entity, node: &XamlNode) {
+        use crate::components::PfRangeSlider;
+        let get = |name: &str, default: f32| -> f32 {
+            match node.attribute(name) {
+                Some(XamlValue::Str(s)) => s.trim().parse().unwrap_or(default),
+                _ => default,
+            }
+        };
+        let minimum = get("Minimum", 0.0);
+        let maximum = get("Maximum", 10.0).max(minimum);
+        let lower = get("LowerValue", minimum).clamp(minimum, maximum);
+        let upper = get("UpperValue", maximum).clamp(lower, maximum);
+        let span = (maximum - minimum).max(f32::EPSILON);
+        const THUMB: f32 = 16.0;
+        let track = self.world
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    right: Val::Px(0.0),
+                    top: Val::Px(8.0),
+                    height: Val::Px(4.0),
+                    border_radius: BorderRadius::all(Val::Px(2.0)),
+                    ..Default::default()
+                },
+                BackgroundColor(Color::srgb_u8(0xC4, 0xC4, 0xC4)),
+            ))
+            .id();
+        let fill = self.world
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent((lower - minimum) / span * 100.0),
+                    right: Val::Percent((maximum - upper) / span * 100.0),
+                    top: Val::Px(8.0),
+                    height: Val::Px(4.0),
+                    ..Default::default()
+                },
+                BackgroundColor(ACCENT),
+            ))
+            .id();
+        fn thumb_at(ctx: &mut Ctx, fraction: f32) -> Entity {
+            ctx.world
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(fraction * 100.0),
+                        top: Val::Px(2.0),
+                        width: Val::Px(THUMB),
+                        height: Val::Px(THUMB),
+                        margin: UiRect::left(Val::Px(-THUMB / 2.0)),
+                        border_radius: BorderRadius::MAX,
+                        ..Default::default()
+                    },
+                    BackgroundColor(ACCENT),
+                    Interaction::default(),
+                ))
+                .id()
+        }
+        let thumb_lower = thumb_at(self, (lower - minimum) / span);
+        let thumb_upper = thumb_at(self, (upper - minimum) / span);
+        self.add_children(entity, &[track, fill, thumb_lower, thumb_upper]);
+        self.world.entity_mut(entity).insert(PfRangeSlider {
+            lower,
+            upper,
+            minimum,
+            maximum,
+            thumb_lower,
+            thumb_upper,
+            fill,
+        });
+        // Dragging a thumb maps pointer x within the slider to a value.
+        let owner = entity;
+        for (thumb, is_lower) in [(thumb_lower, true), (thumb_upper, false)] {
+            self.world.entity_mut(thumb).observe(
+                move |drag: On<Pointer<Drag>>,
+                      mut sliders: Query<&mut PfRangeSlider>,
+                      computed: Query<(&bevy::ui::ComputedNode, &bevy::ui::UiGlobalTransform)>| {
+                    let Ok(mut rs) = sliders.get_mut(owner) else { return };
+                    let Ok((node, transform)) = computed.get(owner) else { return };
+                    let width = node.size().x * node.inverse_scale_factor();
+                    if width <= 0.0 {
+                        return;
+                    }
+                    let origin_x = transform.translation.x * node.inverse_scale_factor()
+                        - width / 2.0;
+                    let frac = ((drag.pointer_location.position.x - origin_x) / width)
+                        .clamp(0.0, 1.0);
+                    let value = rs.minimum + frac * (rs.maximum - rs.minimum);
+                    if is_lower {
+                        rs.lower = value.min(rs.upper);
+                    } else {
+                        rs.upper = value.max(rs.lower);
+                    }
+                },
+            );
+        }
     }
 
     /// The raw WPF `<Popup>` element: content lives on the overlay layer,

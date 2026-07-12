@@ -48,6 +48,7 @@ pub mod provider;
 pub mod resources;
 pub mod shapes;
 pub mod themes;
+pub mod toast;
 pub mod triggers;
 pub mod util;
 
