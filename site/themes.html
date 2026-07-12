@@ -23,7 +23,24 @@
       <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the theme gallery&hellip;</span></div>
     </div>
     <p class="note">Pick a theme in the ComboBox — all 12 (Fluent, Material, Nord, Dracula, Catppuccin, Solarized, Gruvbox, Tokyo Night) are <code>ResourceDictionary</code> palettes from the official specs, and the swap re-colors the live UI through <code>{DynamicResource}</code> without rebuilding it.</p>
-  </main>
+  
+  <section class="howto"><h2>How it&#39;s built</h2><p>From <code>examples/theme_gallery.rs</code> and the built-in dictionaries in <code>assets/themes/</code>.</p><details><summary>1. Apply a built-in theme</summary><div class="step"><p>One call merges the dictionary into application resources; every DynamicResource re-resolves live.</p><pre><code>bevy_pf::themes::apply_theme(world, "catppuccin-mocha")?;</code></pre></div></details><details><summary>2. What a theme is</summary><div class="step"><p>Each of the 12 themes defines the same Pf.* brush keys plus implicit styles that reference them.</p><pre><code>&lt;SolidColorBrush x:Key="Pf.ControlBackground" Color="#45475A"/&gt;
+&lt;SolidColorBrush x:Key="Pf.AccentBrush" Color="#CBA6F7"/&gt;
+&lt;Style TargetType="Button"&gt;
+  &lt;Setter Property="Background" Value="{DynamicResource Pf.ControlBackground}"/&gt;
+  &lt;Style.Triggers&gt;
+    &lt;Trigger Property="IsMouseOver" Value="True"&gt;
+      &lt;Setter Property="Background" Value="{DynamicResource Pf.ControlHoverBackground}"/&gt;
+    &lt;/Trigger&gt;
+  &lt;/Style.Triggers&gt;
+&lt;/Style&gt;</code></pre></div></details><details><summary>3. The live switcher</summary><div class="step"><p>A system watches the ComboBox selection and swaps themes without rebuilding the UI.</p><pre><code>fn switch_theme(combos: Query&lt;&amp;PfComboBox, Changed&lt;PfComboBox&gt;&gt;, mut commands: Commands) {
+    let Some(index) = combos.iter().next().and_then(|c| c.selected) else { return };
+    let theme = THEMES[index];
+    commands.queue(move |world: &amp;mut World| {
+        apply_theme(world, theme.slug).ok();   // existing widgets re-color in place
+    });
+}</code></pre></div></details></section>
+</main>
   <script type="module">
     import { boot } from './loader.js';
     boot('themes');

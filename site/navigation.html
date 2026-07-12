@@ -23,7 +23,26 @@
       <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the navigation demo&hellip;</span></div>
     </div>
     <p class="note">WPF navigation on Bevy: three XAML <code>Page</code>s in a <code>Frame</code>, &#9664; &#9654; journal chrome, <code>Hyperlink</code>s that navigate pages (external links still open the browser), and a counter that survives page re-creation because state lives in the <code>DataContext</code>.</p>
-  </main>
+  
+  <section class="howto"><h2>How it&#39;s built</h2><p>From <code>examples/navigation.rs</code> — WPF Frame/Page navigation on Bevy.</p><details><summary>1. Register pages as routes</summary><div class="step"><p>Compile-time validated scenes, registered like web routes (wasm-safe).</p><pre><code>app.register_page("home.xaml", xaml!(r##"&lt;Page Title="Home"&gt;
+      &lt;StackPanel Margin="24"&gt;
+        &lt;TextBlock Text="{Binding count}" FontWeight="Bold"/&gt;
+        &lt;Hyperlink NavigateUri="settings.xaml"&gt;Open Settings&lt;/Hyperlink&gt;
+      &lt;/StackPanel&gt;
+    &lt;/Page&gt;"##))</code></pre></div></details><details><summary>2. Host them in a Frame</summary><div class="step"><p>Source= navigates on startup; the built-in chrome drives the journal.</p><pre><code>&lt;DockPanel&gt;
+  &lt;StatusBar DockPanel.Dock="Bottom"&gt; ... &lt;/StatusBar&gt;
+  &lt;Frame Source="home.xaml"/&gt;
+&lt;/DockPanel&gt;</code></pre></div></details><details><summary>3. React to navigation</summary><div class="step"><p>Pages re-instantiate on every visit (WPF KeepAlive=False); a PfNavigated message lets you wire fresh buttons. State survives in the DataContext.</p><pre><code>fn wire_new_pages(mut navigated: MessageReader&lt;PfNavigated&gt;, ui: PfQuery, mut commands: Commands) {
+    for nav in navigated.read() {
+        if nav.source == "settings.xaml"
+            &amp;&amp; let Some(bump) = ui.by_name("Bump") {
+            commands.entity(bump).observe(|_: On&lt;Pointer&lt;Click&gt;&gt;, vm: Res&lt;VmHandle&gt;| {
+                vm.0.update(|m: &amp;mut Vm| m.count += 1);
+            });
+        }
+    }
+}</code></pre></div></details></section>
+</main>
   <script type="module">
     import { boot } from './loader.js';
     boot('navigation');

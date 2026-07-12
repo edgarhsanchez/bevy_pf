@@ -23,7 +23,50 @@
       <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the controls playground&hellip;</span></div>
     </div>
     <p class="note">Every widget here — menus, tabs, tree, data grid, the animated swatch — is XAML instantiated into Bevy ECS entities. The clock, progress bar, and swatch are driven by plain Bevy systems locating elements by <code>x:Uid</code>, <code>AutomationId</code>, and <code>x:Name</code>.</p>
-  </main>
+  
+  <section class="howto"><h2>How it&#39;s built</h2><p>Everything in this demo comes from <code>examples/components_showcase.rs</code> — these are its actual pieces, in build order.</p><details><summary>1. Spawn a XAML scene with a bound view-model</summary><div class="step"><p>The <code>xaml!</code> macro validates markup at compile time; <code>spawn_xaml_bound</code> attaches a reflected view-model as the DataContext.</p><pre><code>let vm = Bindable::new(Vm {
+    files: vec![FileRow { name: "main.rs".into(), kind: "Rust".into(), size: 1240 }, /* ... */],
+});
+commands.spawn_xaml_bound(xaml!(r##"&lt;Window ...&gt;
+      &lt;DockPanel&gt;
+        &lt;Menu DockPanel.Dock="Top"&gt; ... &lt;/Menu&gt;
+        &lt;TabControl Margin="8"&gt; ... &lt;/TabControl&gt;
+      &lt;/DockPanel&gt;
+    &lt;/Window&gt;"##), vm);</code></pre></div></details><details><summary>2. Declare controls in plain WPF markup</summary><div class="step"><p>The Lists + Data tab: ItemsSource binding, a TreeView, and a DataGrid with typed columns.</p><pre><code>&lt;ListBox ItemsSource="{Binding players}"/&gt;
+&lt;TreeView&gt;
+  &lt;TreeViewItem Header="workspace" IsExpanded="True"&gt;
+    &lt;TreeViewItem Header="crates" IsExpanded="True"&gt; ... &lt;/TreeViewItem&gt;
+  &lt;/TreeViewItem&gt;
+&lt;/TreeView&gt;
+&lt;DataGrid ItemsSource="{Binding files}"&gt;
+  &lt;DataGrid.Columns&gt;
+    &lt;DataGridTextColumn Header="Name" Binding="{Binding name}" Width="2*"/&gt;
+    &lt;DataGridTextColumn Header="Bytes" Binding="{Binding size}" Width="*"/&gt;
+  &lt;/DataGrid.Columns&gt;
+&lt;/DataGrid&gt;</code></pre></div></details><details><summary>3. Drive the UI from any Bevy system</summary><div class="step"><p>The ticking clock, progress bar, and color-cycling swatch are ordinary systems locating elements by x:Uid, AutomationId, and x:Name.</p><pre><code>fn live_updates(time: Res&lt;Time&gt;, ui: PfQuery, mut texts: Query&lt;&amp;mut Text&gt;,
+                mut bars: Query&lt;&amp;mut PfProgress&gt;, mut commands: Commands) {
+    if let Some(clock) = ui.by_uid("clock.uid")
+        &amp;&amp; let Some(t) = ui.first_text_in(clock)
+        &amp;&amp; let Ok(mut text) = texts.get_mut(t) {
+        text.0 = format!("clock: {:.1}s", time.elapsed_secs());
+    }
+    if let Some(bar) = ui.by_automation_id("LiveProgress")
+        &amp;&amp; let Ok(mut p) = bars.get_mut(bar) {
+        p.value = (time.elapsed_secs() * 10.0) % 100.0;   // fill resizes itself
+    }
+}</code></pre></div></details><details><summary>4. Toolkit controls (the Toolkit tab)</summary><div class="step"><p>Ecosystem controls every WPF toolkit ships, as first-class elements.</p><pre><code>&lt;ToggleSwitch Content="Wi-Fi" IsOn="True"/&gt;
+&lt;NumericUpDown Value="5" Minimum="0" Maximum="10"/&gt;
+&lt;RatingBar Value="3"/&gt;
+&lt;Badge Badge="12"&gt;&lt;Button Content="Inbox"/&gt;&lt;/Badge&gt;
+&lt;Chip&gt;&lt;TextBlock Text="bevy"/&gt;&lt;/Chip&gt;
+&lt;Card&gt;&lt;StackPanel&gt; ... &lt;/StackPanel&gt;&lt;/Card&gt;
+&lt;BusyIndicator IsBusy="True" BusyContent="Loading..."&gt; ... &lt;/BusyIndicator&gt;</code></pre></div></details><details><summary>5. Wire a menu item with an observer</summary><div class="step"><p>The View &gt; Vsync toggle: find by name once, observe clicks, flip real window state.</p><pre><code>commands.entity(toggle).observe(
+    |_click: On&lt;Pointer&lt;Click&gt;&gt;, mut vsync: ResMut&lt;Vsync&gt;| {
+        vsync.on = !vsync.on;
+        vsync.dirty = true;    // apply_vsync flips Window.present_mode
+    },
+);</code></pre></div></details></section>
+</main>
   <script type="module">
     import { boot } from './loader.js';
     boot('showcase');

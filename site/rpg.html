@@ -23,7 +23,27 @@
       <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the RPG HUD&hellip;</span></div>
     </div>
     <p class="note">A WoW-style HUD where every element is XAML: vitals bars, cooldown sweeps, timed buffs, quest tracker, rarity-colored loot toasts. A tiny combat simulation drives it all through the element-query API.</p>
-  </main>
+  
+  <section class="howto"><h2>How it&#39;s built</h2><p>From <code>examples/rpg_hud.rs</code> — every HUD element is XAML; systems only push numbers.</p><details><summary>1. A vitals bar is just a Border with a fill child</summary><div class="step"><p>Track + named fill + bound value text, overlapped in a single-cell Grid.</p><pre><code>&lt;Border Width="220" Height="18" Background="#B0000000" BorderBrush="#FFC8A24B" CornerRadius="3"&gt;
+  &lt;Grid&gt;
+    &lt;Border x:Name="HpFill" Background="#FF3FBF4A" HorizontalAlignment="Left" Width="100"/&gt;
+    &lt;TextBlock Text="{Binding hp_text}" Foreground="White" FontSize="11"
+               HorizontalAlignment="Center" VerticalAlignment="Center"/&gt;
+  &lt;/Grid&gt;
+&lt;/Border&gt;</code></pre></div></details><details><summary>2. The game pushes state into the markup</summary><div class="step"><p>One system sizes fills and cooldown sweeps by name each frame.</p><pre><code>let mut set_fill = |name: &amp;str, frac: f32, full: f32| {
+    if let Some(e) = ui.by_name(name)
+        &amp;&amp; let Ok(mut n) = nodes.get_mut(e) {
+        n.width = Val::Px(full * frac.clamp(0.0, 1.0));
+    }
+};
+set_fill("HpFill", sim.hp / sim.hp_max, 218.0);
+set_fill("XpFill", sim.xp / sim.xp_max, 402.0);</code></pre></div></details><details><summary>3. Rarity-colored loot toasts</summary><div class="step"><p>WoW-ladder colors applied to a toast TextBlock as loot drops.</p><pre><code>const RARITY: [(&amp;str, &amp;str); 6] = [
+    ("#FF9D9D9D", "Worn Dagger"), ("#FFFFFFFF", "Linen Cloth"),
+    ("#FF1EFF00", "Sturdy Boots"), ("#FF0070DD", "Sapphire Ring"),
+    ("#FFA335EE", "Shadow Cowl"), ("#FFFF8000", "Dragonfang Blade"),
+];
+// on drop: set toast text + TextColor from the ladder, show for 3 s</code></pre></div></details></section>
+</main>
   <script type="module">
     import { boot } from './loader.js';
     boot('rpg');

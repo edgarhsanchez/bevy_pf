@@ -23,7 +23,27 @@
       <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading Breakout&hellip;</span></div>
     </div>
     <p class="note">Mouse or &larr;/&rarr; to move &middot; Space launches &middot; P pauses. The title screen, pause menu, HUD bindings, paddle, ball, and all 40 bricks are XAML — game systems only write coordinates and scores.</p>
-  </main>
+  
+  <section class="howto"><h2>How it&#39;s built</h2><p>From <code>examples/breakout.rs</code> — menus, HUD, paddle, ball, and all 40 bricks are XAML.</p><details><summary>1. The playfield scales with the window</summary><div class="step"><p>A 960x600 logical Canvas inside a Viewbox; bricks are generated markup through the same parser.</p><pre><code>&lt;Viewbox&gt;
+  &lt;Canvas Width="960" Height="600"&gt;
+    &lt;Border x:Name="Brick_0_0" Canvas.Left="36" Canvas.Top="84" Width="104" Height="24" .../&gt;
+    &lt;Border x:Name="Paddle" Canvas.Left="420" Canvas.Top="556" Width="120" Height="16"/&gt;
+    &lt;Ellipse x:Name="Ball" Canvas.Left="473" Canvas.Top="520" Width="14" Height="14"/&gt;
+  &lt;/Canvas&gt;
+&lt;/Viewbox&gt;</code></pre></div></details><details><summary>2. Physics writes Canvas offsets</summary><div class="step"><p>Ball state lives in a resource; a system copies it into the XAML nodes.</p><pre><code>if let Some(ball) = game.ball
+    &amp;&amp; let Ok(mut node) = nodes.get_mut(ball) {
+    node.left = Val::Px(game.ball_pos.x);
+    node.top = Val::Px(game.ball_pos.y);
+}</code></pre></div></details><details><summary>3. Menus are overlay panels toggled by game phase</summary><div class="step"><p>Title/pause/game-over screens are sibling Grids in a single-cell layout.</p><pre><code>let panels = [("MenuPanel", *phase == Phase::Menu),
+              ("PausePanel", *phase == Phase::Paused),
+              ("GameOverPanel", *phase == Phase::GameOver)];
+for (name, visible) in panels {
+    if let Some(panel) = ui.by_name(name)
+        &amp;&amp; let Ok(mut node) = nodes.get_mut(panel) {
+        node.display = if visible { Display::Grid } else { Display::None };
+    }
+}</code></pre></div></details></section>
+</main>
   <script type="module">
     import { boot } from './loader.js';
     boot('breakout');

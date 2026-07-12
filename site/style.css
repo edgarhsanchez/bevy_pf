@@ -57,3 +57,11 @@ nav.demo-nav a { color: var(--muted); text-decoration: none; }
 nav.demo-nav a:hover { color: var(--text); }
 nav.demo-nav .spacer { flex: 1; }
 .note { color: var(--muted); font-size: .9rem; margin-top: 12px; }
+
+.howto { max-width: 1100px; margin: 8px auto 40px; padding: 0 16px; }
+.howto h2 { margin: 18px 0 6px; font-size: 1.3rem; }
+.howto details { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; margin-top: 10px; }
+.howto summary { cursor: pointer; padding: 12px 16px; font-weight: 600; color: var(--accent); }
+.howto .step { padding: 0 16px 14px; }
+.howto p { color: var(--muted); font-size: .92rem; margin: 4px 0 8px; }
+.howto pre { background: #0d1420; border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: .82rem; line-height: 1.5; color: #dbe4f4; }
