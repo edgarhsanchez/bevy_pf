@@ -1928,11 +1928,10 @@ impl<'w> Ctx<'w> {
             // WPF DataGrid knobs that don't apply here: columns are never
             // auto-generated, headers always show, sizing is fixed. Accepted
             // silently so verbatim WPF markup instantiates clean.
-            "IsOn" | "IsChecked" if kind == ElemKind::ToggleSwitch => {}
-            "Value" | "Minimum" | "Maximum" | "Increment" | "FormatString"
-                if kind == ElemKind::NumericUpDown => {}
+            "IsOn" if kind == ElemKind::ToggleSwitch => {}
+            "Value" | "Increment" | "FormatString" if kind == ElemKind::NumericUpDown => {}
             "Watermark" | "PlaceholderText" if kind == ElemKind::TextBox => {}
-            "Value" | "Maximum" if kind == ElemKind::RatingBar => {}
+            "Value" if kind == ElemKind::RatingBar => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
             "AutoGenerateColumns" | "HeadersVisibility" | "CanUserResizeColumns"
