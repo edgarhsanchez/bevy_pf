@@ -458,6 +458,8 @@ impl<'a> Resolved<'a> {
 
 /// One in-flight ControlTemplate expansion (see `Ctx::template_ctx`).
 struct TemplateCtx {
+    /// The control this template is being applied to.
+    templated_parent: Entity,
     /// Per-expansion namescope: template-internal x:Names land here, never
     /// in the page registry (each expansion re-uses the same names).
     names: bevy::platform::collections::HashMap<String, Entity>,
@@ -777,6 +779,15 @@ impl<'w> Ctx<'w> {
         let bindings = std::mem::take(&mut self.pending.bindings);
         for (property, spec) in bindings {
             self.attach_binding(entity, kind, &property, spec);
+        }
+
+        // Inside a ControlTemplate expansion, stamp the templated parent
+        // (PART_ lookups, TemplateBinding, future RelativeSource).
+        if let Some(tc) = self.template_ctx.last() {
+            let parent = tc.templated_parent;
+            self.world
+                .entity_mut(entity)
+                .insert(crate::components::PfTemplatedParent(parent));
         }
 
         // Register x:Name. Inside a ControlTemplate expansion, names are
@@ -1389,6 +1400,10 @@ impl<'w> Ctx<'w> {
                     }
                     Err(e) => Err(e),
                 }
+            }
+            XamlValue::Extension(ext) if ext.name == "TemplateBinding" => {
+                self.apply_template_binding(entity, name, ext);
+                Ok(())
             }
             XamlValue::Extension(ext) => match self.resolve_extension(ext) {
                 Ok(Some(resolved)) => {
@@ -2959,6 +2974,67 @@ impl<'w> Ctx<'w> {
     // -----------------------------------------------------------------
 
     /// ContentControl semantics: `Content` attribute, child elements, or text.
+    /// `{TemplateBinding Prop}` on a template child: apply the templated
+    /// parent's current effective value at ParentTemplate tier and register
+    /// a liveness link so later parent writes forward automatically.
+    fn apply_template_binding(
+        &mut self,
+        entity: Entity,
+        dst_name: &str,
+        ext: &MarkupExtension,
+    ) {
+        let Some(tc) = self.template_ctx.last() else {
+            self.warn(
+                "{TemplateBinding} outside a ControlTemplate; property skipped".to_string(),
+            );
+            return;
+        };
+        let parent = tc.templated_parent;
+        let Some(src_name) = ext.first_positional_str() else {
+            self.warn("TemplateBinding needs a source property".to_string());
+            return;
+        };
+        let src = crate::provider::property_target_for(src_name);
+        let dst = crate::provider::property_target_for(dst_name);
+        let (Some(src), Some(dst)) = (src, dst) else {
+            self.warn(format!(
+                "TemplateBinding {src_name} -> {dst_name} is outside the \
+                 store-managed property set; skipped"
+            ));
+            return;
+        };
+
+        // Liveness link on the parent.
+        {
+            let mut e = self.world.entity_mut(parent);
+            if let Some(mut deps) =
+                e.get_mut::<crate::provider::PfTemplateBindingDependents>()
+            {
+                deps.0.push((src, entity, dst));
+            } else {
+                e.insert(crate::provider::PfTemplateBindingDependents(vec![(
+                    src, entity, dst,
+                )]));
+            }
+        }
+
+        // Initial value: the parent's current effective entry, if any.
+        let value = self
+            .world
+            .get::<crate::provider::PfPropertyStore>(parent)
+            .and_then(|s| s.effective(src))
+            .map(|(_, v)| v.clone());
+        if let Some(stored) = value {
+            crate::provider::store_and_apply(
+                self.world,
+                entity,
+                dst,
+                crate::provider::ValueSource::ParentTemplate,
+                stored,
+            );
+        }
+    }
+
     /// Expand a `ControlTemplate` over a control: strip the default chrome,
     /// spawn the template subtree at ParentTemplate tier under a fresh
     /// per-expansion namescope, then project the control's Content into the
@@ -2980,6 +3056,7 @@ impl<'w> Ctx<'w> {
         let saved_tier = self.tier;
         self.tier = crate::provider::ValueSource::ParentTemplate;
         self.template_ctx.push(TemplateCtx {
+            templated_parent: entity,
             names: Default::default(),
             content_host: None,
         });

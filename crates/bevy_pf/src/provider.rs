@@ -148,7 +148,11 @@ pub fn store_and_apply(
     value: StoredValue,
 ) {
     {
-        let mut e = world.entity_mut(entity);
+        // Cross-entity forwarding (TemplateBinding dependents) can race a
+        // despawn — degrade, never panic.
+        let Ok(mut e) = world.get_entity_mut(entity) else {
+            return;
+        };
         if let Some(mut store) = e.get_mut::<PfPropertyStore>() {
             store.set(target, source, value);
         } else {
@@ -169,6 +173,55 @@ pub fn apply_effective(world: &mut World, entity: Entity, target: PropertyTarget
     match value {
         Some((_, Some(v))) => apply_value(world, entity, target, &v),
         Some((_, None)) | None => apply_unset(world, entity, target),
+    }
+    // TemplateBinding: forward the (possibly suppressed-on-root) effective
+    // value into template children reading this property. Runs regardless
+    // of paint suppression — the store value is authoritative.
+    forward_template_dependents(world, entity, target);
+}
+
+/// Push a templated parent's effective `target` value to every template
+/// child bound to it via `{TemplateBinding}`. Stale (despawned) children
+/// are pruned; the parent==child degenerate case is skipped.
+fn forward_template_dependents(world: &mut World, entity: Entity, target: PropertyTarget) {
+    let Some(deps) = world.get::<PfTemplateBindingDependents>(entity) else {
+        return;
+    };
+    let matching: Vec<(Entity, PropertyTarget)> = deps
+        .0
+        .iter()
+        .filter(|(src, child, _)| *src == target && *child != entity)
+        .map(|(_, child, dst)| (*child, *dst))
+        .collect();
+    if matching.is_empty() {
+        return;
+    }
+    let value = world
+        .get::<PfPropertyStore>(entity)
+        .and_then(|s| s.effective(target))
+        .map(|(_, v)| v.clone());
+    let mut stale: Vec<Entity> = Vec::new();
+    for (child, dst) in matching {
+        if world.get_entity(child).is_err() {
+            stale.push(child);
+            continue;
+        }
+        match &value {
+            Some(stored) => {
+                store_and_apply(world, child, dst, ValueSource::ParentTemplate, stored.clone());
+            }
+            None => {
+                if let Some(mut store) = world.get_mut::<PfPropertyStore>(child) {
+                    store.clear(dst, ValueSource::ParentTemplate);
+                }
+                apply_effective(world, child, dst);
+            }
+        }
+    }
+    if !stale.is_empty()
+        && let Some(mut deps) = world.get_mut::<PfTemplateBindingDependents>(entity)
+    {
+        deps.0.retain(|(_, child, _)| !stale.contains(child));
     }
 }
 
@@ -194,6 +247,14 @@ pub(crate) fn collect_text_entities(world: &World, root: Entity) -> Vec<Entity> 
     }
     out
 }
+
+/// TemplateBinding liveness links on a templated control: when `src`'s
+/// effective value changes on this entity, forward it to `(child, dst)` at
+/// the `ParentTemplate` tier.
+#[derive(Component, Debug, Default)]
+pub struct PfTemplateBindingDependents(
+    pub Vec<(PropertyTarget, Entity, PropertyTarget)>,
+);
 
 /// Properties whose rendering a `ControlTemplate` takes over: on a templated
 /// control they reach the visuals only through TemplateBinding, never by

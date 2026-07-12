@@ -409,6 +409,12 @@ pub struct PfAutoSuggestInput {
     pub owner: Entity,
 }
 
+/// Stamped on every element spawned inside a `ControlTemplate` expansion:
+/// points at the control the template was applied to. (Projected content is
+/// NOT stamped — it belongs to the page, not the template.)
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PfTemplatedParent(pub Entity);
+
 /// A control whose default chrome was replaced by a `ControlTemplate`.
 /// Template-consumed properties (Background, BorderBrush/Thickness,
 /// Padding, CornerRadius) stop painting the root — in WPF they reach the

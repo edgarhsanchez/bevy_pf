@@ -544,3 +544,187 @@ fn nested_expansions_do_not_cross_contaminate() {
     // The nested templated CheckBox expanded inside the outer template.
     assert!(texts_in(&app, outer).contains(&"nested".to_string()));
 }
+
+// ---------------------------------------------------------------------
+// Phase 3: TemplateBinding — initial value, liveness, precedence,
+// degradation, despawn safety.
+// ---------------------------------------------------------------------
+
+const TB_PAGE: &str = r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <StackPanel.Resources>
+       <Style TargetType="Button">
+         <Setter Property="Background" Value="#008000"/>
+         <Setter Property="Padding" Value="8"/>
+         <Setter Property="BorderThickness" Value="3"/>
+         <Setter Property="Template">
+           <Setter.Value>
+             <ControlTemplate TargetType="Button">
+               <Border Background="{TemplateBinding Background}"
+                       BorderThickness="{TemplateBinding BorderThickness}">
+                 <ContentPresenter Margin="{TemplateBinding Padding}"/>
+               </Border>
+             </ControlTemplate>
+           </Setter.Value>
+         </Setter>
+       </Style>
+     </StackPanel.Resources>
+     <Button x:Name="B" Content="Go"/>
+   </StackPanel>"##;
+
+fn tb_setup(app: &mut App) -> (Entity, Entity, Entity) {
+    let (root, warnings) = spawn_collect_warnings(app, TB_PAGE);
+    assert_eq!(warnings, Vec::<String>::new());
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let border = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    let presenter = app
+        .world()
+        .get::<Children>(border)
+        .and_then(|c| c.iter().next())
+        .unwrap();
+    (button, border, presenter)
+}
+
+#[test]
+fn template_binding_forwards_initial_values_without_double_paint() {
+    let mut app = test_app();
+    let (button, border, presenter) = tb_setup(&mut app);
+
+    // Style values reached the template children...
+    let bg = app.world().get::<BackgroundColor>(border).unwrap().0;
+    assert_eq!(bevy_pf::instantiate::color_to_hex(bg), "#008000");
+    assert_eq!(
+        app.world().get::<Node>(border).unwrap().border,
+        UiRect::all(Val::Px(3.0))
+    );
+    assert_eq!(
+        app.world().get::<Node>(presenter).unwrap().margin,
+        UiRect::all(Val::Px(8.0))
+    );
+    // ...at the ParentTemplate tier.
+    let store = app.world().get::<bevy_pf::PfPropertyStore>(border).unwrap();
+    assert_eq!(
+        store.effective_source(bevy_pf::provider::PropertyTarget::Background),
+        Some(bevy_pf::provider::ValueSource::ParentTemplate)
+    );
+
+    // ...and the root itself paints/pads nothing (no double paint).
+    assert!(app.world().get::<BackgroundColor>(button).is_none());
+    let node = app.world().get::<Node>(button).unwrap();
+    assert_eq!(node.padding, UiRect::ZERO);
+    assert_eq!(node.border, UiRect::ZERO);
+}
+
+#[test]
+fn template_binding_stays_live_and_reverts() {
+    let mut app = test_app();
+    let (button, border, _) = tb_setup(&mut app);
+
+    // A Local write on the parent repaints the bound border...
+    bevy_pf::provider::set_local(
+        app.world_mut(),
+        button,
+        bevy_pf::provider::PropertyTarget::Background,
+        bevy_pf::resources::PfValue::Color(bevy_pf::xaml_ast::value::PfColor::rgb(0, 0, 255)),
+    );
+    let bg = app.world().get::<BackgroundColor>(border).unwrap().0;
+    assert_eq!(bevy_pf::instantiate::color_to_hex(bg), "#0000FF");
+    assert!(app.world().get::<BackgroundColor>(button).is_none());
+
+    // ...and clearing the Local tier reverts the child to the style value.
+    app.world_mut()
+        .get_mut::<bevy_pf::PfPropertyStore>(button)
+        .unwrap()
+        .clear(
+            bevy_pf::provider::PropertyTarget::Background,
+            bevy_pf::provider::ValueSource::Local,
+        );
+    bevy_pf::provider::apply_effective(
+        app.world_mut(),
+        button,
+        bevy_pf::provider::PropertyTarget::Background,
+    );
+    let bg = app.world().get::<BackgroundColor>(border).unwrap().0;
+    assert_eq!(bevy_pf::instantiate::color_to_hex(bg), "#008000");
+}
+
+#[test]
+fn template_literal_paints_when_parent_value_is_unbound() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button x:Name="B" Background="#008000" Content="x">
+               <Button.Template>
+                 <ControlTemplate TargetType="Button">
+                   <Border Background="Yellow"><ContentPresenter/></Border>
+                 </ControlTemplate>
+               </Button.Template>
+             </Button>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let border = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    // The Border's explicit template value paints; the parent's Background
+    // does not reach it (no TemplateBinding) and does not paint the root
+    // (template-consumed suppression).
+    let bg = app.world().get::<BackgroundColor>(border).unwrap().0;
+    assert_eq!(bevy_pf::instantiate::color_to_hex(bg), "#FFFF00");
+    let button_bg = app.world().get::<BackgroundColor>(button);
+    assert!(button_bg.is_none());
+}
+
+#[test]
+fn template_binding_outside_store_set_warns_once() {
+    let mut app = test_app();
+    let (_, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button Content="x">
+               <Button.Template>
+                 <ControlTemplate TargetType="Button">
+                   <Border SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}">
+                     <ContentPresenter/>
+                   </Border>
+                 </ControlTemplate>
+               </Button.Template>
+             </Button>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("outside the store-managed property set"));
+}
+
+#[test]
+fn dependent_despawn_is_pruned_not_panicked() {
+    let mut app = test_app();
+    let (button, border, _) = tb_setup(&mut app);
+    app.world_mut().entity_mut(border).despawn();
+
+    // Forwarding to the despawned child must not panic — and prunes it.
+    bevy_pf::provider::set_local(
+        app.world_mut(),
+        button,
+        bevy_pf::provider::PropertyTarget::Background,
+        bevy_pf::resources::PfValue::Color(bevy_pf::xaml_ast::value::PfColor::rgb(255, 0, 0)),
+    );
+    let deps = app
+        .world()
+        .get::<bevy_pf::provider::PfTemplateBindingDependents>(button)
+        .unwrap();
+    assert!(
+        deps.0.iter().all(|(_, child, _)| *child != border),
+        "stale links pruned"
+    );
+}
