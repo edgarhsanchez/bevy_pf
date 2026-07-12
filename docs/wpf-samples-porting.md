@@ -22,21 +22,16 @@ Ported examples keep the original XAML with documented, minimal deviations.
 | Resources / DefiningResources | `--example wpf_samples_gallery` | verbatim (FontFamily attrs kept; Trebuchet resolves via family fallback) |
 | Elements / VisibiltyChanges | `--example wpf_samples_gallery` | Click code-behind -> observers driving the property store's Visibility target |
 | Graphics / ShapeElements (11 pages) | `--example wpf_samples_gallery` | original .xaml via `include_xaml!`; DrawingBrush graph paper -> solid brushes; MiterLimit's ScaleTransform copy at 1x (see examples/xaml/wpf_shapes/README.md) |
+| Sample Applications / CalculatorDemo | `--example wpf_samples_gallery` | `local:MyTextBox` -> bordered TextBlocks; Click= -> observers; full arithmetic/memory/paper-tape state machine as a resource; gap fixed: MenuItem `IsCheckable` |
+| Resources / MergedResources | `--example wpf_samples_gallery` | `sys:Double`/`sys:String` primitives verbatim; Source= files inlined; dictionary #3 file round-trip -> `merge_application_resources` (DynamicResource Background re-resolves live) |
+| Elements / HeightProperties | `--example wpf_samples_gallery` | SelectionChanged -> a ListBox-selection system; ClipToBounds -> Canvas Overflow clip |
 
 ## Portable now (next in line)
 
-- **Getting Started/MultiPage** — Two tiny Pages linked by Hyperlink NavigateUri with StartupUri=Page1.xaml — exercises the brand-new Frame/Page/Hyperlink navigation exactly; zero code-behind.
-- **Getting Started/WalkthroughFirstWPFApp (ExpenseItIntro)** — Flagship walkthrough; portable after swapping XmlDataProvider for Rust-side data and dropping the nav-chrome dictionary (see expense_it.adaptation_notes).
-- **Getting Started/HelloWorld** — Window+Grid+centered TextBlock only; ideal first smoke-test example.
-- **Getting Started/SimpleLayout** — StackPanel + three Buttons with Margin/Width/HorizontalAlignment; pure supported layout.
-- **Getting Started/DynamicLayout** — One Button with Click handler that adds text — Click maps to a Bevy observer; otherwise identical to SimpleLayout.
-- **Getting Started/ComplexLayout** — Nested DockPanel/StackPanel with DockPanel.Dock attached props and 'px'-suffixed lengths (Height="30px") — good parser-conformance case.
-- **Data Binding/SimpleBinding** — TwoWay TextBox binding with UpdateSourceTrigger=PropertyChanged to an object declared in resources, implicit TargetType styles, property-element Binding syntax; Person class becomes a Rust observable.
-- **Data Binding/DirectionalBinding** — OneTime/OneWay/TwoWay + UpdateSourceTrigger matrix in one Grid — direct exercise of binding modes; TargetUpdated event handler is the only adaptation (drive the info text from the observable instead).
-- **Data Binding/DataBindingToStringFomat** — ListView+GridView DisplayMemberBinding with StringFormat=Now {0:c}! — all supported; cut the second half (MultiBinding StringFormat).
-- **Resources/MergedResources** — Window-level MergedDictionaries + DynamicResource Background + StaticResource Button Content; sys:Double/sys:String primitives need mapping (string resources); code-behind dictionary-swap buttons demo runtime resource updates.
-- **Elements/HeightProperties** — Height/MinHeight/MaxHeight precedence with Canvas+Rectangle and ListBox SelectionChanged handlers — plain controls, property-set systems.
-- **Sample Applications/CalculatorDemo** — Menu/MenuItem (IsCheckable), Grid keypad of Buttons, ToolTips — all supported controls; arithmetic lives in Click handlers, straightforward as Bevy systems.
+The portable-now queue is empty — every sample that needed no new engine
+features (plus the ones unlocked by the template-scope fix and MenuItem
+IsCheckable) is ported. Everything left needs a feature from the blocked
+list below.
 
 ## Blocked (feature gaps, in dependency order)
 

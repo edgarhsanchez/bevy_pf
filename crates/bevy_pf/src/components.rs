@@ -409,6 +409,13 @@ pub struct PfAutoSuggestInput {
     pub owner: Entity,
 }
 
+/// A checkable `MenuItem` (`IsCheckable="True"`): activation toggles
+/// `Checked` and the check glyph.
+#[derive(Component, Debug, Clone)]
+pub struct PfCheckableMenuItem {
+    pub glyph: Entity,
+}
+
 /// WinUI-style `NavigationView`: a pane of items driving an embedded frame.
 #[derive(Component, Debug, Clone)]
 pub struct PfNavigationView {

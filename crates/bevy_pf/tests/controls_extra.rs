@@ -339,3 +339,45 @@ fn data_grid_columns_and_rows() {
     let rows = children_of(&app, state.rows_host);
     assert_eq!(rows.len(), 3);
 }
+
+#[test]
+fn checkable_menu_item_toggles_on_activation() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r#"<Menu xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <MenuItem Header="View">
+               <MenuItem x:Name="Standard" IsCheckable="true" IsChecked="True" Header="Standard"/>
+               <MenuItem x:Name="Plain" Header="Plain"/>
+             </MenuItem>
+           </Menu>"#,
+    );
+    let standard = named(&app, root, "Standard");
+    let plain = named(&app, root, "Plain");
+
+    // Initial IsChecked="True": Checked present, glyph visible.
+    assert!(app.world().get::<bevy::ui::Checked>(standard).is_some());
+    let glyph = app
+        .world()
+        .get::<bevy_pf::components::PfCheckableMenuItem>(standard)
+        .unwrap()
+        .glyph;
+    assert_eq!(app.world().get::<Node>(glyph).unwrap().display, Display::Flex);
+
+    // Leaf activation toggles off, then back on.
+    bevy_pf::instantiate::activate_menu_item(app.world_mut(), standard);
+    assert!(app.world().get::<bevy::ui::Checked>(standard).is_none());
+    assert_eq!(app.world().get::<Node>(glyph).unwrap().display, Display::None);
+    bevy_pf::instantiate::activate_menu_item(app.world_mut(), standard);
+    assert!(app.world().get::<bevy::ui::Checked>(standard).is_some());
+
+    // Non-checkable items are unaffected by activation.
+    bevy_pf::instantiate::activate_menu_item(app.world_mut(), plain);
+    assert!(app.world().get::<bevy::ui::Checked>(plain).is_none());
+    assert!(
+        app.world()
+            .get::<bevy_pf::components::PfCheckableMenuItem>(plain)
+            .is_none()
+    );
+}

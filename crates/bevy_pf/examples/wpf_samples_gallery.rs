@@ -13,8 +13,12 @@
 //!   trigger styles inside an ItemTemplate), CollectionBinding
 //!   (selection-driven currency for the detail panel),
 //!   PropertyChangeNotification (live bid prices from a Bevy system).
-//! - Resources: DefiningResources (keyed brush + keyed styles, verbatim).
-//! - Elements: VisibiltyChanges (Visible/Hidden/Collapsed via observers).
+//! - Resources: DefiningResources (keyed brush + keyed styles, verbatim),
+//!   MergedResources (sys: primitives, live dictionary merging).
+//! - Elements: VisibiltyChanges (Visible/Hidden/Collapsed via observers),
+//!   HeightProperties (selection-driven Height/Min/Max on a Rectangle).
+//! - Sample Applications: CalculatorDemo (menus with a checkable item,
+//!   tooltips, a Grid keypad, arithmetic + memory + paper tape in Rust).
 //! - Graphics: ShapeElements — the 11-page tabbed shape viewer, original
 //!   .xaml files included from examples/xaml/wpf_shapes/.
 //!
@@ -76,6 +80,17 @@ struct Vm {
 #[derive(Resource)]
 struct VmHandle(Bindable);
 
+/// CalculatorDemo's code-behind state (MainWindow.cs), as a resource.
+#[derive(Resource, Default)]
+struct Calc {
+    display: String,
+    acc: f64,
+    pending: Option<char>,
+    fresh: bool,
+    memory: Option<f64>,
+    tape: Vec<String>,
+}
+
 fn primary_window() -> Window {
     #[allow(unused_mut)]
     let mut window = Window {
@@ -125,10 +140,14 @@ fn main() {
                         <Hyperlink NavigateUri="PropertyChangeNotification.xaml" Margin="12,2,0,0">PropertyChangeNotification</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Resources" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="DefiningResources.xaml" Margin="12,2,0,0">DefiningResources</Hyperlink>
+                        <Hyperlink NavigateUri="MergedResources.xaml" Margin="12,2,0,0">MergedResources</Hyperlink>
+                        <TextBlock FontWeight="Bold" Text="Sample Applications" Margin="0,8,0,4"/>
+                        <Hyperlink NavigateUri="CalculatorDemo.xaml" Margin="12,2,0,0">CalculatorDemo</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Graphics" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="ShapeElements.xaml" Margin="12,2,0,0">ShapeElements (11 pages)</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Elements" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="VisibilityChanges.xaml" Margin="12,2,0,0">VisibiltyChanges</Hyperlink>
+                        <Hyperlink NavigateUri="HeightProperties.xaml" Margin="12,2,0,0">HeightProperties</Hyperlink>
                       </StackPanel>
                     </Page>"##
             ),
@@ -495,6 +514,174 @@ fn main() {
             ),
         )
         .register_page(
+            "MergedResources.xaml",
+            xaml!(
+                // Deviations: the two Source= dictionary files are inlined
+                // (Source= file URIs are covered by resources_merged tests +
+                // ExpenseIt); the code-behind's dictionary #3 file round-trip
+                // becomes merge_application_resources, which BodyBrush's
+                // DynamicResource re-resolves live.
+                r##"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                          xmlns:sys="clr-namespace:System;assembly=MsCorLib"
+                          Title="MergedResources" Background="{DynamicResource BodyBrush}">
+                      <Page.Resources>
+                        <ResourceDictionary>
+                          <ResourceDictionary.MergedDictionaries>
+                            <ResourceDictionary>
+                              <sys:Double x:Key="MeaningOfLife">42</sys:Double>
+                            </ResourceDictionary>
+                            <ResourceDictionary>
+                              <sys:String x:Key="HelloWorld">Hello, world</sys:String>
+                            </ResourceDictionary>
+                          </ResourceDictionary.MergedDictionaries>
+                        </ResourceDictionary>
+                      </Page.Resources>
+                      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Button Content="{StaticResource MeaningOfLife}"/>
+                        <Button Content="{StaticResource HelloWorld}"/>
+                        <Button Name="NewD">Create or Load #3 Dictionary</Button>
+                        <Button Name="Add2NewD">Add to #3 Dictionary</Button>
+                        <TextBlock Name="RdStatus" Margin="0,10,0,0" FontSize="11"/>
+                      </StackPanel>
+                    </Page>"##
+            ),
+        )
+        .register_page(
+            "HeightProperties.xaml",
+            xaml!(
+                // Deviations: SelectionChanged code-behind -> a system
+                // watching the three ListBox selections; ClipToBounds ->
+                // the Canvas Overflow clip; value TextBlocks condensed.
+                r##"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="HeightProperties">
+                      <Grid Background="White">
+                        <Border BorderBrush="Black" BorderThickness="2" Background="White">
+                          <StackPanel Margin="10">
+                            <TextBlock FontSize="20">Height Properties Sample</TextBlock>
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,10">MinHeight takes precedence over MaxHeight, which takes precedence over Height. Use the ListBoxes to manipulate the Rectangle's Height properties.</TextBlock>
+                            <Canvas Height="200" MinWidth="200" Background="#b0c4de" VerticalAlignment="Top" HorizontalAlignment="Center" Name="myCanvas" Margin="0,0,0,20">
+                              <Rectangle Canvas.Top="50" Canvas.Left="50" Name="rect1" Fill="#4682b4" Height="100" Width="100"/>
+                            </Canvas>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                              <Button Name="ClipBtn" Margin="0,5,5,5">Canvas.ClipToBounds="True"</Button>
+                              <Button Name="UnclipBtn" Margin="0,5,5,5">Canvas.ClipToBounds="False"</Button>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
+                              <TextBlock Margin="10,0,0,0">Height:</TextBlock>
+                              <ListBox Name="HeightList" Margin="10,0,0,0" Height="90" Width="60">
+                                <ListBoxItem>25</ListBoxItem>
+                                <ListBoxItem>50</ListBoxItem>
+                                <ListBoxItem>100</ListBoxItem>
+                                <ListBoxItem>150</ListBoxItem>
+                                <ListBoxItem>200</ListBoxItem>
+                              </ListBox>
+                              <TextBlock Margin="20,0,0,0">MinHeight:</TextBlock>
+                              <ListBox Name="MinHeightList" Margin="10,0,0,0" Height="90" Width="60">
+                                <ListBoxItem>0</ListBoxItem>
+                                <ListBoxItem>50</ListBoxItem>
+                                <ListBoxItem>100</ListBoxItem>
+                                <ListBoxItem>150</ListBoxItem>
+                              </ListBox>
+                              <TextBlock Margin="20,0,0,0">MaxHeight:</TextBlock>
+                              <ListBox Name="MaxHeightList" Margin="10,0,0,0" Height="90" Width="60">
+                                <ListBoxItem>50</ListBoxItem>
+                                <ListBoxItem>100</ListBoxItem>
+                                <ListBoxItem>150</ListBoxItem>
+                                <ListBoxItem>200</ListBoxItem>
+                              </ListBox>
+                            </StackPanel>
+                            <TextBlock Name="HeightStatus" Margin="0,10,0,0" FontSize="11"/>
+                          </StackPanel>
+                        </Border>
+                      </Grid>
+                    </Page>"##
+            ),
+        )
+        .register_page(
+            "CalculatorDemo.xaml",
+            xaml!(
+                // Deviations: local:MyTextBox (read-only display + paper
+                // tape) -> bordered TextBlocks; Click= code-behind ->
+                // observers wired by name in wire_pages; window Icon
+                // dropped; File>Exit is native-only (toast on the web).
+                r##"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="CalculatorDemo">
+                      <DockPanel Name="MyPanel" Background="White">
+                        <Menu DockPanel.Dock="Top" Height="26">
+                          <MenuItem Header="File">
+                            <MenuItem Name="CalcExit" Header="Exit"/>
+                          </MenuItem>
+                          <MenuItem Header="View">
+                            <MenuItem Name="StandardMenu" IsCheckable="true" IsChecked="True" Header="Standard"/>
+                          </MenuItem>
+                          <MenuItem Header="Help">
+                            <MenuItem Name="CalcAbout" Header="About"/>
+                          </MenuItem>
+                        </Menu>
+                        <Grid Name="MyGrid" MaxWidth="640" MaxHeight="320">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                          </Grid.ColumnDefinitions>
+                          <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                          </Grid.RowDefinitions>
+                          <Button Name="B7" Grid.Column="4" Grid.Row="2">7</Button>
+                          <Button Name="B8" Grid.Column="5" Grid.Row="2">8</Button>
+                          <Button Name="B9" Grid.Column="6" Grid.Row="2">9</Button>
+                          <Button Name="B4" Grid.Column="4" Grid.Row="3">4</Button>
+                          <Button Name="B5" Grid.Column="5" Grid.Row="3">5</Button>
+                          <Button Name="B6" Grid.Column="6" Grid.Row="3">6</Button>
+                          <Button Name="B1" Grid.Column="4" Grid.Row="4">1</Button>
+                          <Button Name="B2" Grid.Column="5" Grid.Row="4">2</Button>
+                          <Button Name="B3" Grid.Column="6" Grid.Row="4">3</Button>
+                          <Button Name="B0" Grid.Column="4" Grid.Row="5">0</Button>
+                          <Button Name="BPeriod" Grid.Column="5" Grid.Row="5">.</Button>
+                          <Button Name="BPM" Background="Darkgray" Grid.Column="6" Grid.Row="5">+/-</Button>
+                          <Button Name="BDevide" Background="Darkgray" Grid.Column="7" Grid.Row="2">/</Button>
+                          <Button Name="BMultiply" Background="Darkgray" Grid.Column="7" Grid.Row="3">*</Button>
+                          <Button Name="BMinus" Background="Darkgray" Grid.Column="7" Grid.Row="4">-</Button>
+                          <Button Name="BPlus" Background="Darkgray" Grid.Column="7" Grid.Row="5">+</Button>
+                          <Button Name="BSqrt" Background="Darkgray" Grid.Column="8" Grid.Row="2" ToolTip="Usage: 'A Sqrt'">Sqrt</Button>
+                          <Button Name="BPercent" Background="Darkgray" Grid.Column="8" Grid.Row="3" ToolTip="Usage: 'A % B ='">%</Button>
+                          <Button Name="BOneOver" Background="Darkgray" Grid.Column="8" Grid.Row="4" ToolTip="Usage: 'A 1/X'">1/X</Button>
+                          <Button Name="BEqual" Background="Darkgray" Grid.Column="8" Grid.Row="5">=</Button>
+                          <Button Name="BC" Background="Darkgray" Grid.Column="8" Grid.Row="1" ToolTip="Clear All">C</Button>
+                          <Button Name="BCE" Background="Darkgray" Grid.Column="7" Grid.Row="1" ToolTip="Clear Current Entry">CE</Button>
+                          <Button Name="BMemClear" Background="Darkgray" Grid.Column="3" Grid.Row="2" ToolTip="Clear Memory">MC</Button>
+                          <Button Name="BMemRecall" Background="Darkgray" Grid.Column="3" Grid.Row="3" ToolTip="Recall Memory">MR</Button>
+                          <Button Name="BMemSave" Background="Darkgray" Grid.Column="3" Grid.Row="4" ToolTip="Store in Memory">MS</Button>
+                          <Button Name="BMemPlus" Background="Darkgray" Grid.Column="3" Grid.Row="5" ToolTip="Add To Memory">M+</Button>
+                          <TextBlock Name="BMemBox" Grid.Column="3" Grid.Row="1" Margin="10,17,10,17" Grid.ColumnSpan="2">Memory: [empty]</TextBlock>
+                          <Border Grid.ColumnSpan="9" Height="30" Margin="5" Background="White"
+                                  BorderBrush="#FF8A8A8A" BorderThickness="1" Padding="6,4">
+                            <TextBlock Name="DisplayText" Text="0" HorizontalAlignment="Right" FontSize="15"/>
+                          </Border>
+                          <Border Name="PaperBox" Grid.Row="1" Grid.ColumnSpan="3" Grid.RowSpan="5" Margin="5"
+                                  Background="#FFFDFDF2" BorderBrush="#FF8A8A8A" BorderThickness="1" Padding="6">
+                            <ScrollViewer>
+                              <TextBlock Name="PaperText" Text="paper tape" FontSize="11" TextWrapping="Wrap"/>
+                            </ScrollViewer>
+                          </Border>
+                        </Grid>
+                      </DockPanel>
+                    </Page>"##
+            ),
+        )
+        .register_page(
             "ShapeElements.xaml",
             xaml!(
                 // Graphics/ShapeElements' SampleViewer: a TabControl of
@@ -588,7 +775,15 @@ fn main() {
             include_xaml!("examples/xaml/wpf_shapes/ShapeTypes.xaml"),
         )
         .add_systems(Startup, setup)
-        .add_systems(Update, (wire_pages, sync_collection_currency, raise_bids))
+        .insert_resource(Calc {
+            display: "0".into(),
+            fresh: true,
+            ..Default::default()
+        })
+        .add_systems(
+            Update,
+            (wire_pages, sync_collection_currency, raise_bids, sync_height_lists),
+        )
         .run();
 }
 
@@ -693,6 +888,67 @@ fn wire_pages(
                 },
             );
         }
+        // MergedResources: dictionary #3 creation + BodyBrush=Green add.
+        if nav.source == "MergedResources.xaml"
+            && let (Some(new_d), Some(add_d), Some(status)) =
+                (ui.by_name("NewD"), ui.by_name("Add2NewD"), ui.by_name("RdStatus"))
+        {
+            commands.entity(new_d).observe(
+                move |_: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        bevy_pf::instantiate::set_text(
+                            world,
+                            status,
+                            "dictionary #3 ready (empty)".into(),
+                        );
+                    });
+                },
+            );
+            commands.entity(add_d).observe(
+                move |_: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        let mut entries = bevy_pf::resources::ResourceDictionary::new();
+                        entries.insert(
+                            bevy_pf::resources::ResourceKey::Explicit("BodyBrush".into()),
+                            bevy_pf::resources::PfValue::Brush(
+                                bevy_pf::xaml_ast::value::PfBrush::Solid(
+                                    bevy_pf::xaml_ast::value::PfColor::rgb(0x00, 0x80, 0x00),
+                                ),
+                            ),
+                        );
+                        bevy_pf::merge_application_resources(world, entries);
+                        bevy_pf::instantiate::set_text(
+                            world,
+                            status,
+                            "BodyBrush=Green added; DynamicResource re-resolved the Background".into(),
+                        );
+                    });
+                },
+            );
+        }
+        // HeightProperties: ClipToBounds buttons (the lists have a system).
+        if nav.source == "HeightProperties.xaml"
+            && let Some(canvas) = ui.by_name("myCanvas")
+        {
+            for (name, clip) in [("ClipBtn", true), ("UnclipBtn", false)] {
+                let Some(button) = ui.by_name(name) else { continue };
+                commands.entity(button).observe(
+                    move |_: On<Pointer<Click>>, mut nodes: Query<&mut Node>| {
+                        if let Ok(mut node) = nodes.get_mut(canvas) {
+                            node.overflow = if clip {
+                                bevy::ui::Overflow::clip()
+                            } else {
+                                bevy::ui::Overflow::visible()
+                            };
+                        }
+                    },
+                );
+            }
+        }
+        // CalculatorDemo: DigitBtn_Click / OperBtn_Click / menu handlers.
+        if nav.source == "CalculatorDemo.xaml" {
+            wire_calculator(&ui, &mut commands);
+        }
         // VisibiltyChanges: ContentVis/ContentHid/ContentCol code-behind ->
         // the property store's Visibility target (same tier as the XAML attr).
         if nav.source == "VisibilityChanges.xaml"
@@ -782,4 +1038,260 @@ fn raise_bids(time: Res<Time>, mut elapsed: Local<f32>, vm: Res<VmHandle>) {
             m.bids[2].bid_item_price += 10.55;
         }
     });
+}
+
+/// CalculatorDemo: every Click= handler from MainWindow.cs as observers.
+fn wire_calculator(ui: &PfQuery, commands: &mut Commands) {
+    let Some(display) = ui.by_name("DisplayText") else {
+        return;
+    };
+    let (Some(paper), Some(mem_box)) = (ui.by_name("PaperText"), ui.by_name("BMemBox")) else {
+        return;
+    };
+
+    // Reset state for a fresh visit (pages re-instantiate per navigation).
+    commands.queue(move |world: &mut World| {
+        *world.resource_mut::<Calc>() = Calc {
+            display: "0".into(),
+            fresh: true,
+            ..Default::default()
+        };
+        calc_render(world, display, paper, mem_box);
+    });
+
+    let digits = [
+        ("B0", '0'), ("B1", '1'), ("B2", '2'), ("B3", '3'), ("B4", '4'),
+        ("B5", '5'), ("B6", '6'), ("B7", '7'), ("B8", '8'), ("B9", '9'),
+        ("BPeriod", '.'),
+    ];
+    for (name, digit) in digits {
+        let Some(button) = ui.by_name(name) else { continue };
+        commands.entity(button).observe(
+            move |_: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(move |world: &mut World| {
+                    let calc = &mut *world.resource_mut::<Calc>();
+                    if calc.fresh {
+                        calc.display = if digit == '.' { "0.".into() } else { digit.to_string() };
+                        calc.fresh = false;
+                    } else if digit != '.' || !calc.display.contains('.') {
+                        calc.display.push(digit);
+                    }
+                    calc_render(world, display, paper, mem_box);
+                });
+            },
+        );
+    }
+
+    let opers = [
+        ("BPlus", "+"), ("BMinus", "-"), ("BMultiply", "*"), ("BDevide", "/"),
+        ("BPercent", "%"), ("BEqual", "="), ("BPM", "±"), ("BSqrt", "sqrt"),
+        ("BOneOver", "1/x"), ("BC", "C"), ("BCE", "CE"),
+        ("BMemClear", "MC"), ("BMemRecall", "MR"), ("BMemSave", "MS"), ("BMemPlus", "M+"),
+    ];
+    for (name, op) in opers {
+        let Some(button) = ui.by_name(name) else { continue };
+        commands.entity(button).observe(
+            move |_: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(move |world: &mut World| {
+                    calc_operate(world, op);
+                    calc_render(world, display, paper, mem_box);
+                });
+            },
+        );
+    }
+
+    // Menu: Exit (native only), Standard view toggle, About dialog.
+    if let Some(exit) = ui.by_name("CalcExit") {
+        commands.entity(exit).observe(
+            |_: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(|world: &mut World| {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    world.write_message(bevy::app::AppExit::Success);
+                    #[cfg(target_arch = "wasm32")]
+                    bevy_pf::toast::show(world, "Exit closes the native window; on the web, just close the tab.");
+                });
+            },
+        );
+    }
+    if let (Some(standard), Some(tape)) = (ui.by_name("StandardMenu"), ui.by_name("PaperBox")) {
+        commands.entity(standard).observe(
+            move |_: On<Pointer<Click>>, mut nodes: Query<&mut Node>| {
+                if let Ok(mut node) = nodes.get_mut(tape) {
+                    node.display = match node.display {
+                        Display::None => Display::Flex,
+                        _ => Display::None,
+                    };
+                }
+            },
+        );
+    }
+    if let Some(about) = ui.by_name("CalcAbout") {
+        commands.entity(about).observe(
+            |_: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(|world: &mut World| {
+                    bevy_pf::dialog::show_message(
+                        world,
+                        "About Calculator",
+                        "The WPF-Samples CalculatorDemo, running on bevy_pf. \
+                         Menus, tooltips, a Grid keypad, and a checkable View menu \
+                         — arithmetic lives in Bevy observers.",
+                        &["OK"],
+                    );
+                });
+            },
+        );
+    }
+}
+
+fn calc_operate(world: &mut World, op: &str) {
+    let calc = &mut *world.resource_mut::<Calc>();
+    let entry: f64 = calc.display.parse().unwrap_or(0.0);
+    match op {
+        "C" => {
+            let memory = calc.memory;
+            *calc = Calc { display: "0".into(), fresh: true, memory, ..Default::default() };
+        }
+        "CE" => {
+            calc.display = "0".into();
+            calc.fresh = true;
+        }
+        "±" => {
+            if calc.display.starts_with('-') {
+                calc.display.remove(0);
+            } else if entry != 0.0 {
+                calc.display.insert(0, '-');
+            }
+        }
+        "sqrt" => {
+            calc.tape.push(format!("sqrt({}) = {}", fmt_num(entry), fmt_num(entry.sqrt())));
+            calc.display = fmt_num(entry.sqrt());
+            calc.fresh = true;
+        }
+        "1/x" => {
+            let r = if entry == 0.0 { f64::NAN } else { 1.0 / entry };
+            calc.tape.push(format!("1/{} = {}", fmt_num(entry), fmt_num(r)));
+            calc.display = fmt_num(r);
+            calc.fresh = true;
+        }
+        "MC" => calc.memory = None,
+        "MR" => {
+            if let Some(m) = calc.memory {
+                calc.display = fmt_num(m);
+                calc.fresh = true;
+            }
+        }
+        "MS" => calc.memory = Some(entry),
+        "M+" => calc.memory = Some(calc.memory.unwrap_or(0.0) + entry),
+        // +, -, *, /, %, = — apply any pending operator, then queue this one.
+        _ => {
+            let result = match calc.pending {
+                Some('+') => calc.acc + entry,
+                Some('-') => calc.acc - entry,
+                Some('*') => calc.acc * entry,
+                Some('/') => {
+                    if entry == 0.0 { f64::NAN } else { calc.acc / entry }
+                }
+                Some('%') => calc.acc * entry / 100.0,
+                _ => entry,
+            };
+            if let Some(prev) = calc.pending {
+                calc.tape.push(format!(
+                    "{} {} {} = {}",
+                    fmt_num(calc.acc), prev, fmt_num(entry), fmt_num(result)
+                ));
+            }
+            calc.acc = result;
+            calc.display = fmt_num(result);
+            calc.pending = op.chars().next().filter(|c| *c != '=');
+            calc.fresh = true;
+        }
+    }
+}
+
+fn fmt_num(v: f64) -> String {
+    if v.is_nan() {
+        "Error".into()
+    } else if v == v.trunc() && v.abs() < 1e15 {
+        format!("{}", v as i64)
+    } else {
+        let s = format!("{v:.10}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+fn calc_render(world: &mut World, display: Entity, paper: Entity, mem_box: Entity) {
+    let calc = world.resource::<Calc>();
+    let display_text = calc.display.clone();
+    let tape = if calc.tape.is_empty() {
+        "paper tape".to_string()
+    } else {
+        calc.tape.join("\n")
+    };
+    let mem = match calc.memory {
+        Some(m) => format!("Memory: {}", fmt_num(m)),
+        None => "Memory: [empty]".to_string(),
+    };
+    bevy_pf::instantiate::set_text(world, display, display_text);
+    bevy_pf::instantiate::set_text(world, paper, tape);
+    bevy_pf::instantiate::set_text(world, mem_box, mem);
+}
+
+/// HeightProperties: the three SelectionChanged handlers — each ListBox
+/// selection writes one height field on the Rectangle.
+fn sync_height_lists(
+    lists: Query<
+        (&bevy_pf::components::PfListBox, &bevy_pf::PfName, &Children),
+        Changed<bevy_pf::components::PfListBox>,
+    >,
+    ui: PfQuery,
+    mut nodes: Query<&mut Node>,
+    texts: Query<&bevy::ui::widget::Text>,
+    children_q: Query<&Children>,
+    mut commands: Commands,
+) {
+    let Some(rect) = ui.by_name("rect1") else {
+        return;
+    };
+    for (list, name, children) in &lists {
+        let field = match name.0.as_str() {
+            "HeightList" => 0,
+            "MinHeightList" => 1,
+            "MaxHeightList" => 2,
+            _ => continue,
+        };
+        let Some(selected) = list.selected else { continue };
+        // The item's label text is the pixel value.
+        let mut value = None;
+        let mut stack: Vec<Entity> = vec![selected];
+        while let Some(e) = stack.pop() {
+            if let Ok(t) = texts.get(e)
+                && let Ok(v) = t.0.trim().parse::<f32>()
+            {
+                value = Some(v);
+                break;
+            }
+            if let Ok(c) = children_q.get(e) {
+                stack.extend(c.iter());
+            }
+        }
+        let Some(v) = value else { continue };
+        if let Ok(mut node) = nodes.get_mut(rect) {
+            match field {
+                0 => node.height = Val::Px(v),
+                1 => node.min_height = Val::Px(v),
+                _ => node.max_height = Val::Px(v),
+            }
+        }
+        let _ = children;
+        if let Some(status) = ui.by_name("HeightStatus") {
+            let label = ["Height", "MinHeight", "MaxHeight"][field];
+            commands.queue(move |world: &mut World| {
+                bevy_pf::instantiate::set_text(
+                    world,
+                    status,
+                    format!("{label} set to {v}px (MinHeight > MaxHeight > Height)"),
+                );
+            });
+        }
+    }
 }

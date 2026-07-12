@@ -3667,6 +3667,26 @@ impl<'w> Ctx<'w> {
                 PfElementKind("MenuItem".to_string()),
             ))
             .id();
+        // IsCheckable: a leading check glyph toggled on activation.
+        let checkable = matches!(node.attribute("IsCheckable"),
+            Some(XamlValue::Str(v)) if v.eq_ignore_ascii_case("true"));
+        if checkable {
+            let checked = matches!(node.attribute("IsChecked"),
+                Some(XamlValue::Str(v)) if v.eq_ignore_ascii_case("true"));
+            let glyph = self.spawn_text_child("\u{2022}".to_string());
+            {
+                let mut n = self.node_mut(glyph);
+                n.width = Val::Px(12.0);
+                n.display = if checked { Display::Flex } else { Display::None };
+            }
+            self.add_children(item, &[glyph]);
+            self.world
+                .entity_mut(item)
+                .insert(crate::components::PfCheckableMenuItem { glyph });
+            if checked {
+                self.world.entity_mut(item).insert(bevy::ui::Checked);
+            }
+        }
         if let Some(h) = self.spawn_header(node, false)? {
             self.add_children(item, &[h]);
         }
@@ -5888,7 +5908,29 @@ pub fn activate_menu_item(world: &mut World, item: Entity) {
                 close_popup_subtree(world, popup);
             }
         }
-        None => close_menu_popups(world, state.menu_root),
+        None => {
+            toggle_checkable_menu_item(world, item);
+            close_menu_popups(world, state.menu_root);
+        }
+    }
+}
+
+/// Flip a checkable MenuItem's `Checked` state and its glyph.
+fn toggle_checkable_menu_item(world: &mut World, item: Entity) {
+    let Some(state) = world
+        .get::<crate::components::PfCheckableMenuItem>(item)
+        .cloned()
+    else {
+        return;
+    };
+    let was_checked = world.get::<bevy::ui::Checked>(item).is_some();
+    if was_checked {
+        world.entity_mut(item).remove::<bevy::ui::Checked>();
+    } else {
+        world.entity_mut(item).insert(bevy::ui::Checked);
+    }
+    if let Some(mut n) = world.get_mut::<Node>(state.glyph) {
+        n.display = if was_checked { Display::None } else { Display::Flex };
     }
 }
 
