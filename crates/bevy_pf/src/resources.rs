@@ -921,6 +921,132 @@ pub fn parse_style(
 
 /// Parse one `Style.Triggers` entry. `Ok(None)` = recognized-but-unsupported
 /// (warned).
+/// Parse the keyframes of a `*AnimationUsingKeyFrames` element.
+fn parse_key_frames(
+    node: &XamlNode,
+    color: bool,
+    warnings: &mut Vec<String>,
+) -> Vec<crate::animation::PfKeyFrame> {
+    use crate::animation::{PfKeyFrame, PfKeyInterp, PfKeyValue, parse_duration};
+    let mut frames = Vec::new();
+    for frame in node.child_elements() {
+        let interp = if frame.name.starts_with("Discrete") {
+            PfKeyInterp::Discrete
+        } else if frame.name.starts_with("Linear") {
+            PfKeyInterp::Linear
+        } else if frame.name.starts_with("Easing") {
+            let easing = frame
+                .property_element("EasingFunction")
+                .and_then(|pe| pe.single_element())
+                .map(|el| parse_easing_element(el, warnings))
+                .unwrap_or(crate::animation::PfEasing::Linear);
+            PfKeyInterp::Easing(easing)
+        } else if frame.name.starts_with("Spline") {
+            let nums: Vec<f32> = match frame.attribute("KeySpline") {
+                Some(XamlValue::Str(s)) => s
+                    .split([',', ' '])
+                    .filter(|t| !t.is_empty())
+                    .filter_map(|t| t.trim().parse().ok())
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if nums.len() == 4 {
+                PfKeyInterp::Spline {
+                    x1: nums[0],
+                    y1: nums[1],
+                    x2: nums[2],
+                    y2: nums[3],
+                }
+            } else {
+                warnings.push(format!(
+                    "{}: bad KeySpline; Linear used",
+                    frame.pos
+                ));
+                PfKeyInterp::Linear
+            }
+        } else {
+            warnings.push(format!(
+                "{}: keyframe `{}` is not supported; skipped",
+                frame.pos, frame.name
+            ));
+            continue;
+        };
+        let time = match frame.attribute("KeyTime") {
+            Some(XamlValue::Str(t)) if t.eq_ignore_ascii_case("uniform") => None,
+            Some(XamlValue::Str(t)) => match parse_duration(t) {
+                Some(secs) => Some(secs),
+                None => {
+                    warnings.push(format!(
+                        "{}: KeyTime `{t}` is not supported (Paced/percent); Uniform used",
+                        frame.pos
+                    ));
+                    None
+                }
+            },
+            _ => None,
+        };
+        let value = match frame.attribute("Value") {
+            Some(XamlValue::Str(text)) if color => match text.parse::<v::PfColor>() {
+                Ok(c) => PfKeyValue::Color(c),
+                Err(_) => {
+                    warnings.push(format!("{}: bad keyframe color `{text}`", frame.pos));
+                    continue;
+                }
+            },
+            Some(XamlValue::Str(v)) => match v.trim().parse::<f64>() {
+                Ok(d) => PfKeyValue::Double(d),
+                Err(_) => {
+                    warnings.push(format!("{}: bad keyframe value `{v}`", frame.pos));
+                    continue;
+                }
+            },
+            _ => {
+                warnings.push(format!("{}: keyframe needs Value=", frame.pos));
+                continue;
+            }
+        };
+        frames.push(PfKeyFrame {
+            time,
+            value,
+            interp,
+        });
+    }
+    frames
+}
+
+/// Parse one easing-function element (`<CubicEase EasingMode=.../>`).
+fn parse_easing_element(
+    f: &XamlNode,
+    warnings: &mut Vec<String>,
+) -> crate::animation::PfEasing {
+    use crate::animation::{EasingMode, PfEasing};
+    let mode = match f.attribute("EasingMode") {
+        Some(XamlValue::Str(m)) if m.eq_ignore_ascii_case("easein") => EasingMode::In,
+        Some(XamlValue::Str(m)) if m.eq_ignore_ascii_case("easeinout") => EasingMode::InOut,
+        _ => EasingMode::Out, // WPF default
+    };
+    match f.name.as_str() {
+        "QuadraticEase" => PfEasing::Quadratic(mode),
+        "CubicEase" => PfEasing::Cubic(mode),
+        "QuarticEase" => PfEasing::Quartic(mode),
+        "QuinticEase" => PfEasing::Quintic(mode),
+        "SineEase" => PfEasing::Sine(mode),
+        "CircleEase" => PfEasing::Circle(mode),
+        "BackEase" => PfEasing::Back(mode),
+        "ElasticEase" => PfEasing::Elastic(mode),
+        "BounceEase" => PfEasing::Bounce(mode),
+        "ExponentialEase" => PfEasing::Exponential(mode),
+        "PowerEase" => PfEasing::Quadratic(mode),
+        other => {
+            warnings.push(format!(
+                "{}: easing `{other}` is not supported; Linear used",
+                f.pos
+            ));
+            PfEasing::Linear
+        }
+    }
+}
+
 /// Parse a `<Storyboard>`: Double/Color animations with Storyboard.Target*
 /// attached attributes. Keyframe/easing forms warn (plan phase 2b).
 pub(crate) fn parse_storyboard(
@@ -966,9 +1092,15 @@ pub(crate) fn parse_storyboard(
                     to,
                 }
             }
+            "DoubleAnimationUsingKeyFrames" => PfAnimKind::DoubleKeyFrames {
+                frames: parse_key_frames(child, false, warnings),
+            },
+            "ColorAnimationUsingKeyFrames" => PfAnimKind::ColorKeyFrames {
+                frames: parse_key_frames(child, true, warnings),
+            },
             other => {
                 warnings.push(format!(
-                    "{}: animation `{other}` is not supported yet (plan phase 2b); skipped",
+                    "{}: animation `{other}` is not supported yet; skipped",
                     child.pos
                 ));
                 continue;
@@ -992,7 +1124,16 @@ pub(crate) fn parse_storyboard(
             .to_string();
         let duration = attr("Duration")
             .and_then(|d| parse_duration(&d))
-            .unwrap_or(1.0);
+            .unwrap_or_else(|| match &kind {
+                // Keyframe animations default to their last key time.
+                PfAnimKind::DoubleKeyFrames { frames }
+                | PfAnimKind::ColorKeyFrames { frames } => frames
+                    .iter()
+                    .filter_map(|f| f.time)
+                    .fold(0.0_f32, f32::max)
+                    .max(1.0 / 240.0),
+                _ => 1.0,
+            });
         let begin_time = attr("BeginTime")
             .and_then(|d| parse_duration(&d))
             .unwrap_or(0.0);
@@ -1015,38 +1156,7 @@ pub(crate) fn parse_storyboard(
         // or AccelerationRatio/DecelerationRatio attrs.
         let easing = if let Some(pe) = child.property_element("EasingFunction") {
             match pe.single_element() {
-                Some(f) => {
-                    use crate::animation::{EasingMode, PfEasing};
-                    let mode = match f.attribute("EasingMode") {
-                        Some(XamlValue::Str(m)) if m.eq_ignore_ascii_case("easein") => {
-                            EasingMode::In
-                        }
-                        Some(XamlValue::Str(m)) if m.eq_ignore_ascii_case("easeinout") => {
-                            EasingMode::InOut
-                        }
-                        _ => EasingMode::Out, // WPF default
-                    };
-                    match f.name.as_str() {
-                        "QuadraticEase" => PfEasing::Quadratic(mode),
-                        "CubicEase" => PfEasing::Cubic(mode),
-                        "QuarticEase" => PfEasing::Quartic(mode),
-                        "QuinticEase" => PfEasing::Quintic(mode),
-                        "SineEase" => PfEasing::Sine(mode),
-                        "CircleEase" => PfEasing::Circle(mode),
-                        "BackEase" => PfEasing::Back(mode),
-                        "ElasticEase" => PfEasing::Elastic(mode),
-                        "BounceEase" => PfEasing::Bounce(mode),
-                        "ExponentialEase" => PfEasing::Exponential(mode),
-                        "PowerEase" => PfEasing::Quadratic(mode),
-                        other => {
-                            warnings.push(format!(
-                                "{}: easing `{other}` is not supported; Linear used",
-                                f.pos
-                            ));
-                            PfEasing::Linear
-                        }
-                    }
-                }
+                Some(f) => parse_easing_element(f, warnings),
                 None => crate::animation::PfEasing::Linear,
             }
         } else {

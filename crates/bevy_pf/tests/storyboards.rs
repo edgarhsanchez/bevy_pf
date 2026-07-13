@@ -298,3 +298,55 @@ fn visual_states_drive_hover_and_revert() {
         "Pressed"
     ));
 }
+
+// ---------------------------------------------------------------------
+// Keyframe animations: Linear/Discrete/Easing/Spline keyframes.
+// ---------------------------------------------------------------------
+
+#[test]
+fn keyframe_animation_walks_its_track() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border x:Name="Bar" Width="0" Height="8" Background="#FF3366CC">
+               <Border.Triggers>
+                 <EventTrigger RoutedEvent="Loaded">
+                   <BeginStoryboard>
+                     <Storyboard>
+                       <DoubleAnimationUsingKeyFrames Storyboard.TargetProperty="Width">
+                         <LinearDoubleKeyFrame KeyTime="0:0:1" Value="100"/>
+                         <DiscreteDoubleKeyFrame KeyTime="0:0:2" Value="300"/>
+                         <SplineDoubleKeyFrame KeyTime="0:0:3" Value="400"
+                                               KeySpline="0.4,0 0.6,1"/>
+                       </DoubleAnimationUsingKeyFrames>
+                     </Storyboard>
+                   </BeginStoryboard>
+                 </EventTrigger>
+               </Border.Triggers>
+             </Border>
+           </StackPanel>"##,
+    );
+    let bar = named(&app, root, "Bar");
+    let width = |app: &App| -> f32 {
+        match app.world().get::<Node>(bar).unwrap().width {
+            Val::Px(w) => w,
+            other => panic!("expected px, got {other:?}"),
+        }
+    };
+    app.update(); // Loaded begins (duration defaults to the last key: 3s)
+
+    advance(&mut app, 0.5); // mid first segment: base(0) -> 100 linear
+    assert!((width(&app) - 50.0).abs() < 8.0, "linear mid ≈50, got {}", width(&app));
+
+    advance(&mut app, 1.0); // t=1.5: discrete segment holds the PREVIOUS value
+    assert!((width(&app) - 100.0).abs() < 3.0, "discrete holds 100, got {}", width(&app));
+
+    advance(&mut app, 0.6); // t=2.1: discrete fired at 2.0 -> 300; spline seg begins
+    let w = width(&app);
+    assert!((300.0..360.0).contains(&w), "after discrete jump, got {w}");
+
+    advance(&mut app, 1.5); // t=3.6: past the end, HoldEnd at 400
+    assert_eq!(width(&app), 400.0, "held at the last keyframe");
+}

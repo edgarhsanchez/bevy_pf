@@ -49,6 +49,75 @@ pub struct PfAnimationSpec {
 pub enum PfAnimKind {
     Double { from: Option<f64>, to: f64 },
     Color { from: Option<v::PfColor>, to: v::PfColor },
+    /// `<DoubleAnimationUsingKeyFrames>`.
+    DoubleKeyFrames { frames: Vec<PfKeyFrame> },
+    /// `<ColorAnimationUsingKeyFrames>`.
+    ColorKeyFrames { frames: Vec<PfKeyFrame> },
+}
+
+/// One keyframe. `time: None` = `KeyTime="Uniform"` (distributed across the
+/// duration at start). The value is typed by the owning animation kind.
+#[derive(Debug, Clone)]
+pub struct PfKeyFrame {
+    pub time: Option<f32>,
+    pub value: PfKeyValue,
+    pub interp: PfKeyInterp,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PfKeyValue {
+    Double(f64),
+    Color(v::PfColor),
+}
+
+/// How a keyframe interpolates INTO its value from the previous one
+/// (WPF semantics: the frame owns the segment that ends at it).
+#[derive(Debug, Clone, Copy)]
+pub enum PfKeyInterp {
+    Discrete,
+    Linear,
+    Easing(PfEasing),
+    /// `KeySpline="x1,y1 x2,y2"` — a cubic bezier through (0,0) and (1,1).
+    Spline { x1: f32, y1: f32, x2: f32, y2: f32 },
+}
+
+impl PfKeyInterp {
+    /// Map segment progress `p` in [0,1] through the interpolation.
+    pub fn ease(self, p: f32) -> f32 {
+        match self {
+            PfKeyInterp::Discrete => {
+                if p >= 1.0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            PfKeyInterp::Linear => p,
+            PfKeyInterp::Easing(e) => e.ease(p),
+            PfKeyInterp::Spline { x1, y1, x2, y2 } => {
+                let bez = |a: f32, b: f32, s: f32| {
+                    3.0 * (1.0 - s) * (1.0 - s) * s * a + 3.0 * (1.0 - s) * s * s * b + s * s * s
+                };
+                // Solve bezier_x(s) = p (Newton with bisection fallback).
+                let p = p.clamp(0.0, 1.0);
+                let mut s = p;
+                for _ in 0..8 {
+                    let x = bez(x1, x2, s) - p;
+                    if x.abs() < 1e-4 {
+                        break;
+                    }
+                    let dx = 3.0 * (1.0 - s) * (1.0 - s) * x1
+                        + 6.0 * (1.0 - s) * s * (x2 - x1)
+                        + 3.0 * s * s * (1.0 - x2);
+                    if dx.abs() < 1e-6 {
+                        break;
+                    }
+                    s = (s - x / dx).clamp(0.0, 1.0);
+                }
+                bez(y1, y2, s)
+            }
+        }
+    }
 }
 
 /// WPF easing functions (`<DoubleAnimation.EasingFunction>`), plus the
@@ -236,18 +305,69 @@ pub struct PfPendingStoryboards(pub Vec<std::sync::Arc<PfStoryboard>>);
 struct Running {
     target: Entity,
     prop: PropertyTarget,
-    from: PfValue,
-    to: PfValue,
+    track: Track,
     /// `Time::elapsed_secs` when progress 0 begins (start + BeginTime).
     begin: f32,
     duration: f32,
     repeat: PfRepeat,
     auto_reverse: bool,
     fill: PfFill,
+    /// Whole-animation easing (Simple tracks only; keyframes ease per frame).
     easing: PfEasing,
     /// VSM ownership: (control, group index) — a state change stops and
     /// reverts everything its group previously started.
     tag: Option<(Entity, usize)>,
+}
+
+#[derive(Debug)]
+enum Track {
+    Simple {
+        from: PfValue,
+        to: PfValue,
+    },
+    /// Resolved keyframes: times in seconds, sorted, with the base value as
+    /// the implicit frame at t=0.
+    KeyFrames {
+        base: PfValue,
+        frames: Vec<(f32, PfValue, PfKeyInterp)>,
+    },
+}
+
+impl Track {
+    /// Sample at eased whole-animation progress (Simple) or raw cycle
+    /// progress (KeyFrames, which ease per segment).
+    fn sample(&self, progress: f32, duration: f32, easing: PfEasing) -> Option<PfValue> {
+        match self {
+            Track::Simple { from, to } => {
+                lerp_value(from, to, easing.ease(progress))
+            }
+            Track::KeyFrames { base, frames } => {
+                let t = progress * duration;
+                let mut prev_time = 0.0_f32;
+                let mut prev_value = base;
+                for (time, value, interp) in frames {
+                    if t <= *time {
+                        let span = (*time - prev_time).max(1e-6);
+                        let local = ((t - prev_time) / span).clamp(0.0, 1.0);
+                        return lerp_value(prev_value, value, interp.ease(local));
+                    }
+                    prev_time = *time;
+                    prev_value = value;
+                }
+                Some(prev_value.clone())
+            }
+        }
+    }
+}
+
+fn lerp_value(a: &PfValue, b: &PfValue, t: f32) -> Option<PfValue> {
+    match (a, b) {
+        (PfValue::Double(x), PfValue::Double(y)) => {
+            Some(PfValue::Double(x + (y - x) * f64::from(t)))
+        }
+        (PfValue::Color(x), PfValue::Color(y)) => Some(PfValue::Color(lerp_color(*x, *y, t))),
+        _ => None,
+    }
 }
 
 /// Every animation currently playing.
@@ -330,19 +450,61 @@ pub(crate) fn begin_storyboard_tagged(
             .get::<provider::PfPropertyStore>(target)
             .and_then(|s| s.effective_below(prop, ValueSource::Animation))
             .and_then(|(_, v)| v.clone());
-        let (from, to) = match &spec.kind {
+        let resolve_frames = |frames: &[PfKeyFrame], duration: f32, color: bool| {
+            // Uniform (time=None) keyframes distribute evenly across the
+            // duration (an approximation of WPF's remaining-span split).
+            let n = frames.len().max(1) as f32;
+            let mut out: Vec<(f32, PfValue, PfKeyInterp)> = frames
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let time = f.time.unwrap_or((i as f32 + 1.0) / n * duration);
+                    let value = match (f.value, color) {
+                        (PfKeyValue::Double(d), _) if !color => PfValue::Double(d),
+                        (PfKeyValue::Color(c), _) if color => PfValue::Color(c),
+                        (PfKeyValue::Double(d), _) => PfValue::Double(d),
+                        (PfKeyValue::Color(c), _) => PfValue::Color(c),
+                    };
+                    (time, value, f.interp)
+                })
+                .collect();
+            out.sort_by(|a, b| a.0.total_cmp(&b.0));
+            out
+        };
+        let duration = spec.duration.max(1.0 / 240.0);
+        let track = match &spec.kind {
             PfAnimKind::Double { from, to } => {
                 let from = from
                     .or_else(|| base.as_ref().and_then(pf_as_f64))
                     .unwrap_or(0.0);
-                (PfValue::Double(from), PfValue::Double(*to))
+                Track::Simple {
+                    from: PfValue::Double(from),
+                    to: PfValue::Double(*to),
+                }
             }
             PfAnimKind::Color { from, to } => {
                 let from = from
                     .or_else(|| base.as_ref().and_then(pf_as_color))
                     .unwrap_or(v::PfColor::TRANSPARENT);
-                (PfValue::Color(from), PfValue::Color(*to))
+                Track::Simple {
+                    from: PfValue::Color(from),
+                    to: PfValue::Color(*to),
+                }
             }
+            PfAnimKind::DoubleKeyFrames { frames } => Track::KeyFrames {
+                base: PfValue::Double(
+                    base.as_ref().and_then(pf_as_f64).unwrap_or(0.0),
+                ),
+                frames: resolve_frames(frames, duration, false),
+            },
+            PfAnimKind::ColorKeyFrames { frames } => Track::KeyFrames {
+                base: PfValue::Color(
+                    base.as_ref()
+                        .and_then(pf_as_color)
+                        .unwrap_or(v::PfColor::TRANSPARENT),
+                ),
+                frames: resolve_frames(frames, duration, true),
+            },
         };
         world
             .get_resource_or_insert_with(PfRunningAnimations::default)
@@ -351,10 +513,9 @@ pub(crate) fn begin_storyboard_tagged(
                 tag,
                 target,
                 prop,
-                from,
-                to,
+                track,
                 begin: now + spec.begin_time,
-                duration: spec.duration.max(1.0 / 240.0),
+                duration,
                 repeat: spec.repeat,
                 auto_reverse: spec.auto_reverse,
                 fill: spec.fill,
@@ -439,15 +600,8 @@ pub(crate) fn tick_animations(world: &mut World) {
             raw
         };
 
-        let eased = anim.easing.ease(progress);
-        let value = match (&anim.from, &anim.to) {
-            (PfValue::Double(a), PfValue::Double(b)) => {
-                PfValue::Double(a + (b - a) * f64::from(eased))
-            }
-            (PfValue::Color(a), PfValue::Color(b)) => {
-                PfValue::Color(lerp_color(*a, *b, eased))
-            }
-            _ => continue,
+        let Some(value) = anim.track.sample(progress, anim.duration, anim.easing) else {
+            continue;
         };
         if done {
             retire.push(i);
