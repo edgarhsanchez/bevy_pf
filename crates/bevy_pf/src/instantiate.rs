@@ -111,24 +111,10 @@ pub fn instantiate_document_env(
         ctx.names.iter().cloned().collect();
     let mut warnings = std::mem::take(&mut ctx.warnings);
 
-    // Resolve ElementName binding sources now that all names are known
-    // (forward references included).
-    use crate::binding::{PfBindingSource, PfBindings};
-    for entity in std::mem::take(&mut ctx.binding_entities) {
-        let Some(mut bindings) = world.get_mut::<PfBindings>(entity) else {
-            continue;
-        };
-        for binding in &mut bindings.0 {
-            if let PfBindingSource::Named(name) = &binding.source {
-                match names.get(name.as_str()) {
-                    Some(&source) => binding.source = PfBindingSource::Element(source),
-                    None => warnings.push(format!(
-                        "binding ElementName `{name}` does not match any x:Name in this scene"
-                    )),
-                }
-            }
-        }
-    }
+    // Resolve ElementName + FindAncestor binding sources now that the tree
+    // is complete (forward references included).
+    let binding_entities = std::mem::take(&mut ctx.binding_entities);
+    crate::binding::resolve_deferred_sources(world, &binding_entities, &names, &mut warnings);
 
     world.entity_mut(root).insert(XamlNames(names));
     Ok(InstantiateResult { root, warnings })
@@ -2210,6 +2196,60 @@ impl<'w> Ctx<'w> {
         }
         if pe.name == "ItemsPanel" {
             self.apply_items_panel(entity, kind, pe);
+            return;
+        }
+        // `<X.Prop><MultiBinding StringFormat=...><Binding Path=a/>...` —
+        // recorded like an attribute binding; combined at apply time.
+        if let Some(mb) = pe.elements().next().filter(|n| n.name == "MultiBinding") {
+            let attr_str = |name: &str| match mb.attribute(name) {
+                Some(XamlValue::Str(v)) => Some(v.clone()),
+                _ => None,
+            };
+            let converter = match mb.attribute("Converter") {
+                Some(XamlValue::Extension(ext)) => {
+                    ext.first_positional_str().map(|k| k.to_string())
+                }
+                Some(XamlValue::Str(v)) => Some(v.clone()),
+                None => None,
+            };
+            let multi_paths: Vec<String> = mb
+                .child_elements()
+                .filter(|n| n.name == "Binding")
+                .filter_map(|n| match n.attribute("Path") {
+                    Some(XamlValue::Str(v)) => Some(v.clone()),
+                    _ => None,
+                })
+                .collect();
+            if multi_paths.is_empty() {
+                self.warn(format!(
+                    "{}: MultiBinding needs child <Binding Path=.../> elements",
+                    pe.pos
+                ));
+                return;
+            }
+            if converter.is_none() && attr_str("StringFormat").is_none() {
+                self.warn(format!(
+                    "{}: MultiBinding needs a Converter or StringFormat",
+                    pe.pos
+                ));
+                return;
+            }
+            self.pending.bindings.push((
+                pe.name.clone(),
+                crate::binding::BindingSpec {
+                    path: String::new(),
+                    element_name: None,
+                    mode: v::BindingMode::OneWay,
+                    string_format: attr_str("StringFormat"),
+                    converter,
+                    converter_parameter: attr_str("ConverterParameter"),
+                    fallback: attr_str("FallbackValue"),
+                    target_null: None,
+                    multi_paths,
+                    relative: None,
+                    unsupported: None,
+                },
+            ));
             return;
         }
         if pe.name == "ItemContainerStyle" {
@@ -6708,6 +6748,11 @@ impl<'w> Ctx<'w> {
                     }
                 }
             }
+            (Some(crate::binding::PfRelativeSource::Ancestor(ty)), _) => {
+                // Parents attach after the child spawns, so the walk is
+                // deferred to resolve_deferred_sources.
+                crate::binding::PfBindingSource::Ancestor(ty.clone())
+            }
             (None, Some(name)) => crate::binding::PfBindingSource::Named(name),
             (None, None) => crate::binding::PfBindingSource::DataContext,
         };
@@ -6720,6 +6765,8 @@ impl<'w> Ctx<'w> {
             converter: spec.converter,
             converter_parameter: spec.converter_parameter,
             fallback: spec.fallback,
+            target_null: spec.target_null,
+            multi_paths: spec.multi_paths,
             seen_version: 0,
         };
         let mut e = self.world.entity_mut(target_entity);
@@ -6928,10 +6975,17 @@ pub fn instantiate_template(
         }
     }
     let entity = ctx.spawn_element(node, ParentKind::FlexColumn, None)?;
-    for w in std::mem::take(&mut ctx.warnings) {
+    let names: bevy::platform::collections::HashMap<String, Entity> =
+        ctx.names.iter().cloned().collect();
+    let binding_entities = std::mem::take(&mut ctx.binding_entities);
+    let mut warnings = std::mem::take(&mut ctx.warnings);
+    world.entity_mut(parent).add_children(&[entity]);
+    // Deferred sources resolve AFTER the attach so FindAncestor can walk
+    // out of the template into the surrounding tree.
+    crate::binding::resolve_deferred_sources(world, &binding_entities, &names, &mut warnings);
+    for w in warnings {
         bevy::log::warn!("bevy_pf (template): {w}");
     }
-    world.entity_mut(parent).add_children(&[entity]);
     Ok(entity)
 }
 

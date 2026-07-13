@@ -434,3 +434,125 @@ fn selected_index_binds_two_way_on_listbox() {
         "selection wrote back"
     );
 }
+
+#[derive(Reflect, Default)]
+struct NullVm {
+    nickname: Option<String>,
+    done: f64,
+    total: f64,
+}
+
+#[test]
+fn target_null_value_substitutes_for_none() {
+    let mut app = test_app();
+    let vm = Bindable::new(NullVm { nickname: None, ..Default::default() });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBlock x:Name="T" Text="{Binding nickname, TargetNullValue='(no nickname)'}"/>
+           </StackPanel>"##,
+        vm.clone(),
+    );
+    app.update();
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let t = names.get("T").unwrap();
+    let text_of = |app: &App, e| app.world().get::<Text>(e).map(|t| t.0.clone());
+    assert_eq!(text_of(&app, t).as_deref(), Some("(no nickname)"));
+
+    // Some(value) unwraps to the inner value.
+    vm.update(|m: &mut NullVm| m.nickname = Some("Ace".into()));
+    app.update();
+    assert_eq!(text_of(&app, t).as_deref(), Some("Ace"));
+
+    // Back to None -> the null substitute again.
+    vm.update(|m: &mut NullVm| m.nickname = None);
+    app.update();
+    assert_eq!(text_of(&app, t).as_deref(), Some("(no nickname)"));
+}
+
+#[test]
+fn multi_binding_string_format_and_converter() {
+    let mut app = test_app();
+    struct Ratio;
+    impl PfMultiValueConverter for Ratio {
+        fn convert(
+            &self,
+            values: &[bevy_pf::BoundValue],
+            _parameter: Option<&str>,
+        ) -> Option<bevy_pf::BoundValue> {
+            let a = values.first()?.as_f64()?;
+            let b = values.get(1)?.as_f64()?;
+            Some(bevy_pf::BoundValue::Num(if b == 0.0 { 0.0 } else { a / b }))
+        }
+    }
+    app.register_multi_converter("Ratio", Ratio);
+    let vm = Bindable::new(NullVm { done: 3.0, total: 4.0, ..Default::default() });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBlock x:Name="F">
+               <TextBlock.Text>
+                 <MultiBinding StringFormat="{}{0} of {1} done">
+                   <Binding Path="done"/>
+                   <Binding Path="total"/>
+                 </MultiBinding>
+               </TextBlock.Text>
+             </TextBlock>
+             <TextBlock x:Name="C">
+               <TextBlock.Text>
+                 <MultiBinding Converter="{StaticResource Ratio}" StringFormat="{}{0:P0}">
+                   <Binding Path="done"/>
+                   <Binding Path="total"/>
+                 </MultiBinding>
+               </TextBlock.Text>
+             </TextBlock>
+           </StackPanel>"##,
+        vm.clone(),
+    );
+    app.update();
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (f, c) = (names.get("F").unwrap(), names.get("C").unwrap());
+    let text_of = |app: &App, e| app.world().get::<Text>(e).map(|t| t.0.clone());
+    assert_eq!(text_of(&app, f).as_deref(), Some("3 of 4 done"));
+
+    // Both members update live.
+    vm.update(|m: &mut NullVm| m.done = 2.0);
+    vm.update(|m: &mut NullVm| m.total = 8.0);
+    app.update();
+    assert_eq!(text_of(&app, f).as_deref(), Some("2 of 8 done"));
+    // Converter result flows through the single-value StringFormat path?
+    // No: multi bindings format positionally; the converter output here is
+    // {0}. 2/8 = 25%.
+    let c_text = text_of(&app, c).unwrap();
+    assert!(c_text.contains("25"), "ratio converter applied: {c_text}");
+}
+
+#[test]
+fn find_ancestor_binds_to_enclosing_element() {
+    let mut app = test_app();
+    let vm = Bindable::new(NullVm::default());
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border Width="240" Padding="4">
+               <StackPanel>
+                 <TextBlock x:Name="W"
+                            Text="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Border}}, StringFormat='{}w={0:F0}'}"/>
+               </StackPanel>
+             </Border>
+           </StackPanel>"##,
+        vm,
+    );
+    app.update();
+    app.update(); // element sources re-evaluate after layout state settles
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let w = names.get("W").unwrap();
+    // Headless: no real layout pass; the binding resolved to the Border and
+    // the element read yielded its configured width through the store.
+    let text = app.world().get::<Text>(w).map(|t| t.0.clone()).unwrap();
+    assert!(text.starts_with("w="), "FindAncestor bound and formatted: {text}");
+}

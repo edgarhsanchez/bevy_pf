@@ -81,7 +81,7 @@ pub use triggers::PfTriggers;
 pub mod prelude {
     pub use crate::asset::{XamlAsset, XamlView};
     pub use crate::binding::{
-        Bindable, DataContext, PfConverterAppExt, PfValueConverter,
+        Bindable, DataContext, PfConverterAppExt, PfMultiValueConverter, PfValueConverter,
     };
     pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
     pub use crate::events::{PfEventAppExt, PfPointerInfo};

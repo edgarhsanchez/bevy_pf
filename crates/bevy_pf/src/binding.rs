@@ -208,6 +208,9 @@ pub enum BoundValue {
     Str(String),
     Num(f64),
     Bool(bool),
+    /// An `Option` field that is `None` — what WPF calls a null source
+    /// value; `TargetNullValue=` substitutes for it at the target.
+    Null,
 }
 
 impl BoundValue {
@@ -222,6 +225,7 @@ impl BoundValue {
                 }
             }
             BoundValue::Bool(b) => if *b { "True" } else { "False" }.to_string(),
+            BoundValue::Null => String::new(),
         }
     }
 
@@ -230,6 +234,7 @@ impl BoundValue {
             BoundValue::Num(n) => Some(*n),
             BoundValue::Str(s) => s.trim().parse().ok(),
             BoundValue::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            BoundValue::Null => None,
         }
     }
 
@@ -238,11 +243,21 @@ impl BoundValue {
             BoundValue::Bool(b) => Some(*b),
             BoundValue::Str(s) => Some(s.trim().eq_ignore_ascii_case("true")),
             BoundValue::Num(n) => Some(*n != 0.0),
+            BoundValue::Null => Some(false),
         }
     }
 }
 
 fn reflect_to_bound(value: &dyn PartialReflect) -> BoundValue {
+    // Option<T>: None is a null source value; Some unwraps to the inner.
+    if let bevy::reflect::ReflectRef::Enum(e) = value.reflect_ref()
+        && e.reflect_type_path().starts_with("core::option::Option")
+    {
+        return match e.field_at(0) {
+            Some(inner) => reflect_to_bound(inner),
+            None => BoundValue::Null,
+        };
+    }
     macro_rules! try_num {
         ($($t:ty),+) => {
             $(if let Some(n) = value.try_downcast_ref::<$t>() {
@@ -319,6 +334,9 @@ pub enum PfBindingSource {
     DataContext,
     /// Another element, by `x:Name` — not yet resolved to an entity.
     Named(String),
+    /// `RelativeSource FindAncestor`: resolved to `Element` after the tree
+    /// is built by walking `ChildOf` for a matching element kind.
+    Ancestor(String),
     /// Another element (resolved `ElementName=...`).
     Element(Entity),
 }
@@ -334,6 +352,9 @@ pub struct PfBinding {
     pub converter: Option<String>,
     pub converter_parameter: Option<String>,
     pub fallback: Option<String>,
+    pub target_null: Option<String>,
+    /// MultiBinding member paths (empty = a normal single-path binding).
+    pub multi_paths: Vec<String>,
     /// Source version last applied (0 = never). Unused for element sources,
     /// which are re-evaluated every frame (writes are no-ops when equal).
     pub seen_version: u64,
@@ -384,6 +405,40 @@ fn apply_string_format(fmt: &str, raw: &str) -> String {
     out
 }
 
+/// `{N[:spec]}` positional formatting over several values (MultiBinding
+/// StringFormat). Reuses the single-value spec formatter per slot.
+fn apply_multi_format(fmt: &str, values: &[BoundValue]) -> String {
+    let mut out = String::with_capacity(fmt.len() + 8 * values.len());
+    let mut rest = fmt;
+    while let Some(start) = rest.find('{') {
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('}') else {
+            out.push_str(rest);
+            return out;
+        };
+        let body = &after[..end];
+        let (index, spec) = match body.split_once(':') {
+            Some((i, sp)) => (i, sp),
+            None => (body, ""),
+        };
+        match index.parse::<usize>() {
+            Ok(i) => {
+                out.push_str(&rest[..start]);
+                let raw = values
+                    .get(i)
+                    .map(|v| v.to_display())
+                    .unwrap_or_default();
+                out.push_str(&format_with_spec(spec, &raw));
+            }
+            // `{}` escape prefix and friends: emit literally.
+            Err(_) => out.push_str(&rest[..start + 1 + end + 1]),
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn format_with_spec(spec: &str, raw: &str) -> String {
     if spec.is_empty() {
         return raw.to_string();
@@ -427,12 +482,24 @@ impl PfValueConverter for BoolToVisibility {
             BoundValue::Bool(b) => *b,
             BoundValue::Num(n) => *n != 0.0,
             BoundValue::Str(s) => s.eq_ignore_ascii_case("true"),
+            BoundValue::Null => false,
         };
         Some(BoundValue::Str(
             if b { "Visible" } else { "Collapsed" }.to_string(),
         ))
     }
 }
+
+/// The `IMultiValueConverter` analog: combine several bound values.
+pub trait PfMultiValueConverter: Send + Sync + 'static {
+    fn convert(&self, values: &[BoundValue], parameter: Option<&str>) -> Option<BoundValue>;
+}
+
+/// Registered multi-value converters, by `Converter={StaticResource name}`.
+#[derive(Resource, Default)]
+pub struct PfMultiConverters(
+    pub bevy::platform::collections::HashMap<String, std::sync::Arc<dyn PfMultiValueConverter>>,
+);
 
 pub(crate) fn builtin_converters() -> PfConverters {
     let mut map = PfConverters::default();
@@ -450,6 +517,14 @@ pub trait PfConverterAppExt {
         name: impl Into<String>,
         converter: impl PfValueConverter + 'static,
     ) -> &mut Self;
+
+    /// Register an `IMultiValueConverter` analog for `<MultiBinding
+    /// Converter={StaticResource name}>`.
+    fn register_multi_converter(
+        &mut self,
+        name: impl Into<String>,
+        converter: impl PfMultiValueConverter + 'static,
+    ) -> &mut Self;
 }
 
 impl PfConverterAppExt for bevy::app::App {
@@ -465,6 +540,22 @@ impl PfConverterAppExt for bevy::app::App {
         }
         world
             .resource_mut::<PfConverters>()
+            .0
+            .insert(name.into(), std::sync::Arc::new(converter));
+        self
+    }
+
+    fn register_multi_converter(
+        &mut self,
+        name: impl Into<String>,
+        converter: impl PfMultiValueConverter + 'static,
+    ) -> &mut Self {
+        let world = self.world_mut();
+        if !world.contains_resource::<PfMultiConverters>() {
+            world.init_resource::<PfMultiConverters>();
+        }
+        world
+            .resource_mut::<PfMultiConverters>()
             .0
             .insert(name.into(), std::sync::Arc::new(converter));
         self
@@ -487,6 +578,11 @@ pub struct BindingSpec {
     pub converter_parameter: Option<String>,
     /// `FallbackValue=` used when the source path fails to resolve.
     pub fallback: Option<String>,
+    /// `TargetNullValue=` substituted when the source resolves to null
+    /// (an `Option` field that is `None`).
+    pub target_null: Option<String>,
+    /// MultiBinding: the child `<Binding Path=...>` paths (empty = normal).
+    pub multi_paths: Vec<String>,
     /// `RelativeSource={RelativeSource Self|TemplatedParent}`.
     pub relative: Option<PfRelativeSource>,
     /// The first unsupported argument encountered (`Source`, `Converter`,
@@ -496,10 +592,12 @@ pub struct BindingSpec {
 }
 
 /// `RelativeSource=` modes supported so far (AncestorType is tracked work).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PfRelativeSource {
     SelfSource,
     TemplatedParent,
+    /// `FindAncestor` with `AncestorType`: nearest ancestor of the kind.
+    Ancestor(String),
 }
 
 /// Parse a `{Binding ...}` markup extension into a spec.
@@ -512,6 +610,8 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
         converter: None,
         converter_parameter: None,
         fallback: None,
+        target_null: None,
+        multi_paths: Vec::new(),
         relative: None,
         unsupported: None,
     };
@@ -550,11 +650,33 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
                         }),
                     _ => Some(value_str.to_string()),
                 };
+                let ancestor_type = match value {
+                    bevy_pf_xaml::markup::MarkupValue::Extension(inner) => {
+                        inner.arg("AncestorType").and_then(|at| match at {
+                            bevy_pf_xaml::markup::MarkupValue::Extension(t) => t
+                                .first_positional_str()
+                                .map(|n| n.rsplit(':').next().unwrap_or(n).to_string()),
+                            other => other
+                                .as_str()
+                                .map(|n| n.rsplit(':').next().unwrap_or(n).to_string()),
+                        })
+                    }
+                    _ => None,
+                };
                 match mode.as_deref() {
                     Some("Self") => spec.relative = Some(PfRelativeSource::SelfSource),
                     Some("TemplatedParent") => {
                         spec.relative = Some(PfRelativeSource::TemplatedParent)
                     }
+                    Some("FindAncestor") => match ancestor_type {
+                        Some(ty) => spec.relative = Some(PfRelativeSource::Ancestor(ty)),
+                        None => {
+                            if spec.unsupported.is_none() {
+                                spec.unsupported =
+                                    Some("FindAncestor without AncestorType".to_string());
+                            }
+                        }
+                    },
                     other => {
                         if spec.unsupported.is_none() {
                             spec.unsupported =
@@ -563,8 +685,9 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
                     }
                 }
             }
+            "TargetNullValue" => spec.target_null = Some(value_str.to_string()),
             // Harmless to ignore.
-            "UpdateSourceTrigger" | "TargetNullValue" => {}
+            "UpdateSourceTrigger" => {}
             other => {
                 if spec.unsupported.is_none() {
                     spec.unsupported = Some(other.to_string());
@@ -666,12 +789,63 @@ pub(crate) fn apply_bindings(world: &mut World) {
                     // Element sources have no version counter; re-evaluate
                     // every frame (applies are no-ops when values match).
                     PfBindingSource::Element(_) => updates.push((i, b.clone())),
-                    PfBindingSource::Named(_) => {} // unresolved; skip
+                    // Unresolved (never happens post-instantiation); skip.
+                    PfBindingSource::Named(_) | PfBindingSource::Ancestor(_) => {}
                 }
             }
         }
 
         for (index, binding) in updates {
+            // MultiBinding: read every member path, combine via the
+            // registered multi converter or positional StringFormat.
+            if !binding.multi_paths.is_empty() {
+                let ctx = ctx.as_ref().expect("multi bindings use the data context");
+                let values: Vec<BoundValue> = binding
+                    .multi_paths
+                    .iter()
+                    .map(|p| ctx.read_path(p).unwrap_or(BoundValue::Null))
+                    .collect();
+                let combined = match &binding.converter {
+                    Some(key) => {
+                        let conv = world
+                            .get_resource::<PfMultiConverters>()
+                            .and_then(|c| c.0.get(key).cloned());
+                        match conv {
+                            Some(c) => c.convert(&values, binding.converter_parameter.as_deref()),
+                            None => {
+                                warn!("bevy_pf: multi converter `{key}` is not registered");
+                                None
+                            }
+                        }
+                    }
+                    None => binding
+                        .string_format
+                        .as_deref()
+                        .map(|fmt| BoundValue::Str(apply_multi_format(fmt, &values))),
+                };
+                let combined =
+                    combined.or_else(|| binding.fallback.clone().map(BoundValue::Str));
+                if let Some(value) = combined {
+                    // Without a converter the positional format is already
+                    // consumed; with one, StringFormat applies to the
+                    // converted result (as {0}) through the normal path.
+                    let mut binding = binding.clone();
+                    if binding.converter.is_none() {
+                        binding.string_format = None;
+                    }
+                    apply_binding_value(world, entity, &binding, &value);
+                }
+                let version = ctx.version();
+                if let Some(mut bindings) = world.get_mut::<PfBindings>(entity) {
+                    bindings.0[index].seen_version =
+                        if binding.mode == v::BindingMode::OneTime {
+                            version.max(1)
+                        } else {
+                            version
+                        };
+                }
+                continue;
+            }
             let (value, mark_version) = match &binding.source {
                 PfBindingSource::DataContext => {
                     let ctx = ctx.as_ref().expect("checked above");
@@ -680,7 +854,7 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 PfBindingSource::Element(source) => {
                     (read_element_value(world, *source, &binding.path), None)
                 }
-                PfBindingSource::Named(_) => (None, None),
+                PfBindingSource::Named(_) | PfBindingSource::Ancestor(_) => (None, None),
             };
             // Converter, then FallbackValue when the source (or the
             // converter) yields nothing.
@@ -698,6 +872,18 @@ pub(crate) fn apply_bindings(world: &mut World) {
                     }
                 }
                 (v, _) => v,
+            };
+            // WPF order: TargetNullValue replaces a null (post-converter)
+            // value; FallbackValue covers resolution failure.
+            let value = match value {
+                Some(BoundValue::Null) => Some(
+                    binding
+                        .target_null
+                        .clone()
+                        .map(BoundValue::Str)
+                        .unwrap_or(BoundValue::Null),
+                ),
+                other => other,
             };
             let value = value.or_else(|| binding.fallback.clone().map(BoundValue::Str));
             match value {
@@ -1107,6 +1293,8 @@ mod tests {
             converter: None,
             converter_parameter: None,
             fallback: None,
+            target_null: None,
+            multi_paths: Vec::new(),
             seen_version: 0,
         };
         assert_eq!(b.format(&BoundValue::Num(3.0)), "Score: 3 pts");
@@ -1155,4 +1343,69 @@ pub fn invoke_command(
         command: name.to_string(),
         parameter,
     });
+}
+
+/// Resolve deferred binding sources once a spawned tree is complete:
+/// `Named` (ElementName) against the scene's name registry, `Ancestor`
+/// (RelativeSource FindAncestor) by walking `ChildOf` for a matching
+/// element kind.
+pub(crate) fn resolve_deferred_sources(
+    world: &mut World,
+    entities: &[Entity],
+    names: &bevy::platform::collections::HashMap<String, Entity>,
+    warnings: &mut Vec<String>,
+) {
+    for &entity in entities {
+        // Two-phase: walk the tree immutably, then patch the bindings.
+        let mut resolved: Vec<(usize, PfBindingSource)> = Vec::new();
+        {
+            let Some(bindings) = world.get::<PfBindings>(entity) else {
+                continue;
+            };
+            for (i, binding) in bindings.0.iter().enumerate() {
+                match &binding.source {
+                    PfBindingSource::Named(name) => match names.get(name.as_str()) {
+                        Some(&source) => {
+                            resolved.push((i, PfBindingSource::Element(source)));
+                        }
+                        None => warnings.push(format!(
+                            "binding ElementName `{name}` does not match any x:Name in this scene"
+                        )),
+                    },
+                    PfBindingSource::Ancestor(ty) => {
+                        let mut cursor = entity;
+                        let mut found = None;
+                        while let Some(parent) = world.get::<ChildOf>(cursor) {
+                            cursor = parent.parent();
+                            let kind = world
+                                .get::<crate::components::PfElementKind>(cursor)
+                                .map(|k| k.0.as_str());
+                            if kind == Some(ty.as_str()) {
+                                found = Some(cursor);
+                                break;
+                            }
+                        }
+                        match found {
+                            Some(source) => {
+                                resolved.push((i, PfBindingSource::Element(source)));
+                            }
+                            None => warnings.push(format!(
+                                "FindAncestor: no `{ty}` ancestor found; binding skipped"
+                            )),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if resolved.is_empty() {
+            continue;
+        }
+        let Some(mut bindings) = world.get_mut::<PfBindings>(entity) else {
+            continue;
+        };
+        for (i, source) in resolved {
+            bindings.0[i].source = source;
+        }
+    }
 }
