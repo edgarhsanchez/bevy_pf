@@ -414,11 +414,6 @@ fn selected_index_binds_two_way_on_listbox() {
     // VM change re-targets the selection.
     vm.update(|m: &mut SelVm| m.pick = 2.0);
     app.update();
-    {
-        let b = app.world().get::<bevy_pf::PfBindings>(list_entity).unwrap();
-        eprintln!("PROBE bindings: {:?}", b.0.iter().map(|x| (&x.path, x.seen_version, &x.target)).collect::<Vec<_>>());
-        eprintln!("PROBE vm version {} pick {:?}", vm.version(), vm.read_path("pick"));
-    }
     let selected = app
         .world()
         .get::<bevy_pf::components::PfListBox>(list_entity)

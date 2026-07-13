@@ -164,6 +164,47 @@ pub struct PfListBox {
 #[derive(Component, Debug, Default, Clone)]
 pub struct PfListBoxItem;
 
+/// WPF `ItemsPanelTemplate`: the items host redirect. Lives on the items
+/// control; generated item containers land in `panel` instead of the root.
+#[derive(Component, Debug, Clone)]
+pub struct PfItemsPanel {
+    pub panel: Entity,
+}
+
+/// Marks an `ItemsPanel` panel entity, pointing back at the items control
+/// that owns it (selection state lives there).
+#[derive(Component, Debug, Clone)]
+pub struct PfGeneratedItemsHost {
+    pub owner: Entity,
+}
+
+/// WPF `RepeatButton`: re-raises Click while held. bevy's natural Click
+/// fires on release (covers the tap); a system fires synthetic
+/// `Pointer<Click>` events after `delay`, then every `interval`.
+#[derive(Component, Debug, Clone)]
+pub struct PfRepeatButton {
+    /// Milliseconds before the first repeat (WPF default 500).
+    pub delay: f32,
+    /// Milliseconds between repeats (WPF default ~33, keyboard speed).
+    pub interval: f32,
+    /// Virtual-clock elapsed ms when the press began; `None` while released.
+    /// Elapsed-based (not delta-based) so paused-clock tests can drive it.
+    pub pressed_at: Option<f32>,
+    /// Repeats fired during this press.
+    pub fired: u32,
+}
+
+impl Default for PfRepeatButton {
+    fn default() -> Self {
+        Self {
+            delay: 500.0,
+            interval: 33.0,
+            pressed_at: None,
+            fired: 0,
+        }
+    }
+}
+
 /// Links an Expander root to its collapsible content and arrow glyph.
 #[derive(Component, Debug, Clone)]
 pub struct PfExpander {

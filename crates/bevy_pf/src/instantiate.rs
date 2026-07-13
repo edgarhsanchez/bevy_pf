@@ -342,6 +342,8 @@ struct Pending {
     /// Code-behind pointer events: (event name, handler name) pairs wired
     /// as observers dispatching through `PfEventHandlers` after spawn.
     event_handlers: Vec<(String, String)>,
+    /// `ItemContainerStyle` for items controls (inline or resource).
+    item_container_style: Option<std::sync::Arc<crate::resources::PfStyle>>,
 }
 
 /// Font and text properties that flow down the tree (WPF property value
@@ -715,6 +717,13 @@ impl<'w> Ctx<'w> {
 
         self.insert_defaults(entity, kind, node);
         self.apply_toolkit_presets(entity, kind, node);
+
+        // RepeatButton is a Button plus the repeat-while-held component.
+        if node.name == "RepeatButton" {
+            self.world
+                .entity_mut(entity)
+                .insert(crate::components::PfRepeatButton::default());
+        }
 
         // Inside a ControlTemplate expansion, stamp the templated parent
         // BEFORE properties/bindings apply (RelativeSource TemplatedParent
@@ -2126,6 +2135,48 @@ impl<'w> Ctx<'w> {
         }
     }
 
+    /// `<X.ItemsPanel><ItemsPanelTemplate><panel/>` — spawn the panel as the
+    /// real items host; generated containers land inside it.
+    fn apply_items_panel(
+        &mut self,
+        entity: Entity,
+        kind: ElemKind,
+        pe: &bevy_pf_xaml::XamlPropertyElement,
+    ) {
+        if !matches!(kind, ElemKind::ListBox | ElemKind::ItemsControl) {
+            self.warn(format!(
+                "{}: ItemsPanel is only supported on ListBox/ListView/ItemsControl",
+                pe.pos
+            ));
+            return;
+        }
+        let template = pe.elements().next();
+        let panel_node = match template {
+            Some(t) if t.name == "ItemsPanelTemplate" => t.child_elements().next(),
+            // Tolerate the panel written directly, without the template shell.
+            other => other,
+        };
+        let Some(panel_node) = panel_node else {
+            self.warn(format!("{}: ItemsPanel has no panel element", pe.pos));
+            return;
+        };
+        match self.spawn_element(panel_node, ParentKind::FlexColumn, None) {
+            Ok(panel) => {
+                if let Some(mut n) = self.world.get_mut::<Node>(panel) {
+                    n.flex_grow = 1.0;
+                }
+                self.add_children(entity, &[panel]);
+                self.world
+                    .entity_mut(entity)
+                    .insert(crate::components::PfItemsPanel { panel });
+                self.world
+                    .entity_mut(panel)
+                    .insert(crate::components::PfGeneratedItemsHost { owner: entity });
+            }
+            Err(e) => self.warn(format!("{}: ItemsPanel: {e}", pe.pos)),
+        }
+    }
+
     fn apply_property_element(
         &mut self,
         entity: Entity,
@@ -2149,6 +2200,34 @@ impl<'w> Ctx<'w> {
         }
         if pe.name == "Triggers" && pe.owner == "Interaction" {
             self.apply_behavior_triggers(entity, pe);
+            return;
+        }
+        if pe.name == "ItemsPanel" {
+            self.apply_items_panel(entity, kind, pe);
+            return;
+        }
+        if pe.name == "ItemContainerStyle" {
+            match pe.elements().next() {
+                Some(style_node) if style_node.name == "Style" => {
+                    let dict = ResourceDictionary::new();
+                    match crate::resources::parse_style(
+                        style_node,
+                        &self.scopes,
+                        &dict,
+                        &mut self.warnings,
+                    ) {
+                        Ok(style) => {
+                            self.pending.item_container_style =
+                                Some(std::sync::Arc::new(style));
+                        }
+                        Err(e) => self.warn(format!("{}: ItemContainerStyle: {e}", pe.pos)),
+                    }
+                }
+                _ => self.warn(format!(
+                    "{}: ItemContainerStyle expects an inline <Style>",
+                    pe.pos
+                )),
+            }
             return;
         }
         if pe.name == "Triggers" {
@@ -2476,6 +2555,20 @@ impl<'w> Ctx<'w> {
             "IsIndeterminate" if kind == ElemKind::ProgressBar => {
                 self.pending.is_indeterminate = value.to_bool()?
             }
+            // RepeatButton timing, in milliseconds like WPF.
+            "Delay" | "Interval" if kind == ElemKind::Button => {
+                let ms = value.to_f32()?;
+                if let Some(mut rb) = self
+                    .world
+                    .get_mut::<crate::components::PfRepeatButton>(entity)
+                {
+                    if name == "Delay" {
+                        rb.delay = ms;
+                    } else {
+                        rb.interval = ms;
+                    }
+                }
+            }
             // Consumed directly by the control builders.
             "NavigateUri" | "Content" if kind == ElemKind::Hyperlink => {}
             "IsOpen" | "Placement" | "PlacementTarget" | "StaysOpen"
@@ -2555,6 +2648,16 @@ impl<'w> Ctx<'w> {
             "DisplayMemberPath" => {
                 self.pending.display_member = Some(value.to_text()?);
             }
+            "ItemContainerStyle" => match value {
+                Resolved::Value(PfValue::Style(s)) => {
+                    self.pending.item_container_style = Some(s.clone());
+                }
+                _ => {
+                    return Err(PfError::instantiate(
+                        "ItemContainerStyle expects a Style resource",
+                    ));
+                }
+            },
             "ItemTemplate" => match value {
                 Resolved::Value(PfValue::Template(t)) => {
                     self.pending.item_template = Some(t.clone());
@@ -6462,6 +6565,7 @@ impl<'w> Ctx<'w> {
                 template: self.pending.item_template.clone(),
                 scopes: Some(scopes),
                 display_member: self.pending.display_member.clone(),
+                container_style: self.pending.item_container_style.clone(),
                 kind: host,
                 seen_version: 0,
             });
@@ -6772,6 +6876,36 @@ pub fn instantiate_template(
     }
     world.entity_mut(parent).add_children(&[entity]);
     Ok(entity)
+}
+
+/// Apply a parsed `Style` to an existing entity at runtime (generated item
+/// containers): setters, then trigger attach — the same path spawn-time
+/// styling takes, minus event triggers (no page scope to defer into).
+pub(crate) fn apply_style_runtime(
+    world: &mut World,
+    entity: Entity,
+    kind_name: &str,
+    style: &crate::resources::PfStyle,
+    scopes: Option<&ResourceScopes>,
+) {
+    let mut ctx = Ctx::new(world, &XamlEnv::default());
+    if let Some(declaring_scope) = scopes {
+        let fresh_app = ctx.scopes.app.take();
+        ctx.scopes = declaring_scope.clone();
+        if ctx.scopes.app.is_none() {
+            ctx.scopes.app = fresh_app;
+        }
+    }
+    let kind = ElemKind::from_name(kind_name);
+    for setter in style.setters.clone() {
+        ctx.apply_setter(entity, kind, ParentKind::FlexColumn, &setter);
+    }
+    if !style.triggers.is_empty() {
+        ctx.attach_triggers(entity, &style.triggers, None);
+    }
+    for w in std::mem::take(&mut ctx.warnings) {
+        bevy::log::warn!("bevy_pf (item style): {w}");
+    }
 }
 
 /// Select a ComboBox item by index: update the text presenter, remember the

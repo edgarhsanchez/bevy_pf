@@ -130,6 +130,7 @@ struct Roster {
     title: String,
     players: Vec<Player>,
     names: Vec<String>,
+    pick: f64,
 }
 
 #[test]
@@ -317,4 +318,130 @@ fn item_write_back_through_scoped_context() {
         Some(bevy_pf::BoundValue::Str("Grace".into()))
     );
     assert_eq!(vm.list_len("players"), Some(1));
+}
+
+#[test]
+fn items_panel_redirects_generation_and_container_style_applies() {
+    let mut app = test_app();
+    let vm = Bindable::new(Roster {
+        names: vec!["Ada".into(), "Bob".into(), "Cleo".into()],
+        ..Default::default()
+    });
+    let root = spawn(
+        &mut app,
+        r##"<ListBox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     x:Name="L" ItemsSource="{Binding names}">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+              <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                  <Setter Property="Padding" Value="10"/>
+                </Style>
+              </ListBox.ItemContainerStyle>
+            </ListBox>"##,
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+
+    let list = named(&app, root, "L");
+    let panel = app
+        .world()
+        .get::<bevy_pf::components::PfItemsPanel>(list)
+        .expect("ItemsPanel recorded")
+        .panel;
+
+    // The panel is the list's only child and took the template's layout.
+    assert_eq!(children_of(&app, list), vec![panel]);
+    assert_eq!(
+        app.world().get::<Node>(panel).unwrap().flex_direction,
+        FlexDirection::Row,
+        "Orientation=Horizontal from the ItemsPanelTemplate"
+    );
+
+    // Generated containers land inside the panel.
+    let items = children_of(&app, panel);
+    assert_eq!(items.len(), 3);
+    let texts: Vec<String> = items
+        .iter()
+        .map(|&i| {
+            let inner = children_of(&app, i)[0];
+            app.world().get::<Text>(inner).unwrap().0.clone()
+        })
+        .collect();
+    assert_eq!(texts, ["Ada", "Bob", "Cleo"]);
+
+    // ItemContainerStyle setters reached each generated container.
+    for &item in &items {
+        assert_eq!(
+            app.world().get::<Node>(item).unwrap().padding,
+            UiRect::all(Val::Px(10.0)),
+            "Padding=10 from ItemContainerStyle"
+        );
+    }
+
+    // Model change regenerates into the panel, not the list root.
+    vm.update(|m: &mut Roster| m.names.push("Dee".into()));
+    app.update();
+    assert_eq!(children_of(&app, panel).len(), 4);
+    assert_eq!(children_of(&app, list), vec![panel]);
+}
+
+#[test]
+fn selected_index_two_way_through_items_panel() {
+    let mut app = test_app();
+    let vm = Bindable::new(Roster {
+        names: vec!["Ada".into(), "Bob".into(), "Cleo".into()],
+        pick: 1.0,
+        ..Default::default()
+    });
+    let root = spawn(
+        &mut app,
+        r##"<ListBox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     x:Name="L" ItemsSource="{Binding names}"
+                     SelectedIndex="{Binding pick}">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Columns="2"/>
+                </ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+            </ListBox>"##,
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+    app.update(); // settle: generation, then selection apply
+
+    let list = named(&app, root, "L");
+    let panel = app
+        .world()
+        .get::<bevy_pf::components::PfItemsPanel>(list)
+        .unwrap()
+        .panel;
+    let items = children_of(&app, panel);
+    assert_eq!(items.len(), 3);
+
+    // To-target: pick=1 selects the second generated container.
+    let selected = app
+        .world()
+        .get::<bevy_pf::components::PfListBox>(list)
+        .unwrap()
+        .selected;
+    assert_eq!(selected, Some(items[1]), "initial selection through panel");
+
+    // Write-back: a user selection (what the item click observer sets)
+    // computes its index against the panel's children.
+    app.world_mut()
+        .get_mut::<bevy_pf::components::PfListBox>(list)
+        .unwrap()
+        .selected = Some(items[2]);
+    app.update();
+    assert_eq!(
+        vm.read_path("pick").and_then(|v| v.as_f64()),
+        Some(2.0),
+        "selection index wrote back through the panel"
+    );
 }

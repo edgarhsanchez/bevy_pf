@@ -36,6 +36,7 @@ impl Plugin for PfUiPlugin {
                 auto_suggest_watch,
                 color_hex_watch,
                 password_watch,
+                repeat_buttons,
                 crate::toast::expire_toasts,
             ),
         );
@@ -142,6 +143,72 @@ impl Plugin for PfUiPlugin {
                 .chain()
                 .after(crate::items::sync_items_sources),
         );
+    }
+}
+
+/// RepeatButton: while pressed, fire synthetic `Pointer<Click>` events after
+/// `delay` ms, then every `interval` ms. The release still raises bevy's
+/// natural Click, which covers the plain tap (WPF raises on press instead —
+/// same count, shifted timing).
+fn repeat_buttons(
+    time: Res<Time<Virtual>>,
+    mut buttons: Query<(
+        Entity,
+        &mut crate::components::PfRepeatButton,
+        &Interaction,
+    )>,
+    windows: Query<Entity, With<bevy::window::Window>>,
+    mut commands: Commands,
+) {
+    let now_ms = time.elapsed_secs() * 1000.0;
+    for (entity, mut rb, interaction) in &mut buttons {
+        if *interaction != Interaction::Pressed {
+            if rb.pressed_at.is_some() {
+                rb.pressed_at = None;
+                rb.fired = 0;
+            }
+            continue;
+        }
+        let pressed_at = *rb.pressed_at.get_or_insert(now_ms);
+        let held = now_ms - pressed_at;
+        let due = if held < rb.delay {
+            0
+        } else {
+            1 + ((held - rb.delay) / rb.interval.max(1.0)) as u32
+        };
+        if due <= rb.fired {
+            continue;
+        }
+        // One fire per frame is plenty; don't burst-catch-up after a hitch.
+        rb.fired = due;
+        let Some(window) = windows.iter().next() else {
+            continue;
+        };
+        let Some(target) = bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(
+            window,
+        ))
+        .normalize(None) else {
+            continue;
+        };
+        commands.queue(move |world: &mut World| {
+            use bevy::picking::backend::HitData;
+            use bevy::picking::events::{Click, Pointer};
+            use bevy::picking::pointer::{Location, PointerButton, PointerId};
+            world.trigger(Pointer::new(
+                PointerId::Mouse,
+                Location {
+                    target,
+                    position: Vec2::ZERO,
+                },
+                Click {
+                    button: PointerButton::Primary,
+                    hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+                    duration: std::time::Duration::ZERO,
+                    count: 1,
+                },
+                entity,
+            ));
+        });
     }
 }
 
@@ -391,10 +458,18 @@ fn resolve_popup_sources(
 
 /// Repaint list items when the selection changes.
 fn listbox_selection_visuals(
-    lists: Query<(&PfListBox, &Children), Changed<PfListBox>>,
+    lists: Query<
+        (Entity, &PfListBox, Option<&crate::components::PfItemsPanel>),
+        Changed<PfListBox>,
+    >,
+    children_q: Query<&Children>,
     mut items: Query<&mut BackgroundColor, With<PfListBoxItem>>,
 ) {
-    for (list, children) in &lists {
+    for (entity, list, panel) in &lists {
+        let container = panel.map(|p| p.panel).unwrap_or(entity);
+        let Ok(children) = children_q.get(container) else {
+            continue;
+        };
         for child in children.iter() {
             if let Ok(mut bg) = items.get_mut(child) {
                 bg.0 = if Some(child) == list.selected {
@@ -495,10 +570,19 @@ fn combo_popup_sync(
 }
 
 /// Hover highlight for unselected list items.
-fn listbox_item_hover(mut items: HoveredListItems, lists: Query<&PfListBox>) {
+fn listbox_item_hover(
+    mut items: HoveredListItems,
+    lists: Query<&PfListBox>,
+    panels: Query<&crate::components::PfGeneratedItemsHost>,
+) {
     for (entity, interaction, parent, mut bg) in &mut items {
-        let selected = lists
+        // The item's parent is the list itself, or its ItemsPanel.
+        let list = panels
             .get(parent.parent())
+            .map(|host| host.owner)
+            .unwrap_or(parent.parent());
+        let selected = lists
+            .get(list)
             .ok()
             .and_then(|l| l.selected)
             .is_some_and(|s| s == entity);

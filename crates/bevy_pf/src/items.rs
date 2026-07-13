@@ -32,8 +32,19 @@ pub struct PfItemsSource {
     /// `{StaticResource}` inside a `DataTemplate` resolves page resources.
     pub scopes: Option<Arc<crate::resources::ResourceScopes>>,
     pub display_member: Option<String>,
+    /// `ItemContainerStyle`: applied to each generated item container.
+    pub container_style: Option<Arc<crate::resources::PfStyle>>,
     pub kind: ItemsHostKind,
     pub seen_version: u64,
+}
+
+/// The entity that actually receives generated item containers: the
+/// `ItemsPanel` panel when one was declared, else `host` itself.
+pub(crate) fn items_container(world: &World, host: Entity) -> Entity {
+    world
+        .get::<crate::components::PfItemsPanel>(host)
+        .map(|p| p.panel)
+        .unwrap_or(host)
 }
 
 /// Rebuild generated items when the source list's model changes.
@@ -81,7 +92,8 @@ pub(crate) fn sync_items_sources(world: &mut World) {
                     None => continue,
                 }
             }
-            _ => entity,
+            // ListBox/ItemsControl: an ItemsPanel redirects generation.
+            _ => items_container(world, entity),
         };
         world.entity_mut(container).despawn_children();
 
@@ -238,6 +250,17 @@ pub(crate) fn sync_items_sources(world: &mut World) {
                     let label = spawn_runtime_text(world, &text);
                     world.entity_mut(wrapper).add_children(&[label]);
                 }
+            }
+            // ItemContainerStyle lands on the container, after content so
+            // font-flavored setters see the generated children.
+            if let Some(style) = &source.container_style {
+                crate::instantiate::apply_style_runtime(
+                    world,
+                    wrapper,
+                    "ListBoxItem",
+                    style,
+                    source.scopes.as_deref(),
+                );
             }
             items.push(wrapper);
         }

@@ -27,6 +27,7 @@ struct FileRow {
 struct Vm {
     files: Vec<FileRow>,
     players: Vec<String>,
+    count: f64,
 }
 
 /// Menu-driven vsync state. The menu observer flips it; `apply_vsync`
@@ -193,7 +194,16 @@ fn setup(mut commands: Commands) {
             FileRow { name: "theme.xaml".into(), kind: "XAML".into(), size: 311 },
         ],
         players: vec!["Ada".into(), "Bevy".into(), "Cleo".into(), "Дмитрий".into()],
+        count: 0.0,
     });
+    // RepeatButton demo: each Click (initial tap + repeats while held)
+    // invokes this command.
+    {
+        let counter = vm.clone();
+        vm.on_command("bump", move |_world, _param| {
+            counter.update(|m: &mut Vm| m.count += 1.0);
+        });
+    }
 
     commands.spawn_xaml_bound(
         xaml!(
@@ -254,6 +264,12 @@ fn setup(mut commands: Commands) {
                             <ComboBoxItem Content="Choice 2"/>
                             <ComboBoxItem Content="Choice 3"/>
                           </ComboBox>
+                          <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <RepeatButton Content="RepeatButton: hold me" Delay="400" Interval="80"
+                                          Command="bump" Width="200"/>
+                            <TextBlock Text="{Binding count, StringFormat='{}count: {0}'}"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                          </StackPanel>
                         </StackPanel>
                       </TabItem>
 
@@ -262,6 +278,21 @@ fn setup(mut commands: Commands) {
                           <StackPanel>
                             <TextBlock Text="ListBox (ItemsSource)" FontWeight="Bold"/>
                             <ListBox ItemsSource="{Binding players}"/>
+                            <TextBlock Text="ItemsPanel + ItemContainerStyle" FontWeight="Bold" Margin="0,10,0,0"/>
+                            <ListBox ItemsSource="{Binding players}">
+                              <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                  <WrapPanel/>
+                                </ItemsPanelTemplate>
+                              </ListBox.ItemsPanel>
+                              <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                  <Setter Property="Padding" Value="8,4"/>
+                                  <Setter Property="Margin" Value="2"/>
+                                  <Setter Property="Foreground" Value="#FF7FB4E8"/>
+                                </Style>
+                              </ListBox.ItemContainerStyle>
+                            </ListBox>
                           </StackPanel>
                           <StackPanel Grid.Column="2">
                             <TextBlock Text="TreeView" FontWeight="Bold"/>

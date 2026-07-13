@@ -85,9 +85,15 @@ fn eval_condition(world: &World, entity: Entity, cond: &ResolvedCondition) -> bo
             (world.get::<InteractionDisabled>(entity).is_none()) == *expected
         }
         ResolvedCondition::Selected(expected) => {
-            let selected = world
-                .get::<ChildOf>(entity)
-                .and_then(|p| world.get::<crate::components::PfListBox>(p.parent()))
+            // The item's parent is the ListBox itself, or its ItemsPanel.
+            let list = world.get::<ChildOf>(entity).map(|p| {
+                world
+                    .get::<crate::components::PfGeneratedItemsHost>(p.parent())
+                    .map(|host| host.owner)
+                    .unwrap_or(p.parent())
+            });
+            let selected = list
+                .and_then(|l| world.get::<crate::components::PfListBox>(l))
                 .and_then(|l| l.selected)
                 .is_some_and(|s| s == entity);
             selected == *expected

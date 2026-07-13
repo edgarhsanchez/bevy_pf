@@ -749,8 +749,9 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
                 }
                 return;
             }
+            let container = crate::items::items_container(world, entity);
             let child = world
-                .get::<Children>(entity)
+                .get::<Children>(container)
                 .and_then(|c| c.iter().nth(index));
             let Some(child) = child else { return };
             if let Some(mut list) = world.get_mut::<crate::components::PfListBox>(entity)
@@ -925,7 +926,7 @@ type ChangedList<'w, 's> = Query<
     (
         Entity,
         &'static crate::components::PfListBox,
-        &'static Children,
+        Option<&'static crate::components::PfItemsPanel>,
         &'static PfBindings,
         Ref<'static, crate::components::PfListBox>,
     ),
@@ -949,6 +950,7 @@ pub(crate) fn selection_write_back(
     combos: ChangedCombo,
     parents: Query<&ChildOf>,
     contexts: Query<&DataContext>,
+    children_q: Query<&Children>,
 ) {
     let write = |entity: Entity, bindings: &PfBindings, index: Option<usize>| {
         for binding in &bindings.0 {
@@ -967,16 +969,20 @@ pub(crate) fn selection_write_back(
             }
         }
     };
-    for (entity, list, children, bindings, added) in &lists {
+    for (entity, list, panel, bindings, added) in &lists {
         // Added-component echo guard: the first Changed tick is the spawn
         // itself — writing -1 back would clobber the source before the
         // initial to-target apply runs.
         if added.is_added() {
             continue;
         }
-        let index = list
-            .selected
-            .and_then(|sel| children.iter().position(|c| c == sel));
+        let container = panel.map(|p| p.panel).unwrap_or(entity);
+        let index = list.selected.and_then(|sel| {
+            children_q
+                .get(container)
+                .ok()
+                .and_then(|children| children.iter().position(|c| c == sel))
+        });
         write(entity, bindings, index);
     }
     for (entity, combo, bindings, added) in &combos {
