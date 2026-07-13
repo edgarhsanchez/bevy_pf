@@ -47,10 +47,14 @@ pub struct ResolvedTriggerSetter {
     pub tier: ValueSource,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResolvedTrigger {
     pub conditions: Vec<ResolvedCondition>,
     pub setters: Vec<ResolvedTriggerSetter>,
+    /// `Trigger.EnterActions` storyboards, begun on activation.
+    pub enter_storyboards: Vec<std::sync::Arc<crate::animation::PfStoryboard>>,
+    /// `Trigger.ExitActions` storyboards, begun on deactivation.
+    pub exit_storyboards: Vec<std::sync::Arc<crate::animation::PfStoryboard>>,
 }
 
 /// The triggers attached to an entity, with their current activation state.
@@ -195,6 +199,20 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
             }
         }
 
+        // Enter/ExitActions: begin storyboards on the flips.
+        let mut flips: Vec<std::sync::Arc<crate::animation::PfStoryboard>> = Vec::new();
+        for ((trigger, was), is) in list.iter().zip(&old_active).zip(&new_active) {
+            if was == is {
+                continue;
+            }
+            let launchers = if *is {
+                &trigger.enter_storyboards
+            } else {
+                &trigger.exit_storyboards
+            };
+            flips.extend(launchers.iter().cloned());
+        }
+
         if let Some(mut triggers) = world.get_mut::<PfTriggers>(entity) {
             triggers.active = new_active;
             if !stale.is_empty() {
@@ -207,6 +225,9 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
         }
         for (dest, target) in affected {
             provider::apply_effective(world, dest, target);
+        }
+        for sb in flips {
+            crate::animation::begin_storyboard(world, entity, entity, &sb);
         }
     }
 }

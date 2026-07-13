@@ -396,3 +396,64 @@ fn transform_field_animation_scales_and_reverts() {
         tf.rotation.as_degrees()
     );
 }
+
+#[test]
+fn trigger_enter_exit_actions_run_the_wpf_sample_pattern() {
+    // The verbatim Animation/PropertyAnimation PropertyTriggerExample
+    // pattern: a style whose IsMouseOver trigger fades Opacity via
+    // EnterActions and fades it back via ExitActions.
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <Style x:Key="FadeStyle" TargetType="Border">
+                 <Setter Property="Opacity" Value="0.25"/>
+                 <Style.Triggers>
+                   <Trigger Property="IsMouseOver" Value="True">
+                     <Trigger.EnterActions>
+                       <BeginStoryboard>
+                         <Storyboard>
+                           <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                            To="1" Duration="0:0:1"/>
+                         </Storyboard>
+                       </BeginStoryboard>
+                     </Trigger.EnterActions>
+                     <Trigger.ExitActions>
+                       <BeginStoryboard>
+                         <Storyboard>
+                           <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                            To="0.25" Duration="0:0:1"/>
+                         </Storyboard>
+                       </BeginStoryboard>
+                     </Trigger.ExitActions>
+                   </Trigger>
+                 </Style.Triggers>
+               </Style>
+             </StackPanel.Resources>
+             <Border x:Name="B" Style="{StaticResource FadeStyle}"
+                     Background="#FF334455" Width="120" Height="30"/>
+           </StackPanel>"##,
+    );
+    let b = named(&app, root, "B");
+    app.update();
+    advance(&mut app, 0.1);
+    assert!((bg_alpha(&app, b) - 0.25).abs() < 0.03, "styled rest opacity");
+
+    // Hover: EnterActions animate toward 1.
+    app.world_mut().entity_mut(b).insert(Interaction::Hovered);
+    advance(&mut app, 0.05);
+    advance(&mut app, 1.2);
+    assert!((bg_alpha(&app, b) - 1.0).abs() < 0.03, "faded in, got {}", bg_alpha(&app, b));
+
+    // Leave: ExitActions animate back to 0.25.
+    app.world_mut().entity_mut(b).insert(Interaction::None);
+    advance(&mut app, 0.05);
+    advance(&mut app, 1.2);
+    assert!(
+        (bg_alpha(&app, b) - 0.25).abs() < 0.03,
+        "faded back out, got {}",
+        bg_alpha(&app, b)
+    );
+}

@@ -1679,10 +1679,16 @@ impl<'w> Ctx<'w> {
                     tier,
                 });
             }
-            if !setters.is_empty() {
+            // A trigger can carry only Enter/ExitActions (no setters).
+            if !setters.is_empty()
+                || !trigger.enter_storyboards.is_empty()
+                || !trigger.exit_storyboards.is_empty()
+            {
                 resolved.push(ResolvedTrigger {
                     conditions,
                     setters,
+                    enter_storyboards: trigger.enter_storyboards.clone(),
+                    exit_storyboards: trigger.exit_storyboards.clone(),
                 });
             }
         }

@@ -72,6 +72,11 @@ pub struct PfStyle {
 pub struct PfTrigger {
     pub conditions: Vec<PfTriggerCondition>,
     pub setters: Vec<PfSetter>,
+    /// `Trigger.EnterActions` BeginStoryboards (run when the trigger
+    /// activates).
+    pub enter_storyboards: Vec<Arc<crate::animation::PfStoryboard>>,
+    /// `Trigger.ExitActions` BeginStoryboards (run when it deactivates).
+    pub exit_storyboards: Vec<Arc<crate::animation::PfStoryboard>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1351,14 +1356,42 @@ fn parse_trigger(
         }
     }
 
-    if node.property_element("EnterActions").is_some()
-        || node.property_element("ExitActions").is_some()
-    {
-        warnings.push(format!(
-            "{}: Trigger Enter/ExitActions (storyboards) are not supported yet",
-            node.pos
-        ));
-    }
+    // Enter/ExitActions: BeginStoryboard launchers run on activation flips.
+    let parse_actions = |pe_name: &str, warnings: &mut Vec<String>| -> Vec<Arc<crate::animation::PfStoryboard>> {
+        let Some(pe) = node.property_element(pe_name) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for action in pe.elements() {
+            if action.name != "BeginStoryboard" {
+                warnings.push(format!(
+                    "{}: trigger action `{}` is not supported yet",
+                    action.pos, action.name
+                ));
+                continue;
+            }
+            if let Some(sb) = action.child_elements().find(|c| c.name == "Storyboard") {
+                match parse_storyboard(sb, warnings) {
+                    Ok(sb) => out.push(Arc::new(sb)),
+                    Err(e) => warnings.push(format!("{}: {e}", action.pos)),
+                }
+            } else if let Some(XamlValue::Extension(ext)) = action.attribute("Storyboard") {
+                match static_resource_key(ext)
+                    .ok()
+                    .and_then(|key| local.get(&key).cloned().or_else(|| scopes.lookup(&key).cloned()))
+                {
+                    Some(PfValue::Storyboard(sb)) => out.push(sb),
+                    _ => warnings.push(format!(
+                        "{}: BeginStoryboard Storyboard resource not found",
+                        action.pos
+                    )),
+                }
+            }
+        }
+        out
+    };
+    let enter_storyboards = parse_actions("EnterActions", warnings);
+    let exit_storyboards = parse_actions("ExitActions", warnings);
 
     // Setters: direct children or <Trigger.Setters>.
     let from_property = node
@@ -1389,6 +1422,8 @@ fn parse_trigger(
     Ok(Some(PfTrigger {
         conditions,
         setters,
+        enter_storyboards,
+        exit_storyboards,
     }))
 }
 

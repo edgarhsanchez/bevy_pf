@@ -141,6 +141,8 @@ fn main() {
                         <TextBlock FontWeight="Bold" Text="Resources" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="DefiningResources.xaml" Margin="12,2,0,0">DefiningResources</Hyperlink>
                         <Hyperlink NavigateUri="MergedResources.xaml" Margin="12,2,0,0">MergedResources</Hyperlink>
+                        <TextBlock FontWeight="Bold" Text="Animation" Margin="0,8,0,4"/>
+                        <Hyperlink NavigateUri="PropertyAnimation.xaml" Margin="12,2,0,0">PropertyAnimation</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Styles &amp; Templates" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="StylingAndTemplating.xaml" Margin="12,2,0,0">IntroToStylingAndTemplating</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Sample Applications" Margin="0,8,0,4"/>
@@ -512,6 +514,66 @@ fn main() {
                           </DockPanel>
                         </Border>
                       </Grid>
+                    </Page>"##
+            ),
+        )
+        .register_page(
+            "PropertyAnimation.xaml",
+            xaml!(
+                // Animation/PropertyAnimation, first of the 11 unblocked
+                // Animation samples: the PropertyTriggerExample page ported
+                // near-verbatim (Trigger Enter/ExitActions fading a styled
+                // button) plus the StoryboardExample idea as a Loaded intro.
+                r##"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="PropertyAnimation">
+                      <Page.Resources>
+                        <Style x:Key="PropertyTriggerExampleButtonStyle" TargetType="Button">
+                          <Setter Property="Opacity" Value="0.25"/>
+                          <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                              <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                  <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                     To="1" Duration="0:0:1"/>
+                                  </Storyboard>
+                                </BeginStoryboard>
+                              </Trigger.EnterActions>
+                              <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                  <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                     To="0.25" Duration="0:0:1"/>
+                                  </Storyboard>
+                                </BeginStoryboard>
+                              </Trigger.ExitActions>
+                            </Trigger>
+                          </Style.Triggers>
+                        </Style>
+                      </Page.Resources>
+                      <StackPanel Margin="20" Background="White">
+                        <TextBlock FontWeight="Bold" FontSize="16">Animate Properties with Storyboards</TextBlock>
+                        <TextBlock Margin="0,6,0,14" FontSize="12" TextWrapping="Wrap" MaxWidth="460">Property triggers start animations: EnterActions fade the button in on hover, ExitActions fade it back out. The rectangle below runs a keyframed Loaded storyboard.</TextBlock>
+                        <Button Style="{StaticResource PropertyTriggerExampleButtonStyle}"
+                                Content="Move the mouse over me." Width="220" HorizontalAlignment="Left"/>
+                        <Border x:Name="KeyframeBar" Background="#FF5B8DEF" Width="20" Height="14"
+                                CornerRadius="4" HorizontalAlignment="Left" Margin="0,18,0,0">
+                          <Border.Triggers>
+                            <EventTrigger RoutedEvent="Loaded">
+                              <BeginStoryboard>
+                                <Storyboard>
+                                  <DoubleAnimationUsingKeyFrames Storyboard.TargetProperty="Width"
+                                                                 RepeatBehavior="Forever" AutoReverse="True">
+                                    <LinearDoubleKeyFrame KeyTime="0:0:1" Value="220"/>
+                                    <SplineDoubleKeyFrame KeyTime="0:0:2" Value="420"
+                                                          KeySpline="0.4,0 0.2,1"/>
+                                  </DoubleAnimationUsingKeyFrames>
+                                </Storyboard>
+                              </BeginStoryboard>
+                            </EventTrigger>
+                          </Border.Triggers>
+                        </Border>
+                      </StackPanel>
                     </Page>"##
             ),
         )
