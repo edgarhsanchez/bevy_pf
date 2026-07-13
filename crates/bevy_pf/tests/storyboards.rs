@@ -350,3 +350,49 @@ fn keyframe_animation_walks_its_track() {
     advance(&mut app, 1.5); // t=3.6: past the end, HoldEnd at 400
     assert_eq!(width(&app), 400.0, "held at the last keyframe");
 }
+
+#[test]
+fn transform_field_animation_scales_and_reverts() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border x:Name="Chip" Width="40" Height="20" Background="#FF3366CC">
+               <Border.Triggers>
+                 <EventTrigger RoutedEvent="Loaded">
+                   <BeginStoryboard>
+                     <Storyboard>
+                       <DoubleAnimation
+                           Storyboard.TargetProperty="(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"
+                           To="2" Duration="0:0:1" FillBehavior="Stop"/>
+                       <DoubleAnimation Storyboard.TargetProperty="Angle"
+                           To="45" Duration="0:0:1"/>
+                     </Storyboard>
+                   </BeginStoryboard>
+                 </EventTrigger>
+               </Border.Triggers>
+             </Border>
+           </StackPanel>"##,
+    );
+    let chip = named(&app, root, "Chip");
+    app.update();
+
+    advance(&mut app, 0.5);
+    let tf = app.world().get::<bevy::ui::UiTransform>(chip).expect("transform inserted");
+    assert!((tf.scale.x - 1.5).abs() < 0.15, "mid-scale ≈1.5, got {}", tf.scale.x);
+    assert!(
+        (tf.rotation.as_degrees() - 22.5).abs() < 5.0,
+        "mid-rotation ≈22.5°, got {}",
+        tf.rotation.as_degrees()
+    );
+
+    advance(&mut app, 1.0); // past the end
+    let tf = app.world().get::<bevy::ui::UiTransform>(chip).unwrap();
+    assert!((tf.scale.x - 1.0).abs() < 0.01, "Stop restored scale, got {}", tf.scale.x);
+    assert!(
+        (tf.rotation.as_degrees() - 45.0).abs() < 0.5,
+        "HoldEnd kept rotation, got {}",
+        tf.rotation.as_degrees()
+    );
+}

@@ -284,7 +284,7 @@ pub struct PfVisualStates {
     /// Per group: the (target, property) pairs the current state's
     /// storyboard touched — exact revert on exit, including values a
     /// HoldEnd retirement left composing after the animation finished.
-    pub touched: Vec<Vec<(Entity, PropertyTarget)>>,
+    pub touched: Vec<Vec<(Entity, PfAnimTarget, Option<PfValue>)>>,
 }
 
 /// An `EventTrigger` carrying a storyboard (style scope or element scope).
@@ -300,12 +300,95 @@ pub struct PfEventTrigger {
 #[derive(Component, Debug, Default)]
 pub struct PfPendingStoryboards(pub Vec<std::sync::Arc<PfStoryboard>>);
 
+/// What an animation writes into: a store-managed property (composes at the
+/// Animation tier, revert = structural) or a `UiTransform` field (written
+/// directly; revert = restore the captured base — RenderTransform is a
+/// visual-only component, not store-managed).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PfAnimTarget {
+    Store(PropertyTarget),
+    Transform(TransformField),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformField {
+    ScaleX,
+    ScaleY,
+    Rotation,
+    TranslateX,
+    TranslateY,
+}
+
+/// Map the tail of a `Storyboard.TargetProperty` path onto a transform
+/// field (`(TransformGroup.Children)[0].(ScaleTransform.ScaleX)` strips
+/// down to `ScaleX` before this).
+pub fn transform_field_for(name: &str) -> Option<TransformField> {
+    Some(match name {
+        "ScaleX" => TransformField::ScaleX,
+        "ScaleY" => TransformField::ScaleY,
+        "Angle" | "Rotation" => TransformField::Rotation,
+        "X" | "TranslateX" => TransformField::TranslateX,
+        "Y" | "TranslateY" => TransformField::TranslateY,
+        _ => return None,
+    })
+}
+
+fn read_transform_field(world: &World, entity: Entity, field: TransformField) -> f64 {
+    let Some(tf) = world.get::<bevy::ui::UiTransform>(entity) else {
+        return match field {
+            TransformField::ScaleX | TransformField::ScaleY => 1.0,
+            _ => 0.0,
+        };
+    };
+    f64::from(match field {
+        TransformField::ScaleX => tf.scale.x,
+        TransformField::ScaleY => tf.scale.y,
+        TransformField::Rotation => tf.rotation.as_degrees(),
+        TransformField::TranslateX => match tf.translation.x {
+            Val::Px(px) => px,
+            _ => 0.0,
+        },
+        TransformField::TranslateY => match tf.translation.y {
+            Val::Px(px) => px,
+            _ => 0.0,
+        },
+    })
+}
+
+fn write_transform_field(world: &mut World, entity: Entity, field: TransformField, value: f64) {
+    let Ok(mut e) = world.get_entity_mut(entity) else {
+        return;
+    };
+    if e.get::<bevy::ui::UiTransform>().is_none() {
+        e.insert(bevy::ui::UiTransform::default());
+    }
+    let Some(mut tf) = e.get_mut::<bevy::ui::UiTransform>() else {
+        return;
+    };
+    let v = value as f32;
+    match field {
+        TransformField::ScaleX => tf.scale.x = v,
+        TransformField::ScaleY => tf.scale.y = v,
+        TransformField::Rotation => tf.rotation = bevy::math::Rot2::degrees(v),
+        TransformField::TranslateX => {
+            let y = tf.translation.y;
+            tf.translation = bevy::ui::Val2::new(Val::Px(v), y);
+        }
+        TransformField::TranslateY => {
+            let x = tf.translation.x;
+            tf.translation = bevy::ui::Val2::new(x, Val::Px(v));
+        }
+    }
+}
+
 /// One live animation instance.
 #[derive(Debug)]
 struct Running {
     target: Entity,
-    prop: PropertyTarget,
+    prop: PfAnimTarget,
     track: Track,
+    /// Transform targets restore this on Stop/state-exit (no store tier).
+    revert: Option<PfValue>,
     /// `Time::elapsed_secs` when progress 0 begins (start + BeginTime).
     begin: f32,
     duration: f32,
@@ -394,7 +477,7 @@ pub(crate) fn begin_storyboard_tagged(
     scope_root: Entity,
     storyboard: &PfStoryboard,
     tag: Option<(Entity, usize)>,
-) -> Vec<(Entity, PropertyTarget)> {
+) -> Vec<(Entity, PfAnimTarget, Option<PfValue>)> {
     let mut started = Vec::new();
     let now = world
         .get_resource::<Time>()
@@ -437,19 +520,36 @@ pub(crate) fn begin_storyboard_tagged(
                 }
             }
         };
-        let Some(prop) = provider::property_target_for(&spec.target_property) else {
-            warn!(
-                "bevy_pf: storyboard TargetProperty `{}` is not animatable yet; skipped",
-                spec.target_property
-            );
-            continue;
+        let prop = match provider::property_target_for(&spec.target_property) {
+            Some(p) => PfAnimTarget::Store(p),
+            None => match transform_field_for(&spec.target_property) {
+                Some(f) => PfAnimTarget::Transform(f),
+                None => {
+                    warn!(
+                        "bevy_pf: storyboard TargetProperty `{}` is not animatable yet; skipped",
+                        spec.target_property
+                    );
+                    continue;
+                }
+            },
         };
         // `From` defaults to the current base value (the effective entry
-        // below the Animation tier), like WPF's snapshot-and-replace.
-        let base = world
-            .get::<provider::PfPropertyStore>(target)
-            .and_then(|s| s.effective_below(prop, ValueSource::Animation))
-            .and_then(|(_, v)| v.clone());
+        // below the Animation tier; the live field for transforms), like
+        // WPF's snapshot-and-replace.
+        let base = match prop {
+            PfAnimTarget::Store(p) => world
+                .get::<provider::PfPropertyStore>(target)
+                .and_then(|s| s.effective_below(p, ValueSource::Animation))
+                .and_then(|(_, v)| v.clone()),
+            PfAnimTarget::Transform(f) => {
+                Some(PfValue::Double(read_transform_field(world, target, f)))
+            }
+        };
+        // Transform targets revert by restoring this captured base.
+        let revert = match prop {
+            PfAnimTarget::Transform(_) => base.clone(),
+            PfAnimTarget::Store(_) => None,
+        };
         let resolve_frames = |frames: &[PfKeyFrame], duration: f32, color: bool| {
             // Uniform (time=None) keyframes distribute evenly across the
             // duration (an approximation of WPF's remaining-span split).
@@ -506,6 +606,7 @@ pub(crate) fn begin_storyboard_tagged(
                 frames: resolve_frames(frames, duration, true),
             },
         };
+        let touch_revert = revert.clone();
         world
             .get_resource_or_insert_with(PfRunningAnimations::default)
             .0
@@ -514,6 +615,7 @@ pub(crate) fn begin_storyboard_tagged(
                 target,
                 prop,
                 track,
+                revert,
                 begin: now + spec.begin_time,
                 duration,
                 repeat: spec.repeat,
@@ -521,8 +623,8 @@ pub(crate) fn begin_storyboard_tagged(
                 fill: spec.fill,
                 easing: spec.easing,
             });
-        if !started.contains(&(target, prop)) {
-            started.push((target, prop));
+        if !started.iter().any(|(t, p, _)| *t == target && *p == prop) {
+            started.push((target, prop, touch_revert));
         }
     }
     started
@@ -566,8 +668,8 @@ pub(crate) fn tick_animations(world: &mut World) {
     }
 
     let mut retire: Vec<usize> = Vec::new();
-    let mut writes: Vec<(Entity, PropertyTarget, PfValue)> = Vec::new();
-    let mut stops: Vec<(Entity, PropertyTarget)> = Vec::new();
+    let mut writes: Vec<(Entity, PfAnimTarget, PfValue)> = Vec::new();
+    let mut stops: Vec<(Entity, PfAnimTarget, Option<PfValue>)> = Vec::new();
 
     for (i, anim) in running.0.iter().enumerate() {
         let local = now - anim.begin;
@@ -607,7 +709,7 @@ pub(crate) fn tick_animations(world: &mut World) {
             retire.push(i);
             match anim.fill {
                 PfFill::HoldEnd => writes.push((anim.target, anim.prop, value)),
-                PfFill::Stop => stops.push((anim.target, anim.prop)),
+                PfFill::Stop => stops.push((anim.target, anim.prop, anim.revert.clone())),
             }
         } else {
             writes.push((anim.target, anim.prop, value));
@@ -625,16 +727,52 @@ pub(crate) fn tick_animations(world: &mut World) {
         if world.get_entity(target).is_err() {
             continue;
         }
-        provider::store_and_apply(world, target, prop, ValueSource::Animation, Some(value));
+        apply_anim_value(world, target, prop, value);
     }
-    for (target, prop) in stops {
+    for (target, prop, revert) in stops {
         if world.get_entity(target).is_err() {
             continue;
         }
-        if let Some(mut store) = world.get_mut::<provider::PfPropertyStore>(target) {
-            store.clear(prop, ValueSource::Animation);
+        revert_anim_target(world, target, prop, revert.as_ref());
+    }
+}
+
+/// Write an animated value to its target kind.
+fn apply_anim_value(world: &mut World, target: Entity, prop: PfAnimTarget, value: PfValue) {
+    match prop {
+        PfAnimTarget::Store(p) => {
+            provider::store_and_apply(world, target, p, ValueSource::Animation, Some(value));
         }
-        provider::apply_effective(world, target, prop);
+        PfAnimTarget::Transform(f) => {
+            if let Some(v) = pf_as_f64(&value) {
+                write_transform_field(world, target, f, v);
+            }
+        }
+    }
+}
+
+/// Structurally revert an animation target: clear the store's Animation
+/// tier, or restore a transform field's captured base.
+fn revert_anim_target(
+    world: &mut World,
+    target: Entity,
+    prop: PfAnimTarget,
+    revert: Option<&PfValue>,
+) {
+    match prop {
+        PfAnimTarget::Store(p) => {
+            if let Some(mut store) = world.get_mut::<provider::PfPropertyStore>(target) {
+                store.clear(p, ValueSource::Animation);
+            }
+            provider::apply_effective(world, target, p);
+        }
+        PfAnimTarget::Transform(f) => {
+            let base = revert.and_then(pf_as_f64).unwrap_or(match f {
+                TransformField::ScaleX | TransformField::ScaleY => 1.0,
+                _ => 0.0,
+            });
+            write_transform_field(world, target, f, base);
+        }
     }
 }
 
@@ -673,16 +811,19 @@ pub fn parse_duration(s: &str) -> Option<f32> {
 }
 
 /// Stop every animation a `(control, group)` tag owns and revert its
-/// touched properties structurally (clear the Animation tier).
+/// touched targets structurally.
 fn stop_tagged(world: &mut World, tag: (Entity, usize)) {
     let Some(mut running) = world.remove_resource::<PfRunningAnimations>() else {
         return;
     };
-    let mut touched: Vec<(Entity, PropertyTarget)> = Vec::new();
+    let mut touched: Vec<(Entity, PfAnimTarget, Option<PfValue>)> = Vec::new();
     running.0.retain(|a| {
         if a.tag == Some(tag) {
-            if !touched.contains(&(a.target, a.prop)) {
-                touched.push((a.target, a.prop));
+            if !touched
+                .iter()
+                .any(|(t, p, _)| *t == a.target && *p == a.prop)
+            {
+                touched.push((a.target, a.prop, a.revert.clone()));
             }
             false
         } else {
@@ -690,14 +831,11 @@ fn stop_tagged(world: &mut World, tag: (Entity, usize)) {
         }
     });
     world.insert_resource(running);
-    for (target, prop) in touched {
+    for (target, prop, revert) in touched {
         if world.get_entity(target).is_err() {
             continue;
         }
-        if let Some(mut store) = world.get_mut::<provider::PfPropertyStore>(target) {
-            store.clear(prop, ValueSource::Animation);
-        }
-        provider::apply_effective(world, target, prop);
+        revert_anim_target(world, target, prop, revert.as_ref());
     }
 }
 
@@ -722,14 +860,11 @@ pub fn go_to_state(world: &mut World, control: Entity, group: &str, state: &str)
     // Leave the old state: drop its running animations AND revert every
     // property it touched (a HoldEnd value outlives its animation).
     stop_tagged(world, (control, gi));
-    for (target, prop) in previously_touched {
+    for (target, prop, revert) in previously_touched {
         if world.get_entity(target).is_err() {
             continue;
         }
-        if let Some(mut store) = world.get_mut::<provider::PfPropertyStore>(target) {
-            store.clear(prop, ValueSource::Animation);
-        }
-        provider::apply_effective(world, target, prop);
+        revert_anim_target(world, target, prop, revert.as_ref());
     }
 
     let touched = match storyboard {
