@@ -48,6 +48,7 @@ impl Plugin for PfUiPlugin {
             (
                 crate::animation::start_pending_storyboards,
                 crate::behaviors::run_pending_actions,
+                crate::behaviors::run_key_triggers,
                 crate::animation::drive_visual_states,
                 crate::animation::tick_animations,
             )

@@ -1720,28 +1720,47 @@ impl<'w> Ctx<'w> {
     ) {
         use crate::behaviors::PfAction;
         for trigger in pe.elements() {
-            if trigger.name == "KeyTrigger" {
-                self.warn(format!(
-                    "{}: KeyTrigger is not supported yet (task #39 tail)",
-                    trigger.pos
-                ));
-                continue;
-            }
-            if trigger.name != "EventTrigger" {
+            // KeyTrigger shares the action grammar; its dispatch differs.
+            let key = if trigger.name == "KeyTrigger" {
+                let name = match trigger.attribute("Key") {
+                    Some(XamlValue::Str(k)) => k.clone(),
+                    _ => {
+                        self.warn(format!("{}: KeyTrigger needs Key=", trigger.pos));
+                        continue;
+                    }
+                };
+                match crate::behaviors::key_from_name(&name) {
+                    Some(kc) => Some(kc),
+                    None => {
+                        self.warn(format!(
+                            "{}: KeyTrigger Key `{name}` is not mapped yet",
+                            trigger.pos
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            if trigger.name != "EventTrigger" && key.is_none() {
                 self.warn(format!(
                     "{}: behavior trigger `{}` is not supported yet",
                     trigger.pos, trigger.name
                 ));
                 continue;
             }
-            let event = match trigger.attribute("EventName") {
-                Some(XamlValue::Str(e)) => e.clone(),
-                _ => {
-                    self.warn(format!(
-                        "{}: behavior EventTrigger needs EventName",
-                        trigger.pos
-                    ));
-                    continue;
+            let event = if key.is_some() {
+                String::new()
+            } else {
+                match trigger.attribute("EventName") {
+                    Some(XamlValue::Str(e)) => e.clone(),
+                    _ => {
+                        self.warn(format!(
+                            "{}: behavior EventTrigger needs EventName",
+                            trigger.pos
+                        ));
+                        continue;
+                    }
                 }
             };
 
@@ -1856,6 +1875,16 @@ impl<'w> Ctx<'w> {
                 }
             }
             if actions.is_empty() {
+                continue;
+            }
+
+            if let Some(key) = key {
+                let mut e = self.world.entity_mut(entity);
+                if let Some(mut triggers) = e.get_mut::<crate::behaviors::PfKeyTriggers>() {
+                    triggers.0.push((key, actions));
+                } else {
+                    e.insert(crate::behaviors::PfKeyTriggers(vec![(key, actions)]));
+                }
                 continue;
             }
 

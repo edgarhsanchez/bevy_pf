@@ -103,3 +103,44 @@ fn behavior_storyboard_action_plays_a_keyed_storyboard() {
         "storyboard action animated the width to its end"
     );
 }
+
+#[test]
+fn key_trigger_runs_actions_on_just_pressed() {
+    let mut app = test_app();
+    let hits = Arc::new(AtomicU32::new(0));
+    let vm = Bindable::new(Vm);
+    let h = hits.clone();
+    vm.on_command("submit", move |_w, _p| {
+        h.fetch_add(1, Ordering::SeqCst);
+    });
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border x:Name="Panel" Background="#FF101010" Padding="4">
+               <Interaction.Triggers>
+                 <KeyTrigger Key="Return">
+                   <InvokeCommandAction Command="{Binding submit}"/>
+                 </KeyTrigger>
+               </Interaction.Triggers>
+               <TextBlock Text="press enter"/>
+             </Border>
+           </StackPanel>"##,
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm));
+    app.init_resource::<ButtonInput<KeyCode>>();
+    app.update();
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Enter);
+    app.update();
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "Enter ran the command");
+
+    // Held (not just-pressed) does not re-fire.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear_just_pressed(KeyCode::Enter);
+    app.update();
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
