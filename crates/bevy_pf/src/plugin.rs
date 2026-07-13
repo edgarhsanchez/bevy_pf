@@ -35,6 +35,7 @@ impl Plugin for PfUiPlugin {
                 toolkit_control_sync,
                 auto_suggest_watch,
                 color_hex_watch,
+                password_watch,
                 crate::toast::expire_toasts,
             ),
         );
@@ -131,6 +132,11 @@ impl Plugin for PfUiPlugin {
                 crate::binding::checked_write_back,
                 crate::binding::slider_write_back,
                 crate::binding::apply_bindings,
+                // Selection write-back runs AFTER apply: a source change
+                // retargets the selection first, so the stale-selection
+                // echo self-cancels; a user click still writes back
+                // (apply was a no-op that frame).
+                crate::binding::selection_write_back,
             )
                 .chain()
                 .after(crate::items::sync_items_sources),
@@ -590,6 +596,68 @@ fn color_hex_watch(
         let color = crate::convert::color(color);
         commands.queue(move |world: &mut World| {
             crate::instantiate::color_picker_set(world, owner, color, false);
+        });
+    }
+}
+
+/// Diff PasswordBox edits back into the real password and re-mask the
+/// display. All-mask prefixes/suffixes are kept characters; the unmasked
+/// middle is the insertion (the classic masked-input diff).
+fn password_watch(
+    changed: Query<
+        (&crate::components::PfPasswordInput, Ref<bevy::text::EditableText>),
+        Changed<bevy::text::EditableText>,
+    >,
+    mut commands: Commands,
+) {
+    for (marker, editable) in &changed {
+        if editable.is_added() {
+            continue;
+        }
+        let shown = editable.editor().text().to_string();
+        let owner = marker.owner;
+        commands.queue(move |world: &mut World| {
+            let Some(pb) = world.get::<crate::components::PfPasswordBox>(owner).cloned()
+            else {
+                return;
+            };
+            let mask = pb.mask;
+            let shown_chars: Vec<char> = shown.chars().collect();
+            let old_chars: Vec<char> = pb.password.chars().collect();
+
+            let mut prefix = 0;
+            while prefix < shown_chars.len()
+                && prefix < old_chars.len()
+                && shown_chars[prefix] == mask
+            {
+                prefix += 1;
+            }
+            let mut suffix = 0;
+            while suffix < shown_chars.len() - prefix
+                && suffix < old_chars.len() - prefix
+                && shown_chars[shown_chars.len() - 1 - suffix] == mask
+            {
+                suffix += 1;
+            }
+            let middle: String = shown_chars[prefix..shown_chars.len() - suffix]
+                .iter()
+                .collect();
+            let new_password: String = old_chars[..prefix]
+                .iter()
+                .chain(middle.chars().collect::<Vec<_>>().iter())
+                .chain(old_chars[old_chars.len() - suffix..].iter())
+                .collect();
+
+            let masked: String =
+                std::iter::repeat_n(mask, new_password.chars().count()).collect();
+            if let Some(mut pb) = world.get_mut::<crate::components::PfPasswordBox>(owner) {
+                pb.password = new_password;
+            }
+            if shown != masked
+                && let Some(mut et) = world.get_mut::<bevy::text::EditableText>(pb.input)
+            {
+                et.editor.set_text(&masked);
+            }
         });
     }
 }

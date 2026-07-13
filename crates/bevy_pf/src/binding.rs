@@ -280,6 +280,8 @@ pub enum BindingTarget {
     IsChecked,
     /// Slider `SliderValue`.
     SliderValue,
+    /// ListBox/ComboBox `SelectedIndex` (TwoWay: selection writes back).
+    SelectedIndex,
     /// ProgressBar value.
     ProgressValue,
     /// `Visibility` (accepts "Visible/Hidden/Collapsed" strings or booleans).
@@ -732,6 +734,31 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
                 world.entity_mut(entity).remove::<Checked>();
             }
         }
+        BindingTarget::SelectedIndex => {
+            let Some(n) = value.as_f64() else { return };
+            let index = n as usize;
+            if n < 0.0 {
+                return; // WPF: -1 = no selection; leave as-is
+            }
+            if world.get::<crate::components::PfComboBox>(entity).is_some() {
+                let already = world
+                    .get::<crate::components::PfComboBox>(entity)
+                    .and_then(|c| c.selected);
+                if already != Some(index) {
+                    crate::instantiate::select_combo_index(world, entity, index);
+                }
+                return;
+            }
+            let child = world
+                .get::<Children>(entity)
+                .and_then(|c| c.iter().nth(index));
+            let Some(child) = child else { return };
+            if let Some(mut list) = world.get_mut::<crate::components::PfListBox>(entity)
+                && list.selected != Some(child)
+            {
+                list.selected = Some(child);
+            }
+        }
         BindingTarget::SliderValue => {
             let Some(n) = value.as_f64() else { return };
             let current = world
@@ -889,6 +916,74 @@ pub(crate) fn slider_write_back(
                 }
             }
         }
+    }
+}
+
+type ChangedList<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static crate::components::PfListBox,
+        &'static Children,
+        &'static PfBindings,
+        Ref<'static, crate::components::PfListBox>,
+    ),
+    Changed<crate::components::PfListBox>,
+>;
+type ChangedCombo<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static crate::components::PfComboBox,
+        &'static PfBindings,
+        Ref<'static, crate::components::PfComboBox>,
+    ),
+    Changed<crate::components::PfComboBox>,
+>;
+
+/// TwoWay: ListBox/ComboBox selection flows back to the source.
+pub(crate) fn selection_write_back(
+    lists: ChangedList,
+    combos: ChangedCombo,
+    parents: Query<&ChildOf>,
+    contexts: Query<&DataContext>,
+) {
+    let write = |entity: Entity, bindings: &PfBindings, index: Option<usize>| {
+        for binding in &bindings.0 {
+            if binding.target != BindingTarget::SelectedIndex
+                || !binding.is_to_source()
+                || binding.source != PfBindingSource::DataContext
+            {
+                continue;
+            }
+            let value = index.map(|i| i as f64).unwrap_or(-1.0);
+            if let Some(ctx) = find_context_via_queries(entity, &parents, &contexts) {
+                let current = ctx.read_path(&binding.path).and_then(|b| b.as_f64());
+                if current != Some(value) {
+                    ctx.write_path(&binding.path, &BoundValue::Num(value));
+                }
+            }
+        }
+    };
+    for (entity, list, children, bindings, added) in &lists {
+        // Added-component echo guard: the first Changed tick is the spawn
+        // itself — writing -1 back would clobber the source before the
+        // initial to-target apply runs.
+        if added.is_added() {
+            continue;
+        }
+        let index = list
+            .selected
+            .and_then(|sel| children.iter().position(|c| c == sel));
+        write(entity, bindings, index);
+    }
+    for (entity, combo, bindings, added) in &combos {
+        if added.is_added() {
+            continue;
+        }
+        write(entity, bindings, combo.selected);
     }
 }
 

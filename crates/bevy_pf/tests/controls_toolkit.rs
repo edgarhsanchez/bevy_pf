@@ -293,3 +293,85 @@ fn content_dialog_hosts_scene_and_reports_result() {
     assert_eq!(results[0].button, "OK");
     assert!(app.world().get_entity(dialog).is_err());
 }
+
+// ---------------------------------------------------------------------
+// PasswordBox: real masking with a diff-based real-value sync.
+// ---------------------------------------------------------------------
+
+#[test]
+fn password_box_masks_and_tracks_the_real_value() {
+    let mut app = test_app();
+    // spawn() asserts zero warnings — the treated-as-TextBox warning is gone.
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <PasswordBox x:Name="P" Password="abc"/>
+           </StackPanel>"##,
+    );
+    let pb_entity = named(&app, root, "P");
+    let pb = app
+        .world()
+        .get::<bevy_pf::components::PfPasswordBox>(pb_entity)
+        .unwrap()
+        .clone();
+    assert_eq!(pb.password, "abc");
+    let shown = |app: &App| -> String {
+        app.world()
+            .get::<bevy::text::EditableText>(pb.input)
+            .unwrap()
+            .editor()
+            .text()
+            .to_string()
+    };
+    assert_eq!(shown(&app), "\u{2022}\u{2022}\u{2022}", "only mask chars render");
+    app.update(); // consume the added-tick (typing starts after a frame)
+
+    // Type 'd' at the end (the editor shows ...•••d for one frame).
+    app.world_mut()
+        .get_mut::<bevy::text::EditableText>(pb.input)
+        .unwrap()
+        .editor
+        .set_text("\u{2022}\u{2022}\u{2022}d");
+    app.update();
+    app.update();
+    let pb_now = app
+        .world()
+        .get::<bevy_pf::components::PfPasswordBox>(pb_entity)
+        .unwrap();
+    assert_eq!(pb_now.password, "abcd");
+    assert_eq!(shown(&app), "\u{2022}\u{2022}\u{2022}\u{2022}", "re-masked");
+
+    // Backspace (display shrinks to three bullets).
+    app.world_mut()
+        .get_mut::<bevy::text::EditableText>(pb.input)
+        .unwrap()
+        .editor
+        .set_text("\u{2022}\u{2022}\u{2022}");
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world()
+            .get::<bevy_pf::components::PfPasswordBox>(pb_entity)
+            .unwrap()
+            .password,
+        "abc"
+    );
+
+    // Insert in the middle: •x•• -> a + x + bc.
+    app.world_mut()
+        .get_mut::<bevy::text::EditableText>(pb.input)
+        .unwrap()
+        .editor
+        .set_text("\u{2022}x\u{2022}\u{2022}");
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world()
+            .get::<bevy_pf::components::PfPasswordBox>(pb_entity)
+            .unwrap()
+            .password,
+        "axbc"
+    );
+    assert_eq!(shown(&app), "\u{2022}\u{2022}\u{2022}\u{2022}");
+}

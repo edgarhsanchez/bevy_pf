@@ -403,6 +403,22 @@ pub struct PfAutoSuggestBox {
     pub items: Vec<String>,
 }
 
+/// `PasswordBox` state: the real password. The visible `EditableText`
+/// only ever shows mask characters; edits are diffed back into `password`
+/// (WPF semantics: `Password` is code-readable, never rendered or bound).
+#[derive(Component, Debug, Clone)]
+pub struct PfPasswordBox {
+    pub input: Entity,
+    pub password: String,
+    pub mask: char,
+}
+
+/// Marks the `EditableText` inside a [`PfPasswordBox`].
+#[derive(Component, Debug, Clone)]
+pub struct PfPasswordInput {
+    pub owner: Entity,
+}
+
 /// Marks the `EditableText` inside a [`PfAutoSuggestBox`].
 #[derive(Component, Debug, Clone)]
 pub struct PfAutoSuggestInput {

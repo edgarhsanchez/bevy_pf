@@ -2457,6 +2457,7 @@ impl<'w> Ctx<'w> {
             "IsOn" if kind == ElemKind::ToggleSwitch => {}
             "Value" | "Increment" | "FormatString" if kind == ElemKind::NumericUpDown => {}
             "Watermark" | "PlaceholderText" if kind == ElemKind::TextBox => {}
+            "Password" | "PasswordChar" if kind == ElemKind::TextBox => {}
             "Value" if kind == ElemKind::RatingBar => {}
             "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
@@ -2960,18 +2961,27 @@ impl<'w> Ctx<'w> {
             }
             ElemKind::TextBox => {
                 let pending = self.pending.clone();
-                let text = match node.attribute("Text") {
+                let is_password = node.name == "PasswordBox";
+                let mask = match node.attribute("PasswordChar") {
+                    Some(XamlValue::Str(c)) => c.chars().next().unwrap_or('\u{2022}'),
+                    _ => '\u{2022}',
+                };
+                let mut text = match node.attribute("Text") {
                     Some(value) => {
                         let value = value.clone();
                         self.resolve_text_attr(&value).unwrap_or_default()
                     }
                     None => String::new(),
                 };
-                if node.name == "PasswordBox" {
-                    self.warn(format!(
-                        "{}: PasswordBox has no masking yet; treated as TextBox",
-                        node.pos
-                    ));
+                let mut password = String::new();
+                if is_password {
+                    if let Some(XamlValue::Str(p)) = node.attribute("Password") {
+                        password = p.clone();
+                    } else {
+                        password = std::mem::take(&mut text);
+                    }
+                    // Only mask characters ever render.
+                    text = std::iter::repeat_n(mask, password.chars().count()).collect();
                 }
                 let mut editable = bevy::text::EditableText::new(&text);
                 editable.allow_newlines = pending.accepts_return;
@@ -2989,7 +2999,23 @@ impl<'w> Ctx<'w> {
                     ))
                     .id();
                 self.apply_text_font(input);
-                self.pending.text_input = Some(input);
+                if is_password {
+                    self.world
+                        .entity_mut(input)
+                        .insert(crate::components::PfPasswordInput { owner: entity });
+                    self.world.entity_mut(entity).insert(
+                        crate::components::PfPasswordBox {
+                            input,
+                            password,
+                            mask,
+                        },
+                    );
+                    // WPF: Password is not bindable (security); Text bindings
+                    // would fight the masking.
+                    self.pending.text_input = None;
+                } else {
+                    self.pending.text_input = Some(input);
+                }
                 self.add_children(entity, &[input]);
                 // Toolkit watermark/placeholder: grey overlay while empty.
                 let watermark = node
@@ -6402,6 +6428,11 @@ impl<'w> Ctx<'w> {
                 BindingTarget::EditableText,
                 v::BindingMode::TwoWay,
             ),
+            "SelectedIndex"
+                if matches!(kind, ElemKind::ListBox | ElemKind::ComboBox) =>
+            {
+                (entity, BindingTarget::SelectedIndex, v::BindingMode::TwoWay)
+            }
             "Text" => (entity, BindingTarget::Text, v::BindingMode::OneWay),
             "Content" | "Header" => (
                 self.pending.content_text.unwrap_or(entity),

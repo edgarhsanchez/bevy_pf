@@ -373,3 +373,69 @@ fn relative_source_self_and_templated_parent() {
         "False"
     );
 }
+
+#[derive(Reflect, Default)]
+struct SelVm {
+    pick: f64,
+}
+
+#[test]
+fn selected_index_binds_two_way_on_listbox() {
+    let mut app = test_app();
+    let vm = Bindable::new(SelVm { pick: 1.0 });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <ListBox x:Name="L" SelectedIndex="{Binding pick}">
+               <ListBoxItem><TextBlock Text="alpha"/></ListBoxItem>
+               <ListBoxItem><TextBlock Text="beta"/></ListBoxItem>
+               <ListBoxItem><TextBlock Text="gamma"/></ListBoxItem>
+             </ListBox>
+           </StackPanel>"##,
+        vm.clone(),
+    );
+    app.update();
+
+    // To-target: vm.pick=1 selects the second item.
+    let (list_entity, items) = {
+        let names = app.world().get::<XamlNames>(root).unwrap();
+        let l = names.get("L").unwrap();
+        let children: Vec<Entity> = app.world().get::<Children>(l).unwrap().iter().collect();
+        (l, children)
+    };
+    let selected = app
+        .world()
+        .get::<bevy_pf::components::PfListBox>(list_entity)
+        .unwrap()
+        .selected;
+    assert_eq!(selected, Some(items[1]), "initial binding selected index 1");
+
+    // VM change re-targets the selection.
+    vm.update(|m: &mut SelVm| m.pick = 2.0);
+    app.update();
+    {
+        let b = app.world().get::<bevy_pf::PfBindings>(list_entity).unwrap();
+        eprintln!("PROBE bindings: {:?}", b.0.iter().map(|x| (&x.path, x.seen_version, &x.target)).collect::<Vec<_>>());
+        eprintln!("PROBE vm version {} pick {:?}", vm.version(), vm.read_path("pick"));
+    }
+    let selected = app
+        .world()
+        .get::<bevy_pf::components::PfListBox>(list_entity)
+        .unwrap()
+        .selected;
+    assert_eq!(selected, Some(items[2]));
+
+    // Write-back: user selection (set directly, as the click handler does)
+    // flows into the VM.
+    app.world_mut()
+        .get_mut::<bevy_pf::components::PfListBox>(list_entity)
+        .unwrap()
+        .selected = Some(items[0]);
+    app.update();
+    assert_eq!(
+        vm.read_path("pick").and_then(|v| v.as_f64()),
+        Some(0.0),
+        "selection wrote back"
+    );
+}
