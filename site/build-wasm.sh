@@ -15,9 +15,9 @@ build_backend() {
   # shellcheck disable=SC2086
   cargo build -p bevy_pf --example breakout --example components_showcase \
     --example theme_gallery --example rpg_hud --example navigation \
-    --example wpf_samples_gallery \
+    --example wpf_samples_gallery --example snippets_gallery \
     --target wasm32-unknown-unknown --profile wasm-release $features
-  for app in breakout components_showcase theme_gallery rpg_hud navigation wpf_samples_gallery; do
+  for app in breakout components_showcase theme_gallery rpg_hud navigation wpf_samples_gallery snippets_gallery; do
     local out="site/wasm/$backend"
     mkdir -p "$out"
     local name="$app"
@@ -25,6 +25,7 @@ build_backend() {
     [ "$app" = "theme_gallery" ] && name="themes"
     [ "$app" = "rpg_hud" ] && name="rpg"
     [ "$app" = "wpf_samples_gallery" ] && name="wpf"
+    [ "$app" = "snippets_gallery" ] && name="snippets"
     wasm-bindgen --target web --no-typescript \
       --out-dir "$out" --out-name "$name" \
       "$TARGET_DIR/wasm32-unknown-unknown/wasm-release/examples/$app.wasm"

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bevy_pf — control recipes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="demo-page">
+  <nav class="demo-nav">
+    <a href="index.html">&larr; bevy_pf</a>
+    <a href="snippets.html">Recipes</a>
+    <a href="showcase.html">Controls</a>
+    <a href="themes.html">Themes</a>
+    <a href="navigation.html">Navigation</a>
+    <a href="rpg.html">RPG HUD</a>
+    <a href="breakout.html">Breakout</a>
+    <a href="wpf.html">WPF Samples</a>
+    <span class="spacer"></span>
+    <a class="btn sponsor" href="https://github.com/sponsors/edgarhsanchez" target="_blank" rel="noopener">&#10084; Sponsor</a>
+  </nav>
+  <main>
+    <div class="canvas-holder">
+      <canvas id="bevy-canvas"></canvas>
+      <div id="loading"><div class="spinner"></div><span id="loading-msg">Loading the control recipes&hellip;</span></div>
+    </div>
+    <p class="note">Every card pairs a <strong>live control</strong> with the <strong>exact markup that produced it</strong> — the demo pane and the code pane are rendered from the same string, so what you read is what runs. Scroll for buttons, sliders, text input, lists, templates, triggers, and storyboards.</p>
+
+  <section class="howto"><h2>How this page works</h2><p>The whole gallery is <code>examples/snippets_gallery.rs</code>: a list of <code>Recipe</code> constants, each instantiated twice — once as a live UI, once as text.</p><details><summary>One string, two panes</summary><div class="step"><p>Each recipe's markup is parsed and spawned into the demo pane, and the very same constant fills the code pane — snippets can't drift out of date.</p><pre><code>const RECIPES: &amp;[Recipe] = &amp;[
+    Recipe {
+        title: "Slider &rarr; ProgressBar",
+        xaml: r##"&lt;StackPanel Spacing="8"&gt;
+  &lt;Slider Minimum="0" Maximum="100" Value="{Binding volume}" Width="220"/&gt;
+  &lt;ProgressBar Minimum="0" Maximum="100" Value="{Binding volume}" .../&gt;
+  &lt;TextBlock Text="{Binding volume, StringFormat='{}volume: {0:F0}%'}"/&gt;
+&lt;/StackPanel&gt;"##,
+        ..
+    },
+    // ...
+];
+
+// for each recipe: instantiate the markup into the demo pane...
+let doc = bevy_pf_xaml::parse(&amp;recipe.xaml)?;
+instantiate_document_env(world, wrapper, &amp;doc, &amp;XamlEnv::default())?;
+// ...and show the SAME string in the code pane.
+set_first_text(world, code_pane, recipe.xaml);</code></pre></div></details><details><summary>One shared view-model</summary><div class="step"><p>All cards bind to a single reflected struct — the Button and RepeatButton cards even share a counter, and the Slider drives the ProgressBar.</p><pre><code>#[derive(Reflect, Default)]
+struct Vm {
+    name: String, volume: f64, agreed: bool,
+    pick: f64, count: f64, items: Vec&lt;String&gt;, profile: Profile,
+}
+
+let vm = Bindable::new(Vm { volume: 40.0, /* ... */ ..Default::default() });
+vm.on_command("bump", move |_world, _param| {
+    counter.update(|m: &amp;mut Vm| m.count += 1.0);
+});</code></pre></div></details></section>
+</main>
+  <script type="module">
+    import { boot } from './loader.js';
+    boot('snippets');
+  </script>
+</body>
+</html>
