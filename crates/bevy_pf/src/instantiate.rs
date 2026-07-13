@@ -2753,6 +2753,9 @@ impl<'w> Ctx<'w> {
                 self.pending.shape.stroke = Some(value.to_brush()?)
             }
             "StrokeThickness" => self.pending.shape.stroke_thickness = Some(value.to_f32()?),
+            // Consumed by the Image builder (Source loads the asset, Slice
+            // selects nine-patch mode).
+            "Source" | "Slice" | "Stretch" if kind == ElemKind::Image => {}
             "Stretch" if matches!(kind, ElemKind::Shape | ElemKind::Viewbox) => {
                 self.pending.shape.stretch = Some(value.parse_enum()?)
             }
@@ -3091,9 +3094,32 @@ impl<'w> Ctx<'w> {
                         self.world.get_resource::<bevy::asset::AssetServer>()
                     {
                         let image: Handle<Image> = assets.load(path);
-                        self.world
-                            .entity_mut(entity)
-                            .insert(bevy::ui::widget::ImageNode::new(image));
+                        let mut image = bevy::ui::widget::ImageNode::new(image);
+                        // Nine-slice: `Slice="24"` / `Slice="8,4,8,4"` (WPF
+                        // Thickness order l,t,r,b) stretches the center and
+                        // edges while corners keep their pixel size — the
+                        // Noesis NineSlice concept on bevy's texture slicer.
+                        if let Some(XamlValue::Str(slice)) = node.attribute("Slice") {
+                            match slice.parse::<v::Thickness>() {
+                                Ok(t) => {
+                                    image.image_mode =
+                                        bevy::ui::widget::NodeImageMode::Sliced(
+                                            bevy::sprite::TextureSlicer {
+                                                border: bevy::sprite::BorderRect {
+                                                    min_inset: Vec2::new(t.left, t.top),
+                                                    max_inset: Vec2::new(t.right, t.bottom),
+                                                },
+                                                ..Default::default()
+                                            },
+                                        );
+                                }
+                                Err(e) => self.warn(format!(
+                                    "{}: bad Slice thickness: {e}",
+                                    node.pos
+                                )),
+                            }
+                        }
+                        self.world.entity_mut(entity).insert(image);
                     } else {
                         self.warn("Image.Source ignored: no AssetServer".to_string());
                     }

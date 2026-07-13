@@ -845,3 +845,41 @@ fn numeric_attributes_accept_wpf_length_units() {
     };
     assert!((px - 14.0 * 96.0 / 72.0).abs() < 0.01, "14pt = {px}px");
 }
+
+#[test]
+fn image_slice_selects_nine_patch_mode() {
+    // Slice="l,t,r,b" -> ImageNode nine-patch (Noesis NineSlice concept).
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
+    app.init_asset::<Image>();
+    app.add_plugins(PfUiPlugin);
+    let doc = bevy_pf_xaml::parse(&format!(
+        r#"<StackPanel {PRES} {X}>
+             <Image x:Name="Nine" Source="textures/panel.png" Slice="8,4,8,4" Width="200" Height="80"/>
+             <Image x:Name="Plain" Source="textures/icon.png"/>
+           </StackPanel>"#
+    ))
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn_empty().id();
+    let result =
+        bevy_pf::instantiate_document_env(world, root, &doc, &bevy_pf::XamlEnv::default())
+            .expect("instantiates");
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let nine = names.get("Nine").unwrap();
+    let plain = names.get("Plain").unwrap();
+
+    let node = app.world().get::<bevy::ui::widget::ImageNode>(nine).unwrap();
+    match &node.image_mode {
+        bevy::ui::widget::NodeImageMode::Sliced(slicer) => {
+            assert_eq!(slicer.border.min_inset, Vec2::new(8.0, 4.0));
+            assert_eq!(slicer.border.max_inset, Vec2::new(8.0, 4.0));
+        }
+        other => panic!("expected Sliced image mode, got {other:?}"),
+    }
+    // No Slice attribute -> default (stretch) mode.
+    let node = app.world().get::<bevy::ui::widget::ImageNode>(plain).unwrap();
+    assert!(matches!(node.image_mode, bevy::ui::widget::NodeImageMode::Auto));
+}
