@@ -38,6 +38,79 @@ pub struct PfItemsSource {
     pub seen_version: u64,
 }
 
+/// `Content="{Binding vm}"` on a ContentControl: content regenerated from
+/// a template (explicit `ContentTemplate`, else DataType-implicit from the
+/// bound value's type ident), falling back to display text for scalars.
+#[derive(Component, Debug, Clone)]
+pub struct PfContentSource {
+    pub path: String,
+    /// Explicit `ContentTemplate=` (wins over DataType selection).
+    pub template: Option<Arc<bevy_pf_xaml::XamlNode>>,
+    pub scopes: Option<Arc<crate::resources::ResourceScopes>>,
+    pub seen_version: u64,
+}
+
+/// Rebuild ContentControl content when the bound model changes.
+pub(crate) fn sync_content_sources(world: &mut World) {
+    let mut query = world.query::<(Entity, &PfContentSource)>();
+    let hosts: Vec<(Entity, PfContentSource)> = query
+        .iter(world)
+        .map(|(e, s)| (e, s.clone()))
+        .collect();
+
+    for (entity, source) in hosts {
+        let Some(ctx) = find_context(world, entity) else {
+            continue;
+        };
+        let version = ctx.version();
+        if version == source.seen_version {
+            continue;
+        }
+        if let Some(mut s) = world.get_mut::<PfContentSource>(entity) {
+            s.seen_version = version;
+        }
+
+        // Explicit ContentTemplate, else implicit by the value's type ident.
+        let template = source.template.clone().or_else(|| {
+            let ident = ctx.type_ident(&source.path)?;
+            match source
+                .scopes
+                .as_deref()?
+                .lookup(&crate::resources::ResourceKey::Type(ident))
+            {
+                Some(crate::resources::PfValue::Template(t)) => Some(t.clone()),
+                _ => None,
+            }
+        });
+
+        world.entity_mut(entity).despawn_children();
+        match template {
+            Some(template) => {
+                let wrapper = world
+                    .spawn((Node::default(), DataContext(ctx.at(&source.path))))
+                    .id();
+                world.entity_mut(entity).add_children(&[wrapper]);
+                if let Err(e) = crate::instantiate::instantiate_template(
+                    world,
+                    wrapper,
+                    &template,
+                    source.scopes.as_deref(),
+                ) {
+                    warn!("bevy_pf: content template failed: {e}");
+                }
+            }
+            None => {
+                let text = ctx
+                    .read_path(&source.path)
+                    .map(|v| v.to_display())
+                    .unwrap_or_default();
+                let label = spawn_runtime_text(world, &text);
+                world.entity_mut(entity).add_children(&[label]);
+            }
+        }
+    }
+}
+
 /// The entity that actually receives generated item containers: the
 /// `ItemsPanel` panel when one was declared, else `host` itself.
 pub(crate) fn items_container(world: &World, host: Entity) -> Entity {

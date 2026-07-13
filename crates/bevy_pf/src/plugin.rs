@@ -89,6 +89,7 @@ impl Plugin for PfUiPlugin {
             .add_systems(
                 Update,
                 (
+                    crate::items::sync_content_sources,
                     crate::items::sync_items_sources,
                     combo_popup_sync,
                     crate::overlay::sync_popup_visibility,

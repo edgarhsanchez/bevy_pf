@@ -24,10 +24,17 @@ struct FileRow {
 }
 
 #[derive(Reflect, Default)]
+struct Profile {
+    name: String,
+    role: String,
+}
+
+#[derive(Reflect, Default)]
 struct Vm {
     files: Vec<FileRow>,
     players: Vec<String>,
     count: f64,
+    profile: Profile,
 }
 
 /// Menu-driven vsync state. The menu observer flips it; `apply_vsync`
@@ -195,6 +202,7 @@ fn setup(mut commands: Commands) {
         ],
         players: vec!["Ada".into(), "Bevy".into(), "Cleo".into(), "Дмитрий".into()],
         count: 0.0,
+        profile: Profile { name: "Grace Hopper".into(), role: "Rear Admiral, compiler pioneer".into() },
     });
     // RepeatButton demo: each Click (initial tap + repeats while held)
     // invokes this command.
@@ -307,6 +315,18 @@ fn setup(mut commands: Commands) {
                             </TreeView>
                           </StackPanel>
                           <StackPanel Grid.Column="4">
+                            <StackPanel.Resources>
+                              <DataTemplate DataType="{x:Type Profile}">
+                                <Border Background="#FF26303F" CornerRadius="6" Padding="10,6">
+                                  <StackPanel>
+                                    <TextBlock Text="{Binding name}" FontWeight="Bold" Foreground="#FFEDF2FA"/>
+                                    <TextBlock Text="{Binding role}" FontSize="11" Foreground="#FF9FB4CE"/>
+                                  </StackPanel>
+                                </Border>
+                              </DataTemplate>
+                            </StackPanel.Resources>
+                            <TextBlock Text="ContentControl (DataType template)" FontWeight="Bold"/>
+                            <ContentControl Content="{Binding profile}" Margin="0,0,0,10"/>
                             <TextBlock Text="DataGrid" FontWeight="Bold"/>
                             <DataGrid ItemsSource="{Binding files}">
                               <DataGrid.Columns>

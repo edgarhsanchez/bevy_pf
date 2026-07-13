@@ -273,6 +273,23 @@ fn parse_resource_entry(
             Some(t) => ResourceKey::Type(t.clone()),
             None => return Err(PfError::resource("Style needs x:Key or TargetType")),
         }
+    } else if let PfValue::Template(_) = &value {
+        // DataType-implicit DataTemplate: keyed by the view-model's type
+        // ident, matched by the ContentControl runtime selection.
+        let ty = match node.attribute("DataType") {
+            Some(XamlValue::Str(s)) => Some(s.as_str()),
+            Some(XamlValue::Extension(ext)) if ext.name == "x:Type" || ext.name == "Type" => {
+                ext.first_positional_str()
+            }
+            _ => None,
+        };
+        match ty {
+            Some(t) => {
+                let t = t.rsplit(':').next().unwrap_or(t);
+                ResourceKey::Type(t.to_string())
+            }
+            None => return Err(PfError::resource("DataTemplate needs x:Key or DataType")),
+        }
     } else {
         return Err(PfError::resource("resource needs x:Key"));
     };

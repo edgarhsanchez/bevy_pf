@@ -445,3 +445,73 @@ fn selected_index_two_way_through_items_panel() {
         "selection index wrote back through the panel"
     );
 }
+
+#[derive(Reflect, Default, Clone)]
+struct Detail {
+    title: String,
+}
+
+#[derive(Reflect, Default)]
+struct Shell {
+    current: Detail,
+    note: String,
+}
+
+#[test]
+fn content_control_selects_datatype_template_and_scalar_text() {
+    let mut app = test_app();
+    let vm = Bindable::new(Shell {
+        current: Detail { title: "Hello".into() },
+        note: "plain note".into(),
+    });
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <StackPanel.Resources>
+                <DataTemplate DataType="{x:Type Detail}">
+                  <Border Padding="4">
+                    <TextBlock Text="{Binding title}"/>
+                  </Border>
+                </DataTemplate>
+              </StackPanel.Resources>
+              <ContentControl x:Name="CC" Content="{Binding current}"/>
+              <ContentControl x:Name="Note" Content="{Binding note}"/>
+            </StackPanel>"##,
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+    app.update(); // template bindings resolve the frame after generation
+
+    // DataType-implicit template expanded for the struct-valued Content.
+    let first_text = |app: &App, e: Entity| -> Option<String> {
+        fn walk(app: &App, e: Entity) -> Option<String> {
+            if let Some(t) = app.world().get::<Text>(e) {
+                return Some(t.0.clone());
+            }
+            app.world()
+                .get::<Children>(e)
+                .into_iter()
+                .flat_map(|c| c.iter())
+                .find_map(|c| walk(app, c))
+        }
+        walk(app, e)
+    };
+    let cc = named(&app, root, "CC");
+    assert_eq!(first_text(&app, cc).as_deref(), Some("Hello"));
+
+    // Scalar Content falls back to display text.
+    let note = named(&app, root, "Note");
+    assert_eq!(first_text(&app, note).as_deref(), Some("plain note"));
+
+    // Model change regenerates the templated content.
+    vm.update(|m: &mut Shell| m.current.title = "World".into());
+    app.update();
+    app.update();
+    assert_eq!(first_text(&app, cc).as_deref(), Some("World"));
+
+    // ...and the scalar one.
+    vm.update(|m: &mut Shell| m.note = "edited".into());
+    app.update();
+    assert_eq!(first_text(&app, note).as_deref(), Some("edited"));
+}

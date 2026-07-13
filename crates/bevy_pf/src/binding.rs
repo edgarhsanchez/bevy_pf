@@ -137,6 +137,25 @@ impl Bindable {
         Some(reflect_to_bound(reflected))
     }
 
+    /// The short type name (ident) of the value at a path — what WPF's
+    /// DataType-implicit template selection matches against.
+    pub fn type_ident(&self, path: &str) -> Option<String> {
+        let full = self.full_path(path);
+        let guard = self.inner.value.read().unwrap();
+        let reflected: &dyn PartialReflect = if full.is_empty() {
+            guard.as_partial_reflect()
+        } else {
+            guard.reflect_path(full.as_str()).ok()?
+        };
+        let info = reflected.get_represented_type_info()?;
+        Some(
+            info.type_path_table()
+                .ident()
+                .unwrap_or_else(|| info.type_path())
+                .to_string(),
+        )
+    }
+
     /// The number of elements if the path resolves to a list/array.
     pub fn list_len(&self, path: &str) -> Option<usize> {
         use bevy::reflect::ReflectRef;

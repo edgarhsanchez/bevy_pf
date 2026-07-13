@@ -344,6 +344,11 @@ struct Pending {
     event_handlers: Vec<(String, String)>,
     /// `ItemContainerStyle` for items controls (inline or resource).
     item_container_style: Option<std::sync::Arc<crate::resources::PfStyle>>,
+    /// `ContentTemplate` for ContentControl (wins over DataType selection).
+    content_template: Option<std::sync::Arc<XamlNode>>,
+    /// The element is a literal `<ContentControl>`: a bound Content becomes
+    /// a `PfContentSource` (template expansion) instead of a text binding.
+    is_content_control: bool,
 }
 
 /// Font and text properties that flow down the tree (WPF property value
@@ -724,6 +729,7 @@ impl<'w> Ctx<'w> {
                 .entity_mut(entity)
                 .insert(crate::components::PfRepeatButton::default());
         }
+        self.pending.is_content_control = node.name == "ContentControl";
 
         // Inside a ControlTemplate expansion, stamp the templated parent
         // BEFORE properties/bindings apply (RelativeSource TemplatedParent
@@ -2655,6 +2661,16 @@ impl<'w> Ctx<'w> {
                 _ => {
                     return Err(PfError::instantiate(
                         "ItemContainerStyle expects a Style resource",
+                    ));
+                }
+            },
+            "ContentTemplate" => match value {
+                Resolved::Value(PfValue::Template(t)) => {
+                    self.pending.content_template = Some(t.clone());
+                }
+                _ => {
+                    return Err(PfError::instantiate(
+                        "ContentTemplate expects a DataTemplate (inline or resource)",
                     ));
                 }
             },
@@ -6539,6 +6555,21 @@ impl<'w> Ctx<'w> {
         spec: crate::binding::BindingSpec,
     ) {
         use crate::binding::{BindingTarget, PfBinding, PfBindings};
+        // Content on a ContentControl is not a scalar binding: it selects a
+        // DataTemplate (explicit ContentTemplate, else DataType-implicit)
+        // and regenerates the subtree on model change.
+        if property == "Content" && self.pending.is_content_control {
+            let scopes = std::sync::Arc::new(self.scopes.clone());
+            self.world
+                .entity_mut(entity)
+                .insert(crate::items::PfContentSource {
+                    path: spec.path,
+                    template: self.pending.content_template.clone(),
+                    scopes: Some(scopes),
+                    seen_version: 0,
+                });
+            return;
+        }
         // ItemsSource is not a scalar binding: it generates children.
         if property == "ItemsSource" {
             let host = match kind {
