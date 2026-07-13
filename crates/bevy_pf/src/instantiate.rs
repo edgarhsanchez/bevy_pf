@@ -339,6 +339,9 @@ struct Pending {
     display_member: Option<String>,
     /// `IsIndeterminate` for ProgressBar.
     is_indeterminate: bool,
+    /// Code-behind pointer events: (event name, handler name) pairs wired
+    /// as observers dispatching through `PfEventHandlers` after spawn.
+    event_handlers: Vec<(String, String)>,
 }
 
 /// Font and text properties that flow down the tree (WPF property value
@@ -821,6 +824,11 @@ impl<'w> Ctx<'w> {
                     });
                 },
             );
+        }
+
+        // Code-behind pointer events → named-handler observers.
+        for (event, handler) in std::mem::take(&mut self.pending.event_handlers) {
+            crate::events::attach_event_handler(self.world, entity, &event, handler);
         }
 
         // Register x:Name. Inside a ControlTemplate expansion, names are
@@ -2477,15 +2485,25 @@ impl<'w> Ctx<'w> {
             "ResizeDirection" | "ResizeBehavior" if kind == ElemKind::GridSplitter => {}
             "Source" | "NavigationUIVisibility" | "JournalOwnership"
                 if kind == ElemKind::Frame => {}
-            // Code-behind event handlers from verbatim WPF markup. There is
-            // no C# to call; interactivity is wired as Bevy observers, so
-            // these are accepted without noise.
-            "Click" | "Loaded" | "Unloaded" | "Initialized" | "TargetUpdated"
+            // Code-behind pointer events: the attribute value is a handler
+            // name resolved against `PfEventHandlers` (app.on_ui_event) at
+            // fire time; unregistered names stay silent, so verbatim WPF
+            // markup still instantiates clean without any Rust code-behind.
+            "Click" | "MouseEnter" | "MouseLeave" | "MouseDown" | "MouseUp"
+            | "MouseMove" | "MouseDoubleClick" | "DragStart" | "Drag" | "DragEnd"
+            | "Drop" => {
+                let handler = value.to_text()?;
+                self.pending
+                    .event_handlers
+                    .push((name.to_string(), handler));
+            }
+            // Code-behind event handlers with no pointer analog yet. There
+            // is no C# to call; these are accepted without noise.
+            "Loaded" | "Unloaded" | "Initialized" | "TargetUpdated"
             | "SelectionChanged" | "TextChanged" | "Checked" | "Unchecked"
-            | "ValueChanged" | "Navigating" | "Navigated" | "MouseEnter"
-            | "MouseLeave" | "MouseDown" | "MouseUp" | "KeyDown" | "KeyUp"
+            | "ValueChanged" | "Navigating" | "Navigated" | "KeyDown" | "KeyUp"
             | "GotFocus" | "LostFocus" | "SizeChanged" | "DataContextChanged"
-            | "Closed" | "Opened" | "ContextMenuOpening" | "MouseDoubleClick" => {}
+            | "Closed" | "Opened" | "ContextMenuOpening" => {}
             // WPF DataGrid knobs that don't apply here: columns are never
             // auto-generated, headers always show, sizing is fixed. Accepted
             // silently so verbatim WPF markup instantiates clean.

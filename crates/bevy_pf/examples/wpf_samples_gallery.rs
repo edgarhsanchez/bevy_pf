@@ -21,6 +21,10 @@
 //!   tooltips, a Grid keypad, arithmetic + memory + paper tape in Rust).
 //! - Graphics: ShapeElements — the 11-page tabbed shape viewer, original
 //!   .xaml files included from examples/xaml/wpf_shapes/.
+//! - Animation: PropertyAnimation (trigger Enter/ExitActions fades + a
+//!   keyframed Loaded storyboard).
+//! - Input: DragDrop (DoDragDrop concept -> Drag=/DragEnd= code-behind
+//!   handlers registered with `app.on_ui_event`).
 //!
 //! Run with: `cargo run -p bevy_pf --example wpf_samples_gallery`
 
@@ -143,6 +147,8 @@ fn main() {
                         <Hyperlink NavigateUri="MergedResources.xaml" Margin="12,2,0,0">MergedResources</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Animation" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="PropertyAnimation.xaml" Margin="12,2,0,0">PropertyAnimation</Hyperlink>
+                        <TextBlock FontWeight="Bold" Text="Input" Margin="0,8,0,4"/>
+                        <Hyperlink NavigateUri="DragDrop.xaml" Margin="12,2,0,0">DragDrop</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Styles &amp; Templates" Margin="0,8,0,4"/>
                         <Hyperlink NavigateUri="StylingAndTemplating.xaml" Margin="12,2,0,0">IntroToStylingAndTemplating</Hyperlink>
                         <TextBlock FontWeight="Bold" Text="Sample Applications" Margin="0,8,0,4"/>
@@ -578,6 +584,34 @@ fn main() {
             ),
         )
         .register_page(
+            "DragDrop.xaml",
+            xaml!(
+                // DragDrop/DragDropObjects, concept port: WPF's DoDragDrop +
+                // MouseDown/Drop handlers become the code-behind event
+                // surface (Drag/DragEnd attributes -> app.on_ui_event
+                // handlers that move the piece and report the drop).
+                r##"<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="DragDrop">
+                      <StackPanel Margin="20" Background="White">
+                        <TextBlock FontWeight="Bold" FontSize="16">Drag and Drop Objects</TextBlock>
+                        <TextBlock Margin="0,6,0,10" FontSize="12" TextWrapping="Wrap" MaxWidth="460">Drag the circle anywhere in the box. Code-behind handlers named in XAML (Drag="OnDragPiece", DragEnd="OnDropPiece") receive pointer deltas, exactly like WPF's MouseDown/MouseMove capture pattern.</TextBlock>
+                        <Border Width="480" Height="260" Background="#FFF4F4F5"
+                                BorderBrush="#FFAAAAAA" BorderThickness="1" HorizontalAlignment="Left">
+                          <Canvas>
+                            <Ellipse x:Name="DragPiece" Canvas.Left="40" Canvas.Top="40"
+                                     Width="56" Height="56" Fill="#FF5B8DEF"
+                                     Stroke="#FF2C628B" StrokeThickness="2"
+                                     Drag="OnDragPiece" DragEnd="OnDropPiece"
+                                     MouseEnter="OnPieceHover" MouseLeave="OnPieceRest"/>
+                          </Canvas>
+                        </Border>
+                        <TextBlock x:Name="DropStatus" Margin="0,10,0,0" FontSize="12"
+                                   Text="Waiting for a drag..."/>
+                      </StackPanel>
+                    </Page>"##
+            ),
+        )
+        .register_page(
             "StylingAndTemplating.xaml",
             xaml!(
                 // Deviations: the photo ListBox re-template (IsItemsHost +
@@ -900,6 +934,27 @@ fn main() {
             "shapes/ShapeTypes.xaml",
             include_xaml!("examples/xaml/wpf_shapes/ShapeTypes.xaml"),
         )
+        // DragDrop code-behind: the XAML names these handlers in Drag=/
+        // DragEnd=/MouseEnter=/MouseLeave= attributes.
+        .on_ui_event("OnDragPiece", |world, entity, info| {
+            if let Some(mut node) = world.get_mut::<Node>(entity) {
+                let px = |v: Val| if let Val::Px(p) = v { p } else { 0.0 };
+                node.left = Val::Px((px(node.left) + info.delta.x).clamp(0.0, 424.0));
+                node.top = Val::Px((px(node.top) + info.delta.y).clamp(0.0, 204.0));
+            }
+        })
+        .on_ui_event("OnDropPiece", |world, entity, _info| {
+            let pos = world.get::<Node>(entity).map(|n| (n.left, n.top));
+            if let Some((Val::Px(x), Val::Px(y))) = pos {
+                set_drop_status(world, format!("Dropped at ({x:.0}, {y:.0})"));
+            }
+        })
+        .on_ui_event("OnPieceHover", |world, _entity, _info| {
+            set_drop_status(world, "Grab the circle and drag it.".into());
+        })
+        .on_ui_event("OnPieceRest", |world, _entity, _info| {
+            set_drop_status(world, "Waiting for a drag...".into());
+        })
         .add_systems(Startup, setup)
         .insert_resource(Calc {
             display: "0".into(),
@@ -984,6 +1039,34 @@ fn setup(mut commands: Commands) {
 }
 
 /// Recreates each sample's code-behind as pages appear.
+/// World-level text update for the DragDrop page's status line (the
+/// on_ui_event handlers get `&mut World`, not system params).
+fn set_drop_status(world: &mut World, message: String) {
+    let mut names = world.query::<(Entity, &bevy_pf::PfName)>();
+    let Some(status) = names
+        .iter(world)
+        .find(|(_, n)| n.0 == "DropStatus")
+        .map(|(e, _)| e)
+    else {
+        return;
+    };
+    fn first_text(world: &mut World, e: Entity) -> Option<Entity> {
+        if world.get::<bevy::ui::widget::Text>(e).is_some() {
+            return Some(e);
+        }
+        let children: Vec<Entity> = world
+            .get::<Children>(e)
+            .map(|c| c.iter().collect())
+            .unwrap_or_default();
+        children.into_iter().find_map(|c| first_text(world, c))
+    }
+    if let Some(text) = first_text(world, status)
+        && let Some(mut t) = world.get_mut::<bevy::ui::widget::Text>(text)
+    {
+        t.0 = message;
+    }
+}
+
 fn wire_pages(
     mut navigated: MessageReader<PfNavigated>,
     ui: PfQuery,

@@ -27,6 +27,7 @@ Ported examples keep the original XAML with documented, minimal deviations.
 | Sample Applications / CalculatorDemo | `--example wpf_samples_gallery` | `local:MyTextBox` -> bordered TextBlocks; Click= -> observers; full arithmetic/memory/paper-tape state machine as a resource; gap fixed: MenuItem `IsCheckable` |
 | Resources / MergedResources | `--example wpf_samples_gallery` | `sys:Double`/`sys:String` primitives verbatim; Source= files inlined; dictionary #3 file round-trip -> `merge_application_resources` (DynamicResource Background re-resolves live) |
 | Elements / HeightProperties | `--example wpf_samples_gallery` | SelectionChanged -> a ListBox-selection system; ClipToBounds -> Canvas Overflow clip |
+| DragDrop / DragDropObjects (concept) | `--example wpf_samples_gallery` | DoDragDrop + MouseMove capture -> `Drag=`/`DragEnd=` code-behind attributes dispatching to `app.on_ui_event` handlers (bevy_picking drag events supply the capture semantics) |
 
 ## Portable now (next in line)
 

@@ -38,6 +38,7 @@ pub mod convert;
 pub mod dialog;
 pub mod dynamic;
 pub mod error;
+pub mod events;
 pub mod fonts;
 pub mod icons;
 pub mod instantiate;
@@ -66,6 +67,7 @@ pub use dynamic::{
     set_application_resources_dict,
 };
 pub use error::PfError;
+pub use events::{PfEventAppExt, PfEventHandlers, PfPointerInfo};
 pub use instantiate::{
     InstantiateResult, XamlEnv, instantiate_document, instantiate_document_env,
     set_application_resources,
@@ -82,6 +84,7 @@ pub mod prelude {
         Bindable, DataContext, PfConverterAppExt, PfValueConverter,
     };
     pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
+    pub use crate::events::{PfEventAppExt, PfPointerInfo};
     pub use crate::navigation::{PfNavigationAppExt, PfNavigated};
     pub use crate::query::PfQuery;
     pub use crate::plugin::{PfCommandsExt, PfUiPlugin};
