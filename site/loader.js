@@ -7,8 +7,12 @@ export async function boot(app) {
   const msg = document.getElementById('loading-msg');
   const overlay = document.getElementById('loading');
 
+  // ?backend=webgl2|webgpu forces a bundle (debugging/verification).
   let backend = 'webgl2';
-  if (navigator.gpu) {
+  const forced = new URLSearchParams(location.search).get('backend');
+  if (forced === 'webgl2' || forced === 'webgpu') {
+    backend = forced;
+  } else if (navigator.gpu) {
     try {
       if (await navigator.gpu.requestAdapter()) backend = 'webgpu';
     } catch (_) { /* fall back */ }
