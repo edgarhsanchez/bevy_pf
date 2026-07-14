@@ -46,6 +46,9 @@ pub enum PropertyTarget {
     BorderBrush,
     BorderThickness,
     Foreground,
+    /// Shape fill brush (Path/Ellipse/Rectangle/...): writes repaint the
+    /// rasterized image at the current size.
+    Fill,
     FontSize,
     Margin,
     Padding,
@@ -64,6 +67,7 @@ pub fn property_target_for(property: &str) -> Option<PropertyTarget> {
         "BorderBrush" => PropertyTarget::BorderBrush,
         "BorderThickness" => PropertyTarget::BorderThickness,
         "Foreground" => PropertyTarget::Foreground,
+        "Fill" => PropertyTarget::Fill,
         "FontSize" => PropertyTarget::FontSize,
         "Margin" => PropertyTarget::Margin,
         "Padding" => PropertyTarget::Padding,
@@ -518,6 +522,18 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
                     node.border = convert::thickness(t);
                 }
         }
+        PropertyTarget::Fill => {
+            if let Some(brush) = as_brush() {
+                let brush = brush.clone();
+                let mut e = world.entity_mut(entity);
+                if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+                    shape.fill = Some(brush);
+                    // Dropping the rendered marker forces re-rasterization
+                    // at the unchanged layout size.
+                    e.remove::<crate::shapes::PfShapeRendered>();
+                }
+            }
+        }
         PropertyTarget::Foreground => {
             if let Some(v::PfBrush::Solid(c)) = as_brush() {
                 let color = convert::color(c);
@@ -614,6 +630,13 @@ fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
         return;
     }
     match target {
+        PropertyTarget::Fill => {
+            let mut e = world.entity_mut(entity);
+            if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+                shape.fill = None;
+                e.remove::<crate::shapes::PfShapeRendered>();
+            }
+        }
         PropertyTarget::Background => {
             world
                 .entity_mut(entity)

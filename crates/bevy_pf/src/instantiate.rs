@@ -1559,7 +1559,9 @@ impl<'w> Ctx<'w> {
     ) -> Result<PfValue, PfError> {
         use crate::provider::PropertyTarget as T;
         Ok(match target {
-            T::Background | T::BorderBrush | T::Foreground => PfValue::Brush(s.parse()?),
+            T::Background | T::BorderBrush | T::Foreground | T::Fill => {
+                PfValue::Brush(s.parse()?)
+            }
             T::BorderThickness | T::Margin | T::Padding => PfValue::Thickness(s.parse()?),
             T::CornerRadius => PfValue::CornerRadius(s.parse()?),
             T::Width | T::Height | T::FontSize | T::Opacity => {
@@ -2842,7 +2844,27 @@ impl<'w> Ctx<'w> {
 
             // Shape properties.
             "Fill" if kind == ElemKind::Shape => {
-                self.pending.shape.fill = Some(value.to_brush()?)
+                let brush = value.to_brush()?;
+                self.pending.shape.fill = Some(brush.clone());
+                // Seed the store at the declaring tier so trigger writes to
+                // Fill revert to this brush (not to unset) on deactivation.
+                let tier = self.tier;
+                let mut e = self.world.entity_mut(entity);
+                if let Some(mut store) = e.get_mut::<crate::provider::PfPropertyStore>() {
+                    store.set(
+                        crate::provider::PropertyTarget::Fill,
+                        tier,
+                        Some(PfValue::Brush(brush)),
+                    );
+                } else {
+                    let mut store = crate::provider::PfPropertyStore::default();
+                    store.set(
+                        crate::provider::PropertyTarget::Fill,
+                        tier,
+                        Some(PfValue::Brush(brush)),
+                    );
+                    e.insert(store);
+                }
             }
             "Stroke" if kind == ElemKind::Shape => {
                 self.pending.shape.stroke = Some(value.to_brush()?)

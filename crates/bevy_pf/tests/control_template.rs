@@ -1460,9 +1460,6 @@ fn g1_aero2_check_box_fragment_instantiates_and_functions() {
                 || w.contains("Focusable")
                 || w.contains("HasContent")
                 || w.contains("x:Null")
-                // Fill on the glyph Path per state — shape repaint through
-                // the provider store is a tracked deferral.
-                || w.contains("not dynamically writable")
                 || w.contains("not supported"),
             "unexpected instantiation warning class: {w}"
         );
@@ -1529,4 +1526,21 @@ fn g1_aero2_check_box_fragment_instantiates_and_functions() {
         .insert(bevy::ui::Checked);
     app.update();
     assert_eq!(glyph_opacity(&app), Some(1.0), "checked: glyph visible");
+
+    // Disabling recolors the glyph through the Fill trigger setter
+    // (OptionMark.Disabled.Glyph) — dynamic shape repaint.
+    app.world_mut()
+        .entity_mut(checkbox)
+        .insert(bevy::ui::InteractionDisabled);
+    app.update();
+    let fill = app
+        .world()
+        .get::<bevy_pf::shapes::PfShape>(mark)
+        .and_then(|s| s.fill.clone());
+    match fill {
+        Some(bevy_pf::xaml_ast::value::PfBrush::Solid(c)) => {
+            assert_eq!((c.r, c.g, c.b), (0x70, 0x70, 0x70), "OptionMark.Disabled.Glyph");
+        }
+        other => panic!("expected solid disabled glyph fill, got {other:?}"),
+    }
 }
