@@ -457,3 +457,149 @@ fn trigger_enter_exit_actions_run_the_wpf_sample_pattern() {
         bg_alpha(&app, b)
     );
 }
+
+// ---------------------------------------------------------------------
+// VisualTransitions: GeneratedDuration cross-fades between states.
+// ---------------------------------------------------------------------
+
+#[test]
+fn visual_transitions_cross_fade_and_animate_back() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button x:Name="B" Content="Go">
+               <Button.Template>
+                 <ControlTemplate TargetType="Button">
+                   <Border x:Name="chrome" Background="#FF000000">
+                     <VisualStateManager.VisualStateGroups>
+                       <VisualStateGroup x:Name="CommonStates">
+                         <VisualStateGroup.Transitions>
+                           <VisualTransition GeneratedDuration="0:0:1"/>
+                         </VisualStateGroup.Transitions>
+                         <VisualState x:Name="Normal"/>
+                         <VisualState x:Name="MouseOver">
+                           <Storyboard>
+                             <ColorAnimation Storyboard.TargetName="chrome"
+                                             Storyboard.TargetProperty="Background"
+                                             To="#FFFFFFFF" Duration="0:0:0"/>
+                           </Storyboard>
+                         </VisualState>
+                       </VisualStateGroup>
+                     </VisualStateManager.VisualStateGroups>
+                     <ContentPresenter/>
+                   </Border>
+                 </ControlTemplate>
+               </Button.Template>
+             </Button>
+           </StackPanel>"##,
+    );
+    let button = named(&app, root, "B");
+    let chrome = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    app.update(); // enter Normal
+    advance(&mut app, 0.1);
+
+    // Hover: the 0-duration snap is stretched over the 1s transition.
+    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    advance(&mut app, 0.01); // state switch, animation starts
+    advance(&mut app, 0.5);
+    let mid = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(
+        mid.red > 0.2 && mid.red < 0.8,
+        "mid-fade should be between black and white, got {mid:?}"
+    );
+    advance(&mut app, 0.7);
+    let done = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(done.red > 0.95, "fade completed, got {done:?}");
+
+    // Unhover: Normal has no storyboard — the transition animates BACK
+    // to the template value instead of snapping.
+    app.world_mut().entity_mut(button).insert(Interaction::None);
+    advance(&mut app, 0.01);
+    advance(&mut app, 0.5);
+    let back_mid = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(
+        back_mid.red > 0.2 && back_mid.red < 0.8,
+        "return fade should be mid-way, got {back_mid:?}"
+    );
+    advance(&mut app, 0.7);
+    let back = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(back.red < 0.05, "returned to template black, got {back:?}");
+    // And the Animation tier is cleared (structural revert, not a held value).
+    let store = app
+        .world()
+        .get::<bevy_pf::provider::PfPropertyStore>(chrome)
+        .unwrap();
+    assert_ne!(
+        store.effective_source(bevy_pf::provider::PropertyTarget::Background),
+        Some(bevy_pf::provider::ValueSource::Animation),
+        "animation layer cleared after the return fade"
+    );
+}
+
+// ---------------------------------------------------------------------
+// FocusStates driven from bevy input focus.
+// ---------------------------------------------------------------------
+
+#[test]
+fn focus_states_follow_input_focus() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button x:Name="B" Content="Go">
+               <Button.Template>
+                 <ControlTemplate TargetType="Button">
+                   <Border x:Name="chrome" Background="#FF000000">
+                     <VisualStateManager.VisualStateGroups>
+                       <VisualStateGroup x:Name="FocusStates">
+                         <VisualState x:Name="Unfocused"/>
+                         <VisualState x:Name="Focused">
+                           <Storyboard>
+                             <ColorAnimation Storyboard.TargetName="chrome"
+                                             Storyboard.TargetProperty="Background"
+                                             To="#FFFFFFFF" Duration="0:0:0.05"/>
+                           </Storyboard>
+                         </VisualState>
+                       </VisualStateGroup>
+                     </VisualStateManager.VisualStateGroups>
+                     <ContentPresenter/>
+                   </Border>
+                 </ControlTemplate>
+               </Button.Template>
+             </Button>
+           </StackPanel>"##,
+    );
+    let button = named(&app, root, "B");
+    let chrome = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    app.update();
+    advance(&mut app, 0.1);
+    let rest = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(rest.red < 0.05, "unfocused keeps template value");
+
+    // Focus the control.
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(button));
+    advance(&mut app, 0.01);
+    advance(&mut app, 0.2);
+    let focused = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(focused.red > 0.95, "Focused state ran, got {focused:?}");
+
+    // Clear focus -> Unfocused reverts.
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::default());
+    advance(&mut app, 0.01);
+    advance(&mut app, 0.2);
+    let back = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    assert!(back.red < 0.05, "Unfocused reverted, got {back:?}");
+}

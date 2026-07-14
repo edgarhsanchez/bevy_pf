@@ -1736,6 +1736,10 @@ impl<'w> Ctx<'w> {
         use crate::behaviors::PfAction;
         for trigger in pe.elements() {
             // KeyTrigger shares the action grammar; its dispatch differs.
+            let active_on_focus = matches!(
+                trigger.attribute("ActiveOnFocus"),
+                Some(XamlValue::Str(v)) if v.eq_ignore_ascii_case("true")
+            );
             let key = if trigger.name == "KeyTrigger" {
                 let name = match trigger.attribute("Key") {
                     Some(XamlValue::Str(k)) => k.clone(),
@@ -1877,12 +1881,23 @@ impl<'w> Ctx<'w> {
                             action.pos
                         )),
                     },
-                    "PlaySoundAction" => {
-                        self.warn(format!(
-                            "{}: PlaySoundAction is not supported yet (task #39 tail)",
-                            action.pos
-                        ));
+                    "SetFocusAction" => {
+                        actions.push(PfAction::SetFocus {
+                            target_name: attr("TargetName"),
+                        });
                     }
+                    "PlaySoundAction" => match attr("Source") {
+                        Some(path) => actions.push(PfAction::PlaySound {
+                            path,
+                            volume: attr("Volume")
+                                .and_then(|v| v.trim().parse().ok())
+                                .unwrap_or(1.0),
+                        }),
+                        None => self.warn(format!(
+                            "{}: PlaySoundAction needs Source",
+                            action.pos
+                        )),
+                    },
                     other => self.warn(format!(
                         "{}: behavior action `{other}` is not supported yet",
                         action.pos
@@ -1896,9 +1911,13 @@ impl<'w> Ctx<'w> {
             if let Some(key) = key {
                 let mut e = self.world.entity_mut(entity);
                 if let Some(mut triggers) = e.get_mut::<crate::behaviors::PfKeyTriggers>() {
-                    triggers.0.push((key, actions));
+                    triggers.0.push((key, active_on_focus, actions));
                 } else {
-                    e.insert(crate::behaviors::PfKeyTriggers(vec![(key, actions)]));
+                    e.insert(crate::behaviors::PfKeyTriggers(vec![(
+                        key,
+                        active_on_focus,
+                        actions,
+                    )]));
                 }
                 continue;
             }

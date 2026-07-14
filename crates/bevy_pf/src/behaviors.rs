@@ -33,6 +33,15 @@ pub enum PfAction {
     LaunchUri {
         path: String,
     },
+    /// `SetFocusAction`: give keyboard focus to the target (or the host).
+    SetFocus {
+        target_name: Option<String>,
+    },
+    /// `PlaySoundAction Source=.. Volume=..` (native; no-op without audio).
+    PlaySound {
+        path: String,
+        volume: f32,
+    },
 }
 
 /// Run a trigger's actions against its host element.
@@ -99,8 +108,48 @@ pub fn run_actions(world: &mut World, host: Entity, actions: &[PfAction]) {
                 );
             }
             PfAction::LaunchUri { path } => crate::util::open_url(path),
+            PfAction::SetFocus { target_name } => {
+                let target = match target_name {
+                    None => Some(host),
+                    Some(name) => resolve_in_scope(world, host, name),
+                };
+                let Some(target) = target else {
+                    warn!("bevy_pf: SetFocusAction target not found");
+                    continue;
+                };
+                // Focus the inner editable if the target is a TextBox-like
+                // control, so typing lands where WPF users expect.
+                let target = find_editable_in(world, target).unwrap_or(target);
+                world.insert_resource(bevy::input_focus::InputFocus::from_entity(target));
+            }
+            PfAction::PlaySound { path, volume } => {
+                // AudioPlugin inserts GlobalVolume; without it (headless,
+                // wasm demos with audio disabled) the action is a no-op.
+                if world.get_resource::<bevy::audio::GlobalVolume>().is_none() {
+                    continue;
+                }
+                let Some(assets) = world.get_resource::<bevy::asset::AssetServer>() else {
+                    continue;
+                };
+                let source: Handle<bevy::audio::AudioSource> = assets.load(path.clone());
+                world.spawn((
+                    bevy::audio::AudioPlayer(source),
+                    bevy::audio::PlaybackSettings::DESPAWN
+                        .with_volume(bevy::audio::Volume::Linear(*volume)),
+                ));
+            }
         }
     }
+}
+
+/// First descendant carrying an `EditableText` (a TextBox's input child).
+fn find_editable_in(world: &World, root: Entity) -> Option<Entity> {
+    if world.get::<bevy::text::EditableText>(root).is_some() {
+        return Some(root);
+    }
+    let children = world.get::<Children>(root)?;
+    let kids: Vec<Entity> = children.iter().collect();
+    kids.into_iter().find_map(|c| find_editable_in(world, c))
 }
 
 /// Resolve a name against the host's template parts, then the scene
@@ -129,7 +178,7 @@ fn resolve_in_scope(world: &World, host: Entity, name: &str) -> Option<Entity> {
 /// the actions (v1 scope: global while the element exists — WPF's default
 /// ActiveOnFocus=false behavior; focus scoping is tracked work).
 #[derive(Component, Debug, Clone)]
-pub struct PfKeyTriggers(pub Vec<(KeyCode, Vec<PfAction>)>);
+pub struct PfKeyTriggers(pub Vec<(KeyCode, bool, Vec<PfAction>)>);
 
 /// Map a WPF `Key=` name onto a Bevy `KeyCode` (the common set).
 pub fn key_from_name(name: &str) -> Option<KeyCode> {
@@ -184,11 +233,31 @@ pub(crate) fn run_key_triggers(world: &mut World) {
     let mut q = world.query::<(Entity, &PfKeyTriggers)>();
     let hosts: Vec<(Entity, PfKeyTriggers)> =
         q.iter(world).map(|(e, t)| (e, t.clone())).collect();
+    let focused = world
+        .get_resource::<bevy::input_focus::InputFocus>()
+        .and_then(|f| f.get());
     for (host, triggers) in hosts {
-        for (key, actions) in &triggers.0 {
-            if pressed.contains(key) {
-                run_actions(world, host, actions);
+        for (key, active_on_focus, actions) in &triggers.0 {
+            if !pressed.contains(key) {
+                continue;
             }
+            // ActiveOnFocus: only while the host (or a descendant, e.g. a
+            // TextBox's inner editable) holds keyboard focus.
+            if *active_on_focus {
+                let in_scope = focused.is_some_and(|mut f| loop {
+                    if f == host {
+                        break true;
+                    }
+                    match world.get::<ChildOf>(f) {
+                        Some(p) => f = p.parent(),
+                        None => break false,
+                    }
+                });
+                if !in_scope {
+                    continue;
+                }
+            }
+            run_actions(world, host, actions);
         }
     }
 }

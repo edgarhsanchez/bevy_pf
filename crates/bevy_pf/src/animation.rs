@@ -261,11 +261,24 @@ pub enum PfFill {
     Stop,
 }
 
+/// A `<VisualTransition>`: how long a state switch cross-fades, matched
+/// by From/To (both optional; the most specific match wins).
+#[derive(Debug, Clone)]
+pub struct PfVisualTransition {
+    pub from: Option<String>,
+    pub to: Option<String>,
+    /// `GeneratedDuration` in seconds.
+    pub duration: f32,
+    /// `GeneratedEasingFunction`.
+    pub easing: Option<PfEasing>,
+}
+
 /// A `<VisualStateGroup>` parsed from a ControlTemplate.
 #[derive(Debug, Clone)]
 pub struct PfVisualStateGroup {
     pub name: String,
     pub states: Vec<PfVisualState>,
+    pub transitions: Vec<PfVisualTransition>,
 }
 
 /// A `<VisualState>`: entering it starts its storyboard; leaving stops it
@@ -478,6 +491,19 @@ pub(crate) fn begin_storyboard_tagged(
     storyboard: &PfStoryboard,
     tag: Option<(Entity, usize)>,
 ) -> Vec<(Entity, PfAnimTarget, Option<PfValue>)> {
+    begin_storyboard_timed(world, host, scope_root, storyboard, tag, None)
+}
+
+/// Like [`begin_storyboard_tagged`], with a VisualTransition timing
+/// override: every generated track runs over `duration` with `easing`.
+pub(crate) fn begin_storyboard_timed(
+    world: &mut World,
+    host: Entity,
+    scope_root: Entity,
+    storyboard: &PfStoryboard,
+    tag: Option<(Entity, usize)>,
+    timing: Option<(f32, Option<PfEasing>)>,
+) -> Vec<(Entity, PfAnimTarget, Option<PfValue>)> {
     let mut started = Vec::new();
     let now = world
         .get_resource::<Time>()
@@ -571,7 +597,10 @@ pub(crate) fn begin_storyboard_tagged(
             out.sort_by(|a, b| a.0.total_cmp(&b.0));
             out
         };
-        let duration = spec.duration.max(1.0 / 240.0);
+        let duration = timing
+            .map(|(d, _)| d)
+            .unwrap_or(spec.duration)
+            .max(1.0 / 240.0);
         let track = match &spec.kind {
             PfAnimKind::Double { from, to } => {
                 let from = from
@@ -621,7 +650,10 @@ pub(crate) fn begin_storyboard_tagged(
                 repeat: spec.repeat,
                 auto_reverse: spec.auto_reverse,
                 fill: spec.fill,
-                easing: spec.easing,
+                easing: match timing {
+                    Some((_, Some(e))) => e,
+                    _ => spec.easing,
+                },
             });
         if !started.iter().any(|(t, p, _)| *t == target && *p == prop) {
             started.push((target, prop, touch_revert));
@@ -856,21 +888,144 @@ pub fn go_to_state(world: &mut World, control: Entity, group: &str, state: &str)
     };
     let storyboard = target_state.storyboard.clone();
     let previously_touched = states.touched.get(gi).cloned().unwrap_or_default();
+    let old_state = states.current[gi].clone();
+
+    // Most specific matching VisualTransition: From+To > To > From > default.
+    let timing = states.groups[gi]
+        .transitions
+        .iter()
+        .filter_map(|t| {
+            let from_ok = t.from.is_none() || t.from.as_deref() == old_state.as_deref();
+            let to_ok = t.to.is_none() || t.to.as_deref() == Some(state);
+            if !from_ok || !to_ok {
+                return None;
+            }
+            let score =
+                u8::from(t.from.is_some()) * 2 + u8::from(t.to.is_some());
+            Some((score, t.duration, t.easing))
+        })
+        .max_by_key(|(score, ..)| *score)
+        .filter(|(_, d, _)| *d > 0.0)
+        .map(|(_, d, e)| (d, e));
+
+    // Capture what the old state currently displays, so a transition can
+    // cross-fade FROM the live value rather than snapping to base first.
+    let mut live: Vec<(Entity, PfAnimTarget, Option<PfValue>)> = Vec::new();
+    if timing.is_some() {
+        for (target, prop, _) in &previously_touched {
+            if world.get_entity(*target).is_err() {
+                continue;
+            }
+            let value = match prop {
+                PfAnimTarget::Store(p) => world
+                    .get::<provider::PfPropertyStore>(*target)
+                    .and_then(|st| st.effective(*p))
+                    .and_then(|(_, v)| v.clone()),
+                PfAnimTarget::Transform(f) => {
+                    Some(PfValue::Double(read_transform_field(world, *target, *f)))
+                }
+            };
+            live.push((*target, *prop, value));
+        }
+    }
 
     // Leave the old state: drop its running animations AND revert every
     // property it touched (a HoldEnd value outlives its animation).
     stop_tagged(world, (control, gi));
-    for (target, prop, revert) in previously_touched {
-        if world.get_entity(target).is_err() {
+    for (target, prop, revert) in &previously_touched {
+        if world.get_entity(*target).is_err() {
             continue;
         }
-        revert_anim_target(world, target, prop, revert.as_ref());
+        revert_anim_target(world, *target, *prop, revert.as_ref());
     }
 
     let touched = match storyboard {
-        Some(sb) => begin_storyboard_tagged(world, control, control, &sb, Some((control, gi))),
+        Some(sb) => {
+            begin_storyboard_timed(world, control, control, &sb, Some((control, gi)), timing)
+        }
         None => Vec::new(),
     };
+
+    if let Some((duration, easing)) = timing {
+        let now = world
+            .get_resource::<Time>()
+            .map(|t| t.elapsed_secs())
+            .unwrap_or(0.0);
+        let easing = easing.unwrap_or_default();
+        // Stored values may be brushes/strings; tracks sample only
+        // Color/Double — normalize or the track silently yields nothing.
+        let normalize = |v: &PfValue| -> Option<PfValue> {
+            if let Some(d) = pf_as_f64(v) {
+                return Some(PfValue::Double(d));
+            }
+            pf_as_color(v).map(PfValue::Color)
+        };
+        // Cross-fade from the live value: patch the just-started tracks.
+        if let Some(mut running) = world.get_resource_mut::<PfRunningAnimations>() {
+            for anim in running.0.iter_mut() {
+                if anim.tag != Some((control, gi)) {
+                    continue;
+                }
+                if let Some((_, _, Some(value))) = live
+                    .iter()
+                    .find(|(t, p, _)| *t == anim.target && *p == anim.prop)
+                    && let Track::Simple { from, .. } = &mut anim.track
+                    && let Some(value) = normalize(value)
+                    && std::mem::discriminant(&value) == std::mem::discriminant(from)
+                {
+                    *from = value;
+                }
+            }
+        }
+        // Props the old state touched that the new state does not: animate
+        // back to base, then clear structurally (FillBehavior::Stop).
+        for (target, prop, revert) in &previously_touched {
+            if touched.iter().any(|(t, p, _)| t == target && p == prop) {
+                continue;
+            }
+            let Some((_, _, Some(from))) = live
+                .iter()
+                .find(|(t, p, _)| t == target && p == prop)
+            else {
+                continue; // no live value: the instant revert already ran
+            };
+            let to = match revert {
+                Some(v) => Some(v.clone()),
+                None => match prop {
+                    PfAnimTarget::Store(p) => world
+                        .get::<provider::PfPropertyStore>(*target)
+                        .and_then(|st| st.effective(*p))
+                        .and_then(|(_, v)| v.clone()),
+                    PfAnimTarget::Transform(f) => {
+                        Some(PfValue::Double(read_transform_field(world, *target, *f)))
+                    }
+                },
+            };
+            let (Some(from), Some(to)) = (normalize(from), to.as_ref().and_then(normalize))
+            else {
+                continue; // not interpolable: the instant revert stands
+            };
+            if std::mem::discriminant(&from) != std::mem::discriminant(&to) {
+                continue;
+            }
+            world
+                .get_resource_or_insert_with(PfRunningAnimations::default)
+                .0
+                .push(Running {
+                    tag: Some((control, gi)),
+                    target: *target,
+                    prop: *prop,
+                    track: Track::Simple { from, to },
+                    revert: revert.clone(),
+                    begin: now,
+                    duration: duration.max(1.0 / 240.0),
+                    repeat: PfRepeat::Once,
+                    auto_reverse: false,
+                    fill: PfFill::Stop,
+                    easing,
+                });
+        }
+    }
     if let Some(mut states) = world.get_mut::<PfVisualStates>(control) {
         states.current[gi] = Some(state.to_string());
         if states.touched.len() <= gi {
@@ -903,8 +1058,27 @@ pub(crate) fn drive_visual_states(world: &mut World) {
             }
         };
         let check = if checked { "Checked" } else { "Unchecked" };
+        // FocusStates: Focused while the control (or a descendant, e.g. a
+        // TextBox's inner editable) holds keyboard focus.
+        let focused = world
+            .get_resource::<bevy::input_focus::InputFocus>()
+            .and_then(|f| f.get())
+            .is_some_and(|f| {
+                let mut cursor = f;
+                loop {
+                    if cursor == control {
+                        break true;
+                    }
+                    match world.get::<ChildOf>(cursor) {
+                        Some(p) => cursor = p.parent(),
+                        None => break false,
+                    }
+                }
+            });
+        let focus = if focused { "Focused" } else { "Unfocused" };
         go_to_state(world, control, "CommonStates", common);
         go_to_state(world, control, "CheckStates", check);
+        go_to_state(world, control, "FocusStates", focus);
     }
 }
 

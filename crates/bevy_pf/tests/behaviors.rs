@@ -144,3 +144,85 @@ fn key_trigger_runs_actions_on_just_pressed() {
     app.update();
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn set_focus_action_and_focus_scoped_key_trigger() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <TextBox x:Name="Input" Text="hi"/>
+              <Button x:Name="Go" Content="Focus the box">
+                <Interaction.Triggers>
+                  <EventTrigger EventName="Click">
+                    <SetFocusAction TargetName="Input"/>
+                  </EventTrigger>
+                </Interaction.Triggers>
+              </Button>
+              <Border x:Name="Scoped">
+                <Interaction.Triggers>
+                  <KeyTrigger Key="Return" ActiveOnFocus="True">
+                    <InvokeCommandAction Command="fired"/>
+                  </KeyTrigger>
+                </Interaction.Triggers>
+              </Border>
+            </StackPanel>"##,
+    );
+    let fired = Arc::new(AtomicU32::new(0));
+    let vm = Bindable::new(Vm);
+    {
+        let fired = fired.clone();
+        vm.on_command("fired", move |_, _| {
+            fired.fetch_add(1, Ordering::SeqCst);
+        });
+    }
+    app.world_mut().entity_mut(root).insert(DataContext(vm));
+    app.init_resource::<ButtonInput<KeyCode>>();
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (input, go) = (names.get("Input").unwrap(), names.get("Go").unwrap());
+
+    // SetFocusAction focuses the TextBox's inner editable.
+    let actions = vec![bevy_pf::behaviors::PfAction::SetFocus {
+        target_name: Some("Input".into()),
+    }];
+    bevy_pf::behaviors::run_actions(app.world_mut(), go, &actions);
+    let focus = app
+        .world()
+        .resource::<bevy::input_focus::InputFocus>()
+        .get()
+        .expect("focus set");
+    let mut cursor = focus;
+    let mut inside = focus == input;
+    while let Some(p) = app.world().get::<ChildOf>(cursor) {
+        if p.parent() == input {
+            inside = true;
+            break;
+        }
+        cursor = p.parent();
+    }
+    assert!(inside, "focus landed in the TextBox subtree");
+
+    // Focus-scoped KeyTrigger: Enter with focus elsewhere does nothing.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Enter);
+    app.update();
+    assert_eq!(fired.load(Ordering::SeqCst), 0, "unfocused: no fire");
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .release(KeyCode::Enter);
+    app.update();
+
+    // Move focus into the scoped Border -> the trigger fires.
+    let scoped = app.world().get::<XamlNames>(root).unwrap().get("Scoped").unwrap();
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(scoped));
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Enter);
+    app.update();
+    assert_eq!(fired.load(Ordering::SeqCst), 1, "focused: fired");
+}

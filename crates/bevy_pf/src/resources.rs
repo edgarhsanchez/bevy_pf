@@ -399,6 +399,19 @@ pub fn parse_resource_value(
                         .clone()
                         .unwrap_or_else(|| "CommonStates".to_string());
                     let mut states = Vec::new();
+                    let mut transitions = Vec::new();
+                    // Dotted form routes to property elements.
+                    if let Some(tpe) = group
+                        .property_elements
+                        .iter()
+                        .find(|p| p.name == "Transitions")
+                    {
+                        for t in tpe.elements() {
+                            if t.name == "VisualTransition" {
+                                transitions.push(parse_visual_transition(t, warnings));
+                            }
+                        }
+                    }
                     for state in group.child_elements() {
                         match state.name.as_str() {
                             "VisualState" => {
@@ -413,17 +426,24 @@ pub fn parse_resource_value(
                                     storyboard,
                                 });
                             }
-                            "VisualStateGroup.Transitions" | "VisualTransition" => {
-                                warnings.push(format!(
-                                    "{}: VisualTransitions are not supported yet; \
-                                     states switch instantly",
-                                    state.pos
-                                ));
+                            "VisualStateGroup.Transitions" => {
+                                for t in state.child_elements() {
+                                    if t.name == "VisualTransition" {
+                                        transitions.push(parse_visual_transition(t, warnings));
+                                    }
+                                }
+                            }
+                            "VisualTransition" => {
+                                transitions.push(parse_visual_transition(state, warnings));
                             }
                             _ => {}
                         }
                     }
-                    state_groups.push(crate::animation::PfVisualStateGroup { name, states });
+                    state_groups.push(crate::animation::PfVisualStateGroup {
+                        name,
+                        states,
+                        transitions,
+                    });
                 }
             }
             PfValue::ControlTemplate(Arc::new(PfControlTemplate {
@@ -1037,6 +1057,30 @@ fn parse_key_frames(
 }
 
 /// Parse one easing-function element (`<CubicEase EasingMode=.../>`).
+/// `<VisualTransition From=.. To=.. GeneratedDuration=..>` with an
+/// optional `GeneratedEasingFunction` property element.
+fn parse_visual_transition(
+    node: &XamlNode,
+    warnings: &mut Vec<String>,
+) -> crate::animation::PfVisualTransition {
+    let attr = |name: &str| match node.attribute(name) {
+        Some(XamlValue::Str(v)) => Some(v.clone()),
+        _ => None,
+    };
+    let easing = node
+        .property_element("GeneratedEasingFunction")
+        .and_then(|pe| pe.elements().next())
+        .map(|f| parse_easing_element(f, warnings));
+    crate::animation::PfVisualTransition {
+        from: attr("From"),
+        to: attr("To"),
+        duration: attr("GeneratedDuration")
+            .and_then(|d| crate::animation::parse_duration(&d))
+            .unwrap_or(0.0),
+        easing,
+    }
+}
+
 fn parse_easing_element(
     f: &XamlNode,
     warnings: &mut Vec<String>,
