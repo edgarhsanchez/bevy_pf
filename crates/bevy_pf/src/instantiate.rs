@@ -3080,6 +3080,7 @@ impl<'w> Ctx<'w> {
                 | ElemKind::RadioButton
                 | ElemKind::Label
                 | ElemKind::Expander
+                | ElemKind::ComboBox
                 | ElemKind::TextBox => {
                     let (template, scopes) =
                         self.pending.control_template.take().expect("checked above");
@@ -3834,6 +3835,32 @@ impl<'w> Ctx<'w> {
         #[allow(clippy::single_match_else, clippy::match_like_matches_macro)]
         #[allow(clippy::single_match)] // the PART_ table grows per control kind
         match kind {
+            ElemKind::ComboBox => {
+                // The template replaces the face; the popup/backdrop/items
+                // runtime is engine infrastructure, built here. Selection
+                // text lands in PART_SelectionBoxText (or the template's
+                // first Text descendant, or a hidden fallback).
+                let text = parts
+                    .get("PART_SelectionBoxText")
+                    .or_else(|| find_text_entity(self.world, entity))
+                    .unwrap_or_else(|| {
+                        let hidden = self.world
+                            .spawn((
+                                Node {
+                                    display: Display::None,
+                                    ..Default::default()
+                                },
+                                bevy::ui::widget::Text::new(""),
+                            ))
+                            .id();
+                        self.add_children(entity, &[hidden]);
+                        hidden
+                    });
+                let pending = self.pending.clone();
+                if let Err(e) = self.build_combo_runtime(entity, node, &pending, text) {
+                    self.warn(format!("templated ComboBox runtime failed: {e}"));
+                }
+            }
             ElemKind::Expander => {
                 // The template's ToggleButton part drives Checked through
                 // its TwoWay TemplatedParent binding; seed the initial
@@ -4362,9 +4389,6 @@ impl<'w> Ctx<'w> {
         node: &XamlNode,
         pending: &Pending,
     ) -> Result<(), PfError> {
-        use crate::components::{PfComboBox, PfComboItem};
-        use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
-
         // Chrome: selection text + dropdown arrow.
         let text = self.world
             .spawn((
@@ -4403,6 +4427,22 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         self.add_children(entity, &[text, arrow]);
+        self.build_combo_runtime(entity, node, pending, text)
+    }
+
+    /// The non-visual half of a ComboBox: overlay popup + backdrop, item
+    /// wrappers, selection/toggle observers, and the `PfComboBox` state.
+    /// Shared by the default chrome and templated ComboBoxes (whose
+    /// templates replace only the face).
+    fn build_combo_runtime(
+        &mut self,
+        entity: Entity,
+        node: &XamlNode,
+        pending: &Pending,
+        text: Entity,
+    ) -> Result<(), PfError> {
+        use crate::components::{PfComboBox, PfComboItem};
+        use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
 
         // Popup + backdrop under the overlay root.
         let overlay = ensure_overlay_root(self.world);
@@ -7072,6 +7112,16 @@ pub fn select_combo_index(world: &mut World, combo: Entity, index: usize) {
 }
 
 /// The first `Text` string in an entity's subtree (selection presenter text).
+/// First descendant ENTITY carrying a `Text` component.
+fn find_text_entity(world: &World, root: Entity) -> Option<Entity> {
+    if world.get::<bevy::ui::widget::Text>(root).is_some() {
+        return Some(root);
+    }
+    let children = world.get::<Children>(root)?;
+    let kids: Vec<Entity> = children.iter().collect();
+    kids.into_iter().find_map(|c| find_text_entity(world, c))
+}
+
 pub(crate) fn first_text_in(world: &World, root: Entity) -> Option<String> {
     if let Some(t) = world.get::<bevy::ui::widget::Text>(root) {
         return Some(t.0.clone());

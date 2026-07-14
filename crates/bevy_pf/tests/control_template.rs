@@ -1336,3 +1336,84 @@ fn templated_expander_toggles_via_two_way_templated_parent() {
         "collapsed again after un-toggle"
     );
 }
+
+#[test]
+fn templated_combo_box_keeps_popup_runtime_and_selection() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <ComboBox x:Name="C" SelectedIndex="1">
+               <ComboBox.Template>
+                 <ControlTemplate TargetType="ComboBox">
+                   <Border x:Name="face" Background="#FF223344" CornerRadius="4" Padding="8,4">
+                     <TextBlock x:Name="PART_SelectionBoxText"/>
+                   </Border>
+                 </ControlTemplate>
+               </ComboBox.Template>
+               <ComboBoxItem>Alpha</ComboBoxItem>
+               <ComboBoxItem>Beta</ComboBoxItem>
+               <ComboBoxItem>Gamma</ComboBoxItem>
+             </ComboBox>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let combo = names.get("C").unwrap();
+
+    // Template replaced the face...
+    let parts = app
+        .world()
+        .get::<bevy_pf::components::PfTemplateParts>(combo)
+        .expect("template parts");
+    let selection_text = parts.get("PART_SelectionBoxText").unwrap();
+
+    // ...while the engine still built the dropdown runtime.
+    let state = app
+        .world()
+        .get::<bevy_pf::components::PfComboBox>(combo)
+        .expect("combo runtime")
+        .clone();
+    assert_eq!(state.text, selection_text, "selection presenter is the part");
+    let items: Vec<Entity> = app
+        .world()
+        .get::<Children>(state.popup)
+        .unwrap()
+        .iter()
+        .collect();
+    assert_eq!(items.len(), 3, "static items in the popup");
+
+    // Initial SelectedIndex resolved into the template's presenter.
+    assert_eq!(
+        app.world()
+            .get::<bevy::ui::widget::Text>(selection_text)
+            .unwrap()
+            .0,
+        "Beta"
+    );
+
+    // Selection through the runtime updates the templated face.
+    bevy_pf::instantiate::select_combo_index(app.world_mut(), combo, 2);
+    assert_eq!(
+        app.world()
+            .get::<bevy::ui::widget::Text>(selection_text)
+            .unwrap()
+            .0,
+        "Gamma"
+    );
+
+    // Open/close still drives the overlay popup.
+    app.world_mut()
+        .get_mut::<bevy_pf::components::PfComboBox>(combo)
+        .unwrap()
+        .open = true;
+    app.update();
+    assert_ne!(
+        app.world().get::<Node>(state.popup).unwrap().display,
+        Display::None,
+        "popup opens"
+    );
+}
