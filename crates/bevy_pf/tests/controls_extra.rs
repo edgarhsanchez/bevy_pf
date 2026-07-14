@@ -381,3 +381,74 @@ fn checkable_menu_item_toggles_on_activation() {
             .is_none()
     );
 }
+
+#[test]
+fn scroll_bar_structure_nudge_and_binding() {
+    let mut app = test_app();
+    let vm = Bindable::new(ScrollVm { pos: 20.0 });
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <ScrollBar x:Name="S" Minimum="0" Maximum="100" ViewportSize="25"
+                        SmallChange="5" Value="{Binding pos}"/>
+           </StackPanel>"##,
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let bar = names.get("S").unwrap();
+    let sb = app
+        .world()
+        .get::<bevy_pf::components::PfScrollBar>(bar)
+        .unwrap()
+        .clone();
+
+    // Value binding landed on the SliderValue carrier.
+    assert_eq!(
+        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        20.0
+    );
+
+    // Thumb is proportional: viewport 25 over range 100 -> 20% of track.
+    let thumb_node = app.world().get::<Node>(sb.thumb).unwrap();
+    match thumb_node.height {
+        Val::Percent(p) => assert!((p - 20.0).abs() < 1.0, "thumb 20%, got {p}"),
+        other => panic!("expected percent height, got {other:?}"),
+    }
+
+    // Line-button nudge: SmallChange steps and clamps.
+    let children: Vec<Entity> = app.world().get::<Children>(bar).unwrap().iter().collect();
+    assert_eq!(children.len(), 3, "dec, track, inc");
+    for _ in 0..20 {
+        // 20 x 5 = 100: clamps at Maximum.
+        bevy_pf::instantiate::scroll_bar_nudge(app.world_mut(), bar, 1.0);
+    }
+    assert_eq!(
+        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        100.0,
+        "nudge clamps at Maximum"
+    );
+
+    // TwoWay write-back into the view-model.
+    app.update();
+    assert_eq!(
+        vm.read_path("pos").and_then(|v| v.as_f64()),
+        Some(100.0),
+        "scrollbar value wrote back"
+    );
+
+    // Source change repositions.
+    vm.update(|m: &mut ScrollVm| m.pos = 0.0);
+    app.update();
+    assert_eq!(
+        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        0.0
+    );
+}
+
+#[derive(bevy::reflect::Reflect, Default)]
+struct ScrollVm {
+    pos: f64,
+}

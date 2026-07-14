@@ -189,6 +189,7 @@ enum ElemKind {
     TimePicker,
     PackIcon,
     ColorPicker,
+    ScrollBar,
     AutoSuggestBox,
     NavigationView,
     ContentPresenter,
@@ -219,6 +220,7 @@ impl ElemKind {
             "ProgressBar" => Self::ProgressBar,
             "Separator" => Self::Separator,
             "ListBox" | "ListView" => Self::ListBox,
+            "ScrollBar" => Self::ScrollBar,
             "ComboBox" => Self::ComboBox,
             "TabControl" => Self::TabControl,
             "TreeView" => Self::TreeView,
@@ -273,6 +275,7 @@ impl ElemKind {
             Self::Canvas => ParentKind::Canvas,
             Self::CheckBox | Self::RadioButton | Self::TextBox => ParentKind::FlexRow,
             Self::TextBlock | Self::Image | Self::Unknown | Self::Slider
+            | Self::ScrollBar
             | Self::ProgressBar | Self::Separator | Self::ListBox | Self::ItemsControl
             | Self::ComboBox | Self::Shape | Self::GroupBox | Self::Expander
             | Self::Viewbox | Self::TabControl | Self::TreeView | Self::Menu
@@ -1091,6 +1094,13 @@ impl<'w> Ctx<'w> {
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Stretch,
                 flex_grow: 1.0,
+                ..Default::default()
+            },
+            ElemKind::ScrollBar => Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                width: Val::Px(16.0),
+                min_height: Val::Px(60.0),
                 ..Default::default()
             },
             ElemKind::Slider => Node {
@@ -2615,7 +2625,11 @@ impl<'w> Ctx<'w> {
             "GroupName" => self.pending.group_name = Some(value.to_text()?),
             "Minimum" => self.pending.minimum = Some(value.to_f32()?),
             "Maximum" => self.pending.maximum = Some(value.to_f32()?),
-            "Value" if matches!(kind, ElemKind::Slider | ElemKind::ProgressBar) => {
+            "Value"
+                if matches!(
+                    kind,
+                    ElemKind::Slider | ElemKind::ProgressBar | ElemKind::ScrollBar
+                ) => {
                 self.pending.value = Some(value.to_f32()?)
             }
             "IsIndeterminate" if kind == ElemKind::ProgressBar => {
@@ -2672,6 +2686,9 @@ impl<'w> Ctx<'w> {
             "Password" | "PasswordChar" if kind == ElemKind::TextBox => {}
             "Value" if kind == ElemKind::RatingBar => {}
             "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
+            // Consumed by spawn_scroll_bar (Orientation hits the generic arm).
+            "ViewportSize" | "SmallChange" | "LargeChange"
+                if kind == ElemKind::ScrollBar => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
             "Command" => {
@@ -3419,6 +3436,10 @@ impl<'w> Ctx<'w> {
             }
             ElemKind::Expander => {
                 self.spawn_expander(entity, node)?;
+            }
+            ElemKind::ScrollBar => {
+                let pending = self.pending.clone();
+                self.spawn_scroll_bar(entity, node, &pending)?;
             }
             ElemKind::ComboBox => {
                 let pending = self.pending.clone();
@@ -4314,6 +4335,129 @@ impl<'w> Ctx<'w> {
     }
 
     /// Build an Expander: clickable header row + collapsible content.
+    /// Build a ScrollBar: line RepeatButtons at both ends, a track, and a
+    /// proportional thumb. Value rides `SliderValue`/`SliderRange`.
+    fn spawn_scroll_bar(
+        &mut self,
+        entity: Entity,
+        node: &XamlNode,
+        pending: &Pending,
+    ) -> Result<(), PfError> {
+        use crate::components::{PfRepeatButton, PfScrollBar};
+
+        let attr_f32 = |name: &str| -> Option<f32> {
+            match node.attribute(name) {
+                Some(XamlValue::Str(v)) => v.trim().parse().ok(),
+                _ => None,
+            }
+        };
+        let horizontal = matches!(
+            node.attribute("Orientation"),
+            Some(XamlValue::Str(o)) if o.eq_ignore_ascii_case("horizontal")
+        );
+        let minimum = pending.minimum.unwrap_or(0.0);
+        let maximum = pending.maximum.unwrap_or(100.0);
+        let value = pending.value.unwrap_or(minimum).clamp(minimum, maximum);
+        let viewport = attr_f32("ViewportSize").unwrap_or(10.0);
+        let small_change = attr_f32("SmallChange").unwrap_or(1.0);
+
+        if horizontal
+            && let Some(mut n) = self.world.get_mut::<Node>(entity)
+        {
+            {
+                n.flex_direction = FlexDirection::Row;
+                n.width = Val::Auto;
+                n.min_width = Val::Px(60.0);
+                n.min_height = Val::Px(0.0);
+                n.height = Val::Px(16.0);
+            }
+        }
+        self.world
+            .entity_mut(entity)
+            .insert(BackgroundColor(Color::srgb_u8(0xF0, 0xF0, 0xF0)));
+
+        let line_button = |world: &mut World| {
+            world
+                .spawn((
+                    Node {
+                        width: Val::Px(16.0),
+                        height: Val::Px(16.0),
+                        flex_shrink: 0.0,
+                        ..Default::default()
+                    },
+                    Interaction::default(),
+                    PfRepeatButton {
+                        delay: 300.0,
+                        interval: 80.0,
+                        ..Default::default()
+                    },
+                    BackgroundColor(Color::srgb_u8(0xDA, 0xDA, 0xDA)),
+                ))
+                .id()
+        };
+        let dec = line_button(self.world);
+        let inc = line_button(self.world);
+        let thumb = self.world
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(20.0),
+                    ..Default::default()
+                },
+                Interaction::default(),
+                BackgroundColor(Color::srgb_u8(0xC0, 0xC0, 0xC0)),
+            ))
+            .id();
+        let track = self.world
+            .spawn((
+                Node {
+                    flex_grow: 1.0,
+                    position_type: PositionType::Relative,
+                    ..Default::default()
+                },
+                Interaction::default(),
+                BackgroundColor(Color::NONE),
+            ))
+            .id();
+        self.world.entity_mut(track).add_children(&[thumb]);
+        self.add_children(entity, &[dec, track, inc]);
+
+        self.world.entity_mut(entity).insert((
+            bevy::ui_widgets::SliderValue(value),
+            bevy::ui_widgets::SliderRange::new(minimum, maximum),
+            PfScrollBar {
+                horizontal,
+                viewport,
+                small_change,
+                track,
+                thumb,
+            },
+        ));
+
+        // Line buttons: nudge by SmallChange per (repeat) click.
+        let bar = entity;
+        for (button, dir) in [(dec, -1.0f32), (inc, 1.0f32)] {
+            self.world.entity_mut(button).observe(
+                move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                    commands.queue(move |world: &mut World| {
+                        scroll_bar_nudge(world, bar, dir);
+                    });
+                },
+            );
+        }
+        // Thumb drag: capture semantics via bevy's drag events.
+        self.world.entity_mut(thumb).observe(
+            move |drag: On<Pointer<Drag>>, mut commands: Commands| {
+                let delta = drag.delta;
+                commands.queue(move |world: &mut World| {
+                    scroll_bar_drag(world, bar, delta);
+                });
+            },
+        );
+        Ok(())
+    }
+
     fn spawn_expander(&mut self, entity: Entity, node: &XamlNode) -> Result<(), PfError> {
         use bevy::ui::Checked;
         let expanded = self.pending.is_checked.unwrap_or(false);
@@ -6763,7 +6907,7 @@ impl<'w> Ctx<'w> {
                 v::BindingMode::OneWay,
             ),
             "IsChecked" => (entity, BindingTarget::IsChecked, v::BindingMode::TwoWay),
-            "Value" if kind == ElemKind::Slider => (
+            "Value" if matches!(kind, ElemKind::Slider | ElemKind::ScrollBar) => (
                 entity,
                 BindingTarget::SliderValue,
                 v::BindingMode::TwoWay,
@@ -7085,6 +7229,60 @@ pub(crate) fn apply_style_runtime(
     }
     for w in std::mem::take(&mut ctx.warnings) {
         bevy::log::warn!("bevy_pf (item style): {w}");
+    }
+}
+
+/// Nudge a ScrollBar by +/- SmallChange (what the line buttons run).
+pub fn scroll_bar_nudge(world: &mut World, bar: Entity, dir: f32) {
+    let Some(sb) = world.get::<crate::components::PfScrollBar>(bar) else {
+        return;
+    };
+    let step = sb.small_change * dir;
+    let (min, max) = match world.get::<bevy::ui_widgets::SliderRange>(bar) {
+        Some(r) => (r.start(), r.end()),
+        None => (0.0, 100.0),
+    };
+    if let Some(v) = world.get::<bevy::ui_widgets::SliderValue>(bar).map(|v| v.0) {
+        let next = (v + step).clamp(min, max);
+        if next != v {
+            world.entity_mut(bar).insert(bevy::ui_widgets::SliderValue(next));
+        }
+    }
+}
+
+/// Convert a thumb drag delta into a value change using live track pixels.
+fn scroll_bar_drag(world: &mut World, bar: Entity, delta: Vec2) {
+    let Some(sb) = world.get::<crate::components::PfScrollBar>(bar).cloned() else {
+        return;
+    };
+    let axis_px = if sb.horizontal { delta.x } else { delta.y };
+    if axis_px == 0.0 {
+        return;
+    }
+    let track_len = world
+        .get::<bevy::ui::ComputedNode>(sb.track)
+        .map(|n| {
+            let size = n.size() * n.inverse_scale_factor();
+            if sb.horizontal { size.x } else { size.y }
+        })
+        .unwrap_or(0.0);
+    let thumb_len = world
+        .get::<bevy::ui::ComputedNode>(sb.thumb)
+        .map(|n| {
+            let size = n.size() * n.inverse_scale_factor();
+            if sb.horizontal { size.x } else { size.y }
+        })
+        .unwrap_or(0.0);
+    let usable = (track_len - thumb_len).max(1.0);
+    let (min, max) = match world.get::<bevy::ui_widgets::SliderRange>(bar) {
+        Some(r) => (r.start(), r.end()),
+        None => (0.0, 100.0),
+    };
+    if let Some(v) = world.get::<bevy::ui_widgets::SliderValue>(bar).map(|v| v.0) {
+        let next = (v + axis_px / usable * (max - min)).clamp(min, max);
+        if next != v {
+            world.entity_mut(bar).insert(bevy::ui_widgets::SliderValue(next));
+        }
     }
 }
 

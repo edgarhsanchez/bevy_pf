@@ -241,6 +241,17 @@ vm.on_command("bump", {
 </Expander>"##,
         rust: None,
     },
+    Recipe {
+        title: "ScrollBar",
+        blurb: "Proportional thumb (ViewportSize), draggable, line buttons repeat while held; Value binds two-way — drag it and watch the readout.",
+        xaml: r##"<StackPanel Orientation="Horizontal" Spacing="10">
+  <ScrollBar Minimum="0" Maximum="100" ViewportSize="25"
+             SmallChange="5" Value="{Binding volume}" Height="120"/>
+  <TextBlock Text="{Binding volume, StringFormat='{}at {0:F0}'}"
+             VerticalAlignment="Center"/>
+</StackPanel>"##,
+        rust: None,
+    },
 ];
 
 fn main() {

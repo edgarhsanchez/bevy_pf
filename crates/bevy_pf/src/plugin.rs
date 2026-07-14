@@ -108,6 +108,7 @@ impl Plugin for PfUiPlugin {
                 toggle_button_checked_visuals,
                 checked_visual_sync,
                 slider_thumb_sync,
+                scrollbar_thumb_sync,
                 progress_fill_sync,
                 progress_indeterminate_anim,
                 resolve_popup_sources,
@@ -213,6 +214,37 @@ fn repeat_buttons(
                 entity,
             ));
         });
+    }
+}
+
+/// Size and place the ScrollBar thumb: proportional to ViewportSize, at
+/// the value's fraction of the track (WPF Track arrangement math).
+fn scrollbar_thumb_sync(
+    bars: Query<(
+        &crate::components::PfScrollBar,
+        &SliderValue,
+        &SliderRange,
+    )>,
+    mut nodes: Query<&mut Node>,
+) {
+    for (sb, value, range) in &bars {
+        let span = (range.end() - range.start()).max(f32::EPSILON);
+        let frac_len = (sb.viewport / (span + sb.viewport)).clamp(0.05, 1.0);
+        let frac_pos = ((value.0 - range.start()) / span).clamp(0.0, 1.0) * (1.0 - frac_len);
+        let Ok(mut n) = nodes.get_mut(sb.thumb) else {
+            continue;
+        };
+        if sb.horizontal {
+            n.width = Val::Percent(frac_len * 100.0);
+            n.height = Val::Percent(100.0);
+            n.left = Val::Percent(frac_pos * 100.0);
+            n.top = Val::Px(0.0);
+        } else {
+            n.height = Val::Percent(frac_len * 100.0);
+            n.width = Val::Percent(100.0);
+            n.top = Val::Percent(frac_pos * 100.0);
+            n.left = Val::Px(0.0);
+        }
     }
 }
 

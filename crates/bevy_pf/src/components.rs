@@ -178,6 +178,19 @@ pub struct PfGeneratedItemsHost {
     pub owner: Entity,
 }
 
+/// WPF `ScrollBar`: proportional thumb over a track, value carried by
+/// bevy's `SliderValue`/`SliderRange` (so Value bindings reuse the slider
+/// machinery). `viewport` sizes the thumb like WPF's ViewportSize.
+#[derive(Component, Debug, Clone)]
+pub struct PfScrollBar {
+    pub horizontal: bool,
+    /// WPF ViewportSize: thumb length = viewport/(range+viewport) of track.
+    pub viewport: f32,
+    pub small_change: f32,
+    pub track: Entity,
+    pub thumb: Entity,
+}
+
 /// WPF `RepeatButton`: re-raises Click while held. bevy's natural Click
 /// fires on release (covers the tap); a system fires synthetic
 /// `Pointer<Click>` events after `delay`, then every `interval`.

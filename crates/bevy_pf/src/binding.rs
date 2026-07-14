@@ -1243,13 +1243,18 @@ pub(crate) fn checked_write_back(
 /// TwoWay: slider drags flow back to the source.
 pub(crate) fn slider_write_back(
     sliders: Query<
-        (Entity, &bevy::ui_widgets::SliderValue, &PfBindings),
+        (Entity, Ref<bevy::ui_widgets::SliderValue>, &PfBindings),
         Changed<bevy::ui_widgets::SliderValue>,
     >,
     parents: Query<&ChildOf>,
     contexts: Query<&DataContext>,
 ) {
     for (entity, value, bindings) in &sliders {
+        // Added-component echo guard: the spawn tick would write the
+        // control's default over the source before the initial apply.
+        if value.is_added() {
+            continue;
+        }
         for binding in &bindings.0 {
             if binding.target != BindingTarget::SliderValue
                 || !binding.is_to_source()
