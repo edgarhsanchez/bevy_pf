@@ -1243,3 +1243,96 @@ fn g1_aero2_toggle_button_checked_trigger_works_unadapted() {
     app.update();
     assert_eq!(border_hex(&app, border), "#BCDDEE", "Button.Checked.Background");
 }
+
+#[test]
+fn templated_expander_toggles_via_two_way_templated_parent() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Expander x:Name="E" Header="More">
+               <Expander.Template>
+                 <ControlTemplate TargetType="Expander">
+                   <StackPanel>
+                     <ToggleButton x:Name="head" Content="More"
+                                   IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"/>
+                     <Border x:Name="body">
+                       <ContentPresenter/>
+                     </Border>
+                   </StackPanel>
+                   <ControlTemplate.Triggers>
+                     <Trigger Property="IsExpanded" Value="False">
+                       <Setter TargetName="body" Property="Visibility" Value="Collapsed"/>
+                     </Trigger>
+                   </ControlTemplate.Triggers>
+                 </ControlTemplate>
+               </Expander.Template>
+               <TextBlock Text="hidden treasure"/>
+             </Expander>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let expander = names.get("E").unwrap();
+    let parts = app
+        .world()
+        .get::<bevy_pf::components::PfTemplateParts>(expander)
+        .expect("template parts");
+    let (head, body) = (parts.get("head").unwrap(), parts.get("body").unwrap());
+
+    // Collapsed by default: the IsExpanded=False trigger hides the body.
+    app.update();
+    assert_eq!(
+        app.world().get::<Node>(body).unwrap().display,
+        Display::None,
+        "collapsed until expanded"
+    );
+
+    // Toggle the header part: the TwoWay TemplatedParent binding checks the
+    // expander, deactivating the trigger.
+    app.world_mut().entity_mut(head).insert(bevy::ui::Checked);
+    app.update();
+    app.update(); // write-back, then trigger re-evaluation
+    assert!(
+        app.world().get::<bevy::ui::Checked>(expander).is_some(),
+        "part checked the templated parent"
+    );
+    assert_ne!(
+        app.world().get::<Node>(body).unwrap().display,
+        Display::None,
+        "expanded content visible"
+    );
+
+    // The projected content lives under the body's presenter.
+    fn find_text(world: &World, e: Entity, needle: &str) -> bool {
+        if let Some(t) = world.get::<bevy::ui::widget::Text>(e)
+            && t.0 == needle
+        {
+            return true;
+        }
+        world
+            .get::<Children>(e)
+            .into_iter()
+            .flat_map(|c| c.iter())
+            .any(|c| find_text(world, c, needle))
+    }
+    assert!(
+        find_text(app.world(), body, "hidden treasure"),
+        "content projected into the template"
+    );
+
+    // Un-check collapses again.
+    app.world_mut()
+        .entity_mut(head)
+        .remove::<bevy::ui::Checked>();
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world().get::<Node>(body).unwrap().display,
+        Display::None,
+        "collapsed again after un-toggle"
+    );
+}

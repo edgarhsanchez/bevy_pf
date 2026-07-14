@@ -1586,7 +1586,8 @@ impl<'w> Ctx<'w> {
                                 needs_interaction = true;
                                 ResolvedCondition::Pressed(expected)
                             }
-                            "IsChecked" => ResolvedCondition::Checked(expected),
+                            // IsExpanded state rides the Checked component.
+                            "IsChecked" | "IsExpanded" => ResolvedCondition::Checked(expected),
                             "IsEnabled" => ResolvedCondition::Enabled(expected),
                             "IsSelected" => ResolvedCondition::Selected(expected),
                             _ => {
@@ -3078,6 +3079,7 @@ impl<'w> Ctx<'w> {
                 | ElemKind::CheckBox
                 | ElemKind::RadioButton
                 | ElemKind::Label
+                | ElemKind::Expander
                 | ElemKind::TextBox => {
                     let (template, scopes) =
                         self.pending.control_template.take().expect("checked above");
@@ -3832,6 +3834,14 @@ impl<'w> Ctx<'w> {
         #[allow(clippy::single_match_else, clippy::match_like_matches_macro)]
         #[allow(clippy::single_match)] // the PART_ table grows per control kind
         match kind {
+            ElemKind::Expander => {
+                // The template's ToggleButton part drives Checked through
+                // its TwoWay TemplatedParent binding; seed the initial
+                // IsExpanded and make the root a trigger host.
+                if self.pending.is_checked == Some(true) {
+                    self.world.entity_mut(entity).insert(bevy::ui::Checked);
+                }
+            }
             ElemKind::TextBox => {
                 let Some(host) = parts.get("PART_ContentHost") else {
                     self.warn(
