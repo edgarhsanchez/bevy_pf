@@ -84,6 +84,9 @@ impl Plugin for PfUiPlugin {
             }
         }
         app.add_systems(Update, crate::triggers::evaluate_triggers);
+        // Mouse-wheel / trackpad scrolling for every scrollable node
+        // (ScrollViewer, ListBox, ComboBox dropdowns, ...).
+        app.add_observer(scroll_on_wheel);
         // Items generation + popup layer.
         app.init_resource::<crate::overlay::PfActiveTooltip>()
             .add_systems(
@@ -214,6 +217,46 @@ fn repeat_buttons(
                 entity,
             ));
         });
+    }
+}
+
+/// Wheel/trackpad scrolling: walk from the hovered element up to the
+/// nearest scrollable ancestor and move its `ScrollPosition` (layout
+/// clamps to the content extent). Line units are converted at a WPF-ish
+/// 20px per line; pixel units (trackpads, wasm) pass through.
+fn scroll_on_wheel(
+    ev: On<Pointer<bevy::picking::events::Scroll>>,
+    parents: Query<&ChildOf>,
+    nodes: Query<&Node>,
+    mut scrollables: Query<&mut bevy::ui::ScrollPosition>,
+) {
+    // The event propagates up the hierarchy and a global observer fires at
+    // every hop; handle only the original target (the walk covers ancestors).
+    if ev.entity != ev.original_event_target() {
+        return;
+    }
+    const LINE_HEIGHT: f32 = 20.0;
+    let (dx, dy) = match ev.unit {
+        bevy::input::mouse::MouseScrollUnit::Line => {
+            (ev.x * LINE_HEIGHT, ev.y * LINE_HEIGHT)
+        }
+        bevy::input::mouse::MouseScrollUnit::Pixel => (ev.x, ev.y),
+    };
+    let mut cursor = ev.entity;
+    loop {
+        let scrolls = nodes.get(cursor).is_ok_and(|n| {
+            n.overflow.x == bevy::ui::OverflowAxis::Scroll
+                || n.overflow.y == bevy::ui::OverflowAxis::Scroll
+        });
+        if scrolls && let Ok(mut pos) = scrollables.get_mut(cursor) {
+            pos.0.y -= dy;
+            pos.0.x -= dx;
+            return;
+        }
+        match parents.get(cursor) {
+            Ok(parent) => cursor = parent.parent(),
+            Err(_) => return,
+        }
     }
 }
 
