@@ -134,6 +134,9 @@ impl Plugin for PfUiPlugin {
                 crate::binding::textbox_write_back,
                 crate::binding::checked_write_back,
                 crate::binding::slider_write_back,
+                // Element-source write-back runs BEFORE apply, or the
+                // per-frame element re-apply echoes over the user's change.
+                crate::binding::element_write_back,
                 crate::binding::apply_bindings,
                 // Selection write-back runs AFTER apply: a source change
                 // retargets the selection first, so the stale-selection

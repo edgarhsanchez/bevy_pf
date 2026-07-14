@@ -556,3 +556,64 @@ fn find_ancestor_binds_to_enclosing_element() {
     let text = app.world().get::<Text>(w).map(|t| t.0.clone()).unwrap();
     assert!(text.starts_with("w="), "FindAncestor bound and formatted: {text}");
 }
+
+#[test]
+fn two_way_element_bindings_write_back_to_the_source_element() {
+    let mut app = test_app();
+    let vm = Bindable::new(NullVm::default());
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <CheckBox x:Name="A" Content="mirror"
+                       IsChecked="{Binding IsChecked, ElementName=B, Mode=TwoWay}"/>
+             <CheckBox x:Name="B" Content="source"/>
+             <ToggleButton x:Name="T" Content="templated">
+               <ToggleButton.Template>
+                 <ControlTemplate TargetType="ToggleButton">
+                   <Border Padding="2">
+                     <CheckBox x:Name="part"
+                               IsChecked="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"/>
+                   </Border>
+                 </ControlTemplate>
+               </ToggleButton.Template>
+             </ToggleButton>
+           </StackPanel>"##,
+        vm,
+    );
+    app.update();
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (a, b, t) = (
+        names.get("A").unwrap(),
+        names.get("B").unwrap(),
+        names.get("T").unwrap(),
+    );
+
+    // Source -> target (existing element read): checking B mirrors into A.
+    app.world_mut().entity_mut(b).insert(Checked);
+    app.update();
+    assert!(app.world().get::<Checked>(a).is_some(), "B -> A mirrored");
+
+    // Target -> source (new write-back): unchecking A writes through to B.
+    app.world_mut().entity_mut(a).remove::<Checked>();
+    app.update();
+    assert!(
+        app.world().get::<Checked>(b).is_none(),
+        "A -> B wrote back through the element binding"
+    );
+
+    // TemplatedParent TwoWay: toggling the template part checks the parent.
+    let part = {
+        let parts = app
+            .world()
+            .get::<bevy_pf::components::PfTemplateParts>(t)
+            .expect("template parts");
+        parts.get("part").expect("inner checkbox")
+    };
+    app.world_mut().entity_mut(part).insert(Checked);
+    app.update();
+    assert!(
+        app.world().get::<Checked>(t).is_some(),
+        "template part checked the templated parent"
+    );
+}

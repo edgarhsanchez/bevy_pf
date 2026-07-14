@@ -1066,6 +1066,148 @@ pub(crate) fn textbox_write_back(
 }
 
 /// TwoWay: `Checked` add/remove flows back to the source.
+/// Write a control-surface property on an element (the inverse of
+/// [`read_element_value`]) — the write half of two-way TemplatedParent /
+/// ElementName bindings. Writes are no-ops when the value already matches.
+pub(crate) fn write_element_value(
+    world: &mut World,
+    source: Entity,
+    path: &str,
+    value: &BoundValue,
+) {
+    match path {
+        "Value" => {
+            let Some(n) = value.as_f64() else { return };
+            if world.get::<bevy::ui_widgets::SliderValue>(source).is_some() {
+                if world
+                    .get::<bevy::ui_widgets::SliderValue>(source)
+                    .is_some_and(|v| v.0 != n as f32)
+                {
+                    world
+                        .entity_mut(source)
+                        .insert(bevy::ui_widgets::SliderValue(n as f32));
+                }
+            } else if let Some(mut p) = world.get_mut::<crate::components::PfProgress>(source)
+                && p.value != n as f32
+            {
+                p.value = n as f32;
+            }
+        }
+        "IsChecked" | "IsExpanded" => {
+            let Some(b) = value.as_bool() else { return };
+            let has = world.get::<Checked>(source).is_some();
+            if b && !has {
+                world.entity_mut(source).insert(Checked);
+            } else if !b && has {
+                world.entity_mut(source).remove::<Checked>();
+            }
+        }
+        "IsOpen" => {
+            let Some(b) = value.as_bool() else { return };
+            if let Some(mut combo) = world.get_mut::<crate::components::PfComboBox>(source) {
+                if combo.open != b {
+                    combo.open = b;
+                }
+            } else if let Some(mut popup) = world.get_mut::<crate::overlay::PfPopup>(source)
+                && popup.open != b
+            {
+                popup.open = b;
+            }
+        }
+        "Text" => {
+            let text = value.to_display();
+            if let Some(mut t) = world.get_mut::<bevy::ui::widget::Text>(source) {
+                if t.0 != text {
+                    t.0 = text;
+                }
+                return;
+            }
+            let editable = {
+                let mut found = None;
+                if world.get::<bevy::text::EditableText>(source).is_some() {
+                    found = Some(source);
+                } else if let Some(children) = world.get::<Children>(source) {
+                    let kids: Vec<Entity> = children.iter().collect();
+                    found = kids
+                        .into_iter()
+                        .find(|c| world.get::<bevy::text::EditableText>(*c).is_some());
+                }
+                found
+            };
+            if let Some(e) = editable
+                && let Some(mut et) = world.get_mut::<bevy::text::EditableText>(e)
+                && et.editor().text() != text.as_str()
+            {
+                et.editor.set_text(&text);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// TwoWay element-source bindings (RelativeSource TemplatedParent /
+/// ElementName): when the TARGET's control state changes, mirror it back
+/// onto the source element. Change-detected on the target (not
+/// value-diffed), so the per-frame element re-apply never masquerades as a
+/// user edit; `write_element_value` no-ops on equal values, so the apply
+/// echo self-cancels.
+type ChangedSliders<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static bevy::ui_widgets::SliderValue),
+    (Changed<bevy::ui_widgets::SliderValue>, With<PfBindings>),
+>;
+type ChangedEditables<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static bevy::text::EditableText),
+    (Changed<bevy::text::EditableText>, With<PfBindings>),
+>;
+
+pub(crate) fn element_write_back(
+    checked_added: Query<Entity, (Added<Checked>, With<PfBindings>)>,
+    mut checked_removed: RemovedComponents<Checked>,
+    sliders: ChangedSliders,
+    texts: ChangedEditables,
+    bindings_q: Query<&PfBindings>,
+    mut commands: Commands,
+) {
+    let mut queue = |entity: Entity, target: BindingTarget, value: BoundValue| {
+        let Ok(bindings) = bindings_q.get(entity) else {
+            return;
+        };
+        for binding in &bindings.0 {
+            let PfBindingSource::Element(source) = binding.source else {
+                continue;
+            };
+            if binding.target != target || !binding.is_to_source() {
+                continue;
+            }
+            let path = binding.path.clone();
+            let value = value.clone();
+            commands.queue(move |world: &mut World| {
+                write_element_value(world, source, &path, &value);
+            });
+        }
+    };
+    for entity in &checked_added {
+        queue(entity, BindingTarget::IsChecked, BoundValue::Bool(true));
+    }
+    for entity in checked_removed.read() {
+        queue(entity, BindingTarget::IsChecked, BoundValue::Bool(false));
+    }
+    for (entity, value) in &sliders {
+        queue(entity, BindingTarget::SliderValue, BoundValue::Num(value.0 as f64));
+    }
+    for (entity, et) in &texts {
+        queue(
+            entity,
+            BindingTarget::EditableText,
+            BoundValue::Str(et.editor().text().to_string()),
+        );
+    }
+}
+
 pub(crate) fn checked_write_back(
     added: Query<Entity, (Added<Checked>, With<PfBindings>)>,
     mut removed: RemovedComponents<Checked>,
