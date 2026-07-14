@@ -1417,3 +1417,116 @@ fn templated_combo_box_keeps_popup_runtime_and_selection() {
         "popup opens"
     );
 }
+
+// G1 gate, CheckBox: the verbatim Aero2 CheckBox fragment from dotnet/wpf
+// (MIT — tests/fixtures/aero2/checkbox.xaml) instantiates and its
+// OptionMark template functions: static/hover/press border brushes and the
+// IsChecked trigger flipping the glyph's Opacity.
+#[test]
+fn g1_aero2_check_box_fragment_instantiates_and_functions() {
+    let mut app = test_app();
+    app.update();
+
+    let dict_src = include_str!("fixtures/aero2/checkbox.xaml");
+    let doc = bevy_pf_xaml::parse(dict_src).expect("fragment parses with zero errors");
+    let ingest_warnings = bevy_pf::instantiate::set_application_resources(
+        app.world_mut(),
+        &doc,
+        &XamlEnv::default(),
+    );
+    for w in &ingest_warnings {
+        assert!(
+            w.contains("x:Static")
+                || w.contains("unsupported DynamicResource key")
+                || w.contains("x:Null")
+                || w.contains("not supported"),
+            "unexpected ingest warning class: {w}"
+        );
+    }
+
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <CheckBox x:Name="C" Content="Verbatim Aero2"/>
+           </StackPanel>"##,
+    );
+    for w in &warnings {
+        assert!(
+            w.contains("FocusVisual")
+                || w.contains("SnapsToDevicePixels")
+                || w.contains("ContentAlignment")
+                || w.contains("RecognizesAccessKey")
+                || w.contains("Focusable")
+                || w.contains("HasContent")
+                || w.contains("x:Null")
+                // Fill on the glyph Path per state — shape repaint through
+                // the provider store is a tracked deferral.
+                || w.contains("not dynamically writable")
+                || w.contains("not supported"),
+            "unexpected instantiation warning class: {w}"
+        );
+    }
+
+    let checkbox = app.world().get::<XamlNames>(root).unwrap().get("C").unwrap();
+    let templated = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(checkbox)
+        .expect("implicit Aero2 style templated the CheckBox");
+    let parts = app
+        .world()
+        .get::<bevy_pf::components::PfTemplateParts>(checkbox)
+        .expect("template parts");
+    let border = parts.get("checkBoxBorder").expect("checkBoxBorder part");
+    let mark = parts.get("optionMark").expect("optionMark part");
+    assert_eq!(parts.get("templateRoot"), Some(templated.template_root));
+    app.update();
+
+    // Static OptionMark brushes through TemplateBinding.
+    assert_eq!(
+        border_hex(&app, border),
+        "#FFFFFF",
+        "OptionMark.Static.Background"
+    );
+    // The glyph starts hidden (Opacity=0 on the Path).
+    let glyph_opacity = |app: &App| -> Option<f64> {
+        let store = app.world().get::<bevy_pf::PfPropertyStore>(mark)?;
+        match store.effective(bevy_pf::PropertyTarget::Opacity) {
+            Some((_, Some(bevy_pf::resources::PfValue::Double(d)))) => Some(*d),
+            _ => None,
+        }
+    };
+    assert_eq!(glyph_opacity(&app), Some(0.0), "unchecked: glyph hidden");
+
+    // Hover/press drive the real Aero2 trigger brushes.
+    app.world_mut()
+        .entity_mut(checkbox)
+        .insert(Interaction::Hovered);
+    app.update();
+    assert_eq!(
+        border_hex(&app, border),
+        "#F3F9FF",
+        "OptionMark.MouseOver.Background"
+    );
+    app.world_mut()
+        .entity_mut(checkbox)
+        .insert(Interaction::Pressed);
+    app.update();
+    assert_eq!(
+        border_hex(&app, border),
+        "#D9ECFF",
+        "OptionMark.Pressed.Background"
+    );
+    app.world_mut()
+        .entity_mut(checkbox)
+        .insert(Interaction::None);
+    app.update();
+    assert_eq!(border_hex(&app, border), "#FFFFFF", "revert to template value");
+
+    // Checking flips the glyph visible via the IsChecked trigger.
+    app.world_mut()
+        .entity_mut(checkbox)
+        .insert(bevy::ui::Checked);
+    app.update();
+    assert_eq!(glyph_opacity(&app), Some(1.0), "checked: glyph visible");
+}
