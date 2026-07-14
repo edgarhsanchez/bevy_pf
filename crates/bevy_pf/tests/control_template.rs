@@ -1544,3 +1544,91 @@ fn g1_aero2_check_box_fragment_instantiates_and_functions() {
         other => panic!("expected solid disabled glyph fill, got {other:?}"),
     }
 }
+
+// Gate 4: a WPF-shaped ScrollBar template (line RepeatButtons around a
+// PART_Track hosting a Thumb) gets the full value runtime wired onto the
+// template's own parts.
+#[test]
+fn templated_scroll_bar_wires_track_thumb_and_line_buttons() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <ScrollBar x:Name="S" Minimum="0" Maximum="100" Value="40"
+                        ViewportSize="25" SmallChange="10">
+               <ScrollBar.Template>
+                 <ControlTemplate TargetType="ScrollBar">
+                   <Grid>
+                     <Grid.RowDefinitions>
+                       <RowDefinition Height="Auto"/>
+                       <RowDefinition Height="*"/>
+                       <RowDefinition Height="Auto"/>
+                     </Grid.RowDefinitions>
+                     <RepeatButton x:Name="up" Height="16" Background="#FFDADADA"/>
+                     <Track x:Name="PART_Track" Grid.Row="1">
+                       <Track.Thumb>
+                         <Thumb x:Name="grip" Background="#FF606060"/>
+                       </Track.Thumb>
+                     </Track>
+                     <RepeatButton x:Name="down" Grid.Row="2" Height="16" Background="#FFDADADA"/>
+                   </Grid>
+                 </ControlTemplate>
+               </ScrollBar.Template>
+             </ScrollBar>
+           </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let bar = names.get("S").unwrap();
+    let parts = app
+        .world()
+        .get::<bevy_pf::components::PfTemplateParts>(bar)
+        .expect("template parts");
+    let (track, grip, up) = (
+        parts.get("PART_Track").unwrap(),
+        parts.get("grip").unwrap(),
+        parts.get("up").unwrap(),
+    );
+
+    // The runtime landed on the template's parts.
+    let sb = app
+        .world()
+        .get::<bevy_pf::components::PfScrollBar>(bar)
+        .expect("scroll bar runtime");
+    assert_eq!(sb.track, track);
+    assert_eq!(sb.thumb, grip);
+    assert_eq!(
+        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        40.0,
+        "initial Value"
+    );
+
+    // Thumb sync drives the template's grip: 25/(100+25) = 20% length,
+    // positioned at 40% of the free run.
+    app.update();
+    let grip_node = app.world().get::<Node>(grip).unwrap();
+    match (grip_node.height, grip_node.top) {
+        (Val::Percent(len), Val::Percent(top)) => {
+            assert!((len - 20.0).abs() < 0.5, "thumb length {len}%");
+            assert!((top - 32.0).abs() < 0.5, "thumb at 40% of (100-20)% = {top}%");
+        }
+        other => panic!("expected percent thumb geometry, got {other:?}"),
+    }
+
+    // The first line button nudges up (-SmallChange) with repeat wiring.
+    assert!(
+        app.world()
+            .get::<bevy_pf::components::PfRepeatButton>(up)
+            .is_some(),
+        "line buttons repeat while held"
+    );
+    bevy_pf::instantiate::scroll_bar_nudge(app.world_mut(), bar, -1.0);
+    assert_eq!(
+        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        30.0,
+        "nudge by SmallChange"
+    );
+}

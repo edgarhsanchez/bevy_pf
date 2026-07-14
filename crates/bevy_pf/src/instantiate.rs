@@ -190,6 +190,10 @@ enum ElemKind {
     PackIcon,
     ColorPicker,
     ScrollBar,
+    /// WPF `Track` (ScrollBar/Slider part): hosts the Thumb + page buttons.
+    Track,
+    /// WPF `Thumb`: the draggable grip.
+    Thumb,
     AutoSuggestBox,
     NavigationView,
     ContentPresenter,
@@ -221,6 +225,8 @@ impl ElemKind {
             "Separator" => Self::Separator,
             "ListBox" | "ListView" => Self::ListBox,
             "ScrollBar" => Self::ScrollBar,
+            "Track" => Self::Track,
+            "Thumb" => Self::Thumb,
             "ComboBox" => Self::ComboBox,
             "TabControl" => Self::TabControl,
             "TreeView" => Self::TreeView,
@@ -275,7 +281,7 @@ impl ElemKind {
             Self::Canvas => ParentKind::Canvas,
             Self::CheckBox | Self::RadioButton | Self::TextBox => ParentKind::FlexRow,
             Self::TextBlock | Self::Image | Self::Unknown | Self::Slider
-            | Self::ScrollBar
+            | Self::ScrollBar | Self::Track | Self::Thumb
             | Self::ProgressBar | Self::Separator | Self::ListBox | Self::ItemsControl
             | Self::ComboBox | Self::Shape | Self::GroupBox | Self::Expander
             | Self::Viewbox | Self::TabControl | Self::TreeView | Self::Menu
@@ -712,6 +718,11 @@ impl<'w> Ctx<'w> {
         self.insert_defaults(entity, kind, node);
         self.apply_toolkit_presets(entity, kind, node);
 
+        if kind == ElemKind::Thumb {
+            self.world
+                .entity_mut(entity)
+                .insert(Interaction::default());
+        }
         // RepeatButton is a Button plus the repeat-while-held component.
         if node.name == "RepeatButton" {
             self.world
@@ -1113,6 +1124,17 @@ impl<'w> Ctx<'w> {
                 flex_direction: FlexDirection::Column,
                 width: Val::Px(16.0),
                 min_height: Val::Px(60.0),
+                ..Default::default()
+            },
+            ElemKind::Track => Node {
+                flex_grow: 1.0,
+                position_type: PositionType::Relative,
+                ..Default::default()
+            },
+            ElemKind::Thumb => Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(20.0),
                 ..Default::default()
             },
             ElemKind::Slider => Node {
@@ -2244,6 +2266,22 @@ impl<'w> Ctx<'w> {
             self.apply_behavior_triggers(entity, pe);
             return;
         }
+        if kind == ElemKind::Track
+            && matches!(
+                pe.name.as_str(),
+                "Thumb" | "DecreaseRepeatButton" | "IncreaseRepeatButton"
+            )
+        {
+            // <Track.Thumb>/<Track.*RepeatButton>: spawn the wrapped element
+            // as a track child (page buttons colored NONE by default).
+            if let Some(child_node) = pe.elements().next() {
+                match self.spawn_element(child_node, ParentKind::Grid, None) {
+                    Ok(child) => self.add_children(entity, &[child]),
+                    Err(e) => self.warn(format!("{}: Track.{}: {e}", pe.pos, pe.name)),
+                }
+            }
+            return;
+        }
         if pe.name == "ItemsPanel" {
             self.apply_items_panel(entity, kind, pe);
             return;
@@ -3142,6 +3180,7 @@ impl<'w> Ctx<'w> {
                 | ElemKind::Label
                 | ElemKind::Expander
                 | ElemKind::ComboBox
+                | ElemKind::ScrollBar
                 | ElemKind::TextBox => {
                     let (template, scopes) =
                         self.pending.control_template.take().expect("checked above");
@@ -3156,6 +3195,9 @@ impl<'w> Ctx<'w> {
             }
         }
         match kind {
+            // Track content arrives via its property elements
+            // (<Track.Thumb>, page buttons); Thumb is a leaf grip.
+            ElemKind::Track | ElemKind::Thumb => {}
             ElemKind::TextBlock => {
                 // WPF inlines with anchors: flow text runs and Hyperlinks as
                 // real children instead of flattening the link away.
@@ -3900,6 +3942,95 @@ impl<'w> Ctx<'w> {
         #[allow(clippy::single_match_else, clippy::match_like_matches_macro)]
         #[allow(clippy::single_match)] // the PART_ table grows per control kind
         match kind {
+            ElemKind::ScrollBar => {
+                // The template provides Track/Thumb (PART_Track, or the
+                // first Track/Thumb descendants); the engine wires the value
+                // runtime onto them: SliderValue carrier, thumb drag, and
+                // repeat line buttons.
+                let track = parts
+                    .get("PART_Track")
+                    .or_else(|| find_kind_entity(self.world, entity, "Track"));
+                let Some(track) = track else {
+                    self.warn(
+                        "templated ScrollBar has no Track part; it renders inert".to_string(),
+                    );
+                    return;
+                };
+                let Some(thumb) = find_kind_entity(self.world, track, "Thumb") else {
+                    self.warn(
+                        "templated ScrollBar Track has no Thumb; it renders inert".to_string(),
+                    );
+                    return;
+                };
+                let attr_f32 = |name: &str| -> Option<f32> {
+                    match node.attribute(name) {
+                        Some(XamlValue::Str(v)) => v.trim().parse().ok(),
+                        _ => None,
+                    }
+                };
+                let horizontal = matches!(
+                    node.attribute("Orientation"),
+                    Some(XamlValue::Str(o)) if o.eq_ignore_ascii_case("horizontal")
+                );
+                let minimum = self.pending.minimum.unwrap_or(0.0);
+                let maximum = self.pending.maximum.unwrap_or(100.0);
+                let value = self
+                    .pending
+                    .value
+                    .unwrap_or(minimum)
+                    .clamp(minimum, maximum);
+                self.world.entity_mut(entity).insert((
+                    bevy::ui_widgets::SliderValue(value),
+                    bevy::ui_widgets::SliderRange::new(minimum, maximum),
+                    crate::components::PfScrollBar {
+                        horizontal,
+                        viewport: attr_f32("ViewportSize").unwrap_or(10.0),
+                        small_change: attr_f32("SmallChange").unwrap_or(1.0),
+                        track,
+                        thumb,
+                    },
+                ));
+                let bar = entity;
+                self.world.entity_mut(thumb).observe(
+                    move |drag: On<Pointer<Drag>>, mut commands: Commands| {
+                        let delta = drag.delta;
+                        commands.queue(move |world: &mut World| {
+                            scroll_bar_drag(world, bar, delta);
+                        });
+                    },
+                );
+                // Template RepeatButtons outside the Track are line buttons:
+                // first nudges down, last nudges up (WPF template order).
+                let repeats = collect_kind_entities(self.world, entity, "RepeatButton");
+                let line: Vec<Entity> = repeats
+                    .into_iter()
+                    .filter(|&r| !is_descendant_of(self.world, r, track))
+                    .collect();
+                for (i, button) in line.iter().enumerate() {
+                    let dir = if i == 0 { -1.0f32 } else { 1.0 };
+                    let button = *button;
+                    self.world.entity_mut(button).observe(
+                        move |_click: On<Pointer<Click>>, mut commands: Commands| {
+                            commands.queue(move |world: &mut World| {
+                                scroll_bar_nudge(world, bar, dir);
+                            });
+                        },
+                    );
+                    if self
+                        .world
+                        .get::<crate::components::PfRepeatButton>(button)
+                        .is_none()
+                    {
+                        self.world
+                            .entity_mut(button)
+                            .insert(crate::components::PfRepeatButton {
+                                delay: 300.0,
+                                interval: 80.0,
+                                ..Default::default()
+                            });
+                    }
+                }
+            }
             ElemKind::ComboBox => {
                 // The template replaces the face; the popup/backdrop/items
                 // runtime is engine infrastructure, built here. Selection
@@ -7394,6 +7525,52 @@ pub fn select_combo_index(world: &mut World, combo: Entity, index: usize) {
 }
 
 /// The first `Text` string in an entity's subtree (selection presenter text).
+/// First descendant whose `PfElementKind` matches `kind` (self included).
+fn find_kind_entity(world: &World, root: Entity, kind: &str) -> Option<Entity> {
+    if world
+        .get::<crate::components::PfElementKind>(root)
+        .is_some_and(|k| k.0 == kind)
+    {
+        return Some(root);
+    }
+    let children = world.get::<Children>(root)?;
+    let kids: Vec<Entity> = children.iter().collect();
+    kids.into_iter()
+        .find_map(|c| find_kind_entity(world, c, kind))
+}
+
+/// Every descendant whose `PfElementKind` matches `kind`, depth-first.
+fn collect_kind_entities(world: &World, root: Entity, kind: &str) -> Vec<Entity> {
+    let mut out = Vec::new();
+    fn walk(world: &World, e: Entity, kind: &str, out: &mut Vec<Entity>) {
+        if world
+            .get::<crate::components::PfElementKind>(e)
+            .is_some_and(|k| k.0 == kind)
+        {
+            out.push(e);
+        }
+        if let Some(children) = world.get::<Children>(e) {
+            let kids: Vec<Entity> = children.iter().collect();
+            for c in kids {
+                walk(world, c, kind, out);
+            }
+        }
+    }
+    walk(world, root, kind, &mut out);
+    out
+}
+
+fn is_descendant_of(world: &World, entity: Entity, ancestor: Entity) -> bool {
+    let mut cursor = entity;
+    while let Some(parent) = world.get::<ChildOf>(cursor) {
+        cursor = parent.parent();
+        if cursor == ancestor {
+            return true;
+        }
+    }
+    false
+}
+
 /// First descendant ENTITY carrying a `Text` component.
 fn find_text_entity(world: &World, root: Entity) -> Option<Entity> {
     if world.get::<bevy::ui::widget::Text>(root).is_some() {
