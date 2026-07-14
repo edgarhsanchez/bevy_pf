@@ -673,7 +673,7 @@ impl<'w> Ctx<'w> {
         reuse: Option<Entity>,
     ) -> Result<Entity, PfError> {
         let kind = ElemKind::from_name(&node.name);
-        if kind == ElemKind::Unknown {
+        if kind == ElemKind::Unknown && !self.is_registered_element(&node.name) {
             self.warn(format!(
                 "{}: element `{}` is not supported yet; treating as a plain container",
                 node.pos, node.name
@@ -833,6 +833,18 @@ impl<'w> Ctx<'w> {
         // Code-behind pointer events → named-handler observers.
         for (event, handler) in std::mem::take(&mut self.pending.event_handlers) {
             crate::events::attach_event_handler(self.world, entity, &event, handler);
+        }
+
+        // Custom elements (app.register_element): the builder runs last,
+        // with common properties, bindings, and children already in place.
+        if kind == ElemKind::Unknown {
+            let builder = self
+                .world
+                .get_resource::<PfElements>()
+                .and_then(|r| r.0.get(&node.name).cloned());
+            if let Some(builder) = builder {
+                builder(self.world, entity, node);
+            }
         }
 
         // Register x:Name. Inside a ControlTemplate expansion, names are
@@ -2199,6 +2211,12 @@ impl<'w> Ctx<'w> {
         }
     }
 
+    fn is_registered_element(&self, name: &str) -> bool {
+        self.world
+            .get_resource::<PfElements>()
+            .is_some_and(|r| r.0.contains_key(name))
+    }
+
     fn apply_property_element(
         &mut self,
         entity: Entity,
@@ -2915,6 +2933,10 @@ impl<'w> Ctx<'w> {
             | "RenderTransformOrigin" | "LayoutTransform" | "FocusVisualStyle"
             | "StartupUri" | "OverridesDefaultStyle" | "Cursor" => {}
 
+            // Unknown/custom elements own their attribute surface: the
+            // registered builder reads them off the node, and unregistered
+            // ones already warned at the element level.
+            _ if kind == ElemKind::Unknown => {}
             other => {
                 self.warn(format!(
                     "property `{other}` on `{kind:?}` is not supported yet"
@@ -7229,6 +7251,46 @@ pub(crate) fn apply_style_runtime(
     }
     for w in std::mem::take(&mut ctx.warnings) {
         bevy::log::warn!("bevy_pf (item style): {w}");
+    }
+}
+
+/// A custom-element builder: runs after the framework spawned the entity,
+/// applied common properties (Width, Background, Margin, bindings, ...),
+/// and spawned child elements. Read custom attributes off `node` and
+/// insert your components/children.
+type ElementBuilder = dyn Fn(&mut World, Entity, &XamlNode) + Send + Sync;
+
+/// Registered custom XAML elements, by local type name (`<local:Gauge>`
+/// matches a registration for `"Gauge"`).
+#[derive(Resource, Default, Clone)]
+pub struct PfElements(
+    pub(crate) bevy::platform::collections::HashMap<String, std::sync::Arc<ElementBuilder>>,
+);
+
+/// `App` extension: register a custom element usable from XAML.
+pub trait PfElementAppExt {
+    fn register_element(
+        &mut self,
+        name: impl Into<String>,
+        builder: impl Fn(&mut World, Entity, &XamlNode) + Send + Sync + 'static,
+    ) -> &mut Self;
+}
+
+impl PfElementAppExt for bevy::app::App {
+    fn register_element(
+        &mut self,
+        name: impl Into<String>,
+        builder: impl Fn(&mut World, Entity, &XamlNode) + Send + Sync + 'static,
+    ) -> &mut Self {
+        let world = self.world_mut();
+        if !world.contains_resource::<PfElements>() {
+            world.init_resource::<PfElements>();
+        }
+        world
+            .resource_mut::<PfElements>()
+            .0
+            .insert(name.into(), std::sync::Arc::new(builder));
+        self
     }
 }
 

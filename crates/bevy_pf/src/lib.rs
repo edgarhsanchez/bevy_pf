@@ -85,6 +85,7 @@ pub mod prelude {
     };
     pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
     pub use crate::events::{PfEventAppExt, PfPointerInfo};
+    pub use crate::instantiate::PfElementAppExt;
     pub use crate::navigation::{PfNavigationAppExt, PfNavigated};
     pub use crate::query::PfQuery;
     pub use crate::plugin::{PfCommandsExt, PfUiPlugin};

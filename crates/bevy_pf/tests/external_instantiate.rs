@@ -129,3 +129,62 @@ fn instantiate_external_corpora() {
         errored.len()
     );
 }
+
+#[test]
+fn registered_custom_element_builds_from_markup() {
+    use bevy_pf::prelude::PfElementAppExt;
+
+    #[derive(Component)]
+    struct Gauge {
+        level: f32,
+    }
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
+    app.add_plugins(bevy_pf::prelude::PfUiPlugin);
+    app.register_element("Gauge", |world, entity, node| {
+        let level = match node.attribute("Level") {
+            Some(bevy_pf::xaml_ast::XamlValue::Str(v)) => v.trim().parse().unwrap_or(0.0),
+            _ => 0.0,
+        };
+        world.entity_mut(entity).insert(Gauge { level });
+    });
+
+    let doc = bevy_pf_xaml::parse(
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        xmlns:local="clr-namespace:demo">
+              <local:Gauge x:Name="G" Level="7" Width="120" Background="#FF224466">
+                <TextBlock Text="inside a custom element"/>
+              </local:Gauge>
+            </StackPanel>"##,
+    )
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn_empty().id();
+    let result =
+        bevy_pf::instantiate_document_env(world, root, &doc, &bevy_pf::XamlEnv::default())
+            .expect("instantiates");
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+
+    let gauge = app.world().get::<bevy_pf::XamlNames>(root).unwrap().get("G").unwrap();
+    // The builder ran with the custom attribute...
+    assert_eq!(app.world().get::<Gauge>(gauge).unwrap().level, 7.0);
+    // ...and the framework handled the common surface: layout, paint,
+    // children.
+    assert_eq!(
+        app.world().get::<Node>(gauge).unwrap().width,
+        Val::Px(120.0)
+    );
+    let child = app
+        .world()
+        .get::<Children>(gauge)
+        .unwrap()
+        .iter()
+        .next()
+        .unwrap();
+    assert_eq!(
+        app.world().get::<bevy::ui::widget::Text>(child).unwrap().0,
+        "inside a custom element"
+    );
+}
