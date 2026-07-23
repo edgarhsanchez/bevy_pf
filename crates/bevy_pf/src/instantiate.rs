@@ -734,6 +734,26 @@ impl<'w> Ctx<'w> {
         }
         self.pending.is_content_control = node.name == "ContentControl";
 
+        // WPF: interactive controls are tab stops (text inputs get their
+        // TabIndex on the inner editable instead).
+        if matches!(
+            kind,
+            ElemKind::Button
+                | ElemKind::ToggleButton
+                | ElemKind::CheckBox
+                | ElemKind::RadioButton
+                | ElemKind::Slider
+                | ElemKind::ScrollBar
+                | ElemKind::ComboBox
+                | ElemKind::ListBox
+                | ElemKind::ToggleSwitch
+                | ElemKind::Hyperlink
+        ) {
+            self.world
+                .entity_mut(entity)
+                .insert(bevy::input_focus::tab_navigation::TabIndex(0));
+        }
+
         // Inside a ControlTemplate expansion, stamp the templated parent
         // BEFORE properties/bindings apply (RelativeSource TemplatedParent
         // resolves at attach time; PART_ lookups and TemplateBinding too).

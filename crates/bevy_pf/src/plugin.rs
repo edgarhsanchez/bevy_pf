@@ -89,8 +89,9 @@ impl Plugin for PfUiPlugin {
             }
         }
         app.init_resource::<bevy::input_focus::InputFocus>();
+        app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<PfFocusVisual>();
-        app.add_systems(Update, focus_visuals);
+        app.add_systems(Update, (focus_visuals, keyboard_interaction));
         app.add_systems(Update, crate::triggers::evaluate_triggers);
         // Mouse-wheel / trackpad scrolling for every scrollable node
         // (ScrollViewer, ListBox, ComboBox dropdowns, ...).
@@ -207,25 +208,35 @@ fn repeat_buttons(
             continue;
         };
         commands.queue(move |world: &mut World| {
-            use bevy::picking::backend::HitData;
-            use bevy::picking::events::{Click, Pointer};
-            use bevy::picking::pointer::{Location, PointerButton, PointerId};
-            world.trigger(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target,
-                    position: Vec2::ZERO,
-                },
-                Click {
-                    button: PointerButton::Primary,
-                    hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
-                    duration: std::time::Duration::ZERO,
-                    count: 1,
-                },
-                entity,
-            ));
+            synthetic_click(world, target, entity);
         });
     }
+}
+
+/// Fire a synthetic `Pointer<Click>` at an entity — what RepeatButton
+/// repeats and Space/Enter keyboard activation deliver.
+pub(crate) fn synthetic_click(
+    world: &mut World,
+    target: bevy::camera::NormalizedRenderTarget,
+    entity: Entity,
+) {
+    use bevy::picking::backend::HitData;
+    use bevy::picking::events::{Click, Pointer};
+    use bevy::picking::pointer::{Location, PointerButton, PointerId};
+    world.trigger(Pointer::new(
+        PointerId::Mouse,
+        Location {
+            target,
+            position: Vec2::ZERO,
+        },
+        Click {
+            button: PointerButton::Primary,
+            hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+            duration: std::time::Duration::ZERO,
+            count: 1,
+        },
+        entity,
+    ));
 }
 
 /// The control currently wearing the focus border, with its original
@@ -234,6 +245,8 @@ fn repeat_buttons(
 struct PfFocusVisual {
     control: Option<Entity>,
     saved: Option<BorderColor>,
+    /// The focus mark was an `Outline` (non-text controls), not a border.
+    outlined: bool,
 }
 
 /// WPF focus feedback for default chrome: when keyboard focus moves (click
@@ -248,6 +261,7 @@ fn focus_visuals(
     kinds: Query<&crate::components::PfElementKind>,
     templated: Query<&crate::components::PfTemplatedControl>,
     mut borders: Query<&mut BorderColor>,
+    mut commands: Commands,
 ) {
     if !focus.is_changed() {
         return;
@@ -264,15 +278,35 @@ fn focus_visuals(
         "TimePicker",
         "ColorPicker",
     ];
+    // Non-text tab stops get a focus OUTLINE (the WPF focus-rectangle
+    // adorner analog) so their interaction borders stay untouched.
+    const OUTLINED: &[&str] = &[
+        "Button",
+        "RepeatButton",
+        "ToggleButton",
+        "CheckBox",
+        "RadioButton",
+        "Slider",
+        "ScrollBar",
+        "ListBox",
+        "ListView",
+        "ToggleSwitch",
+        "Hyperlink",
+    ];
     let mut control = None;
+    let mut outlined = false;
     if let Some(mut cursor) = focus.get() {
         loop {
-            if kinds
-                .get(cursor)
-                .is_ok_and(|k| FOCUSABLE.contains(&k.0.as_str()))
-            {
-                control = Some(cursor);
-                break;
+            if let Ok(kind) = kinds.get(cursor) {
+                if FOCUSABLE.contains(&kind.0.as_str()) {
+                    control = Some(cursor);
+                    break;
+                }
+                if OUTLINED.contains(&kind.0.as_str()) {
+                    control = Some(cursor);
+                    outlined = true;
+                    break;
+                }
             }
             match parents.get(cursor) {
                 Ok(parent) => cursor = parent.parent(),
@@ -283,22 +317,173 @@ fn focus_visuals(
     if state.control == control {
         return;
     }
-    // Restore the previously-focused control's border.
-    if let Some(prev) = state.control.take()
-        && let Some(saved) = state.saved.take()
-        && let Ok(mut border) = borders.get_mut(prev)
-    {
-        *border = saved;
+    // Restore the previously-focused control.
+    if let Some(prev) = state.control.take() {
+        if state.outlined {
+            if let Ok(mut e) = commands.get_entity(prev) {
+                e.try_remove::<bevy::ui::Outline>();
+            }
+        } else if let Some(saved) = state.saved.take()
+            && let Ok(mut border) = borders.get_mut(prev)
+        {
+            *border = saved;
+        }
+        state.saved = None;
     }
-    // Paint the newly-focused control (unless a template owns its look).
+    // Mark the newly-focused control (unless a template owns its look).
     if let Some(next) = control
         && templated.get(next).is_err()
-        && let Ok(mut border) = borders.get_mut(next)
     {
-        state.saved = Some(*border);
-        state.control = Some(next);
-        // WPF Aero2 TextBox.Focus.Border.
-        *border = BorderColor::all(Color::srgb_u8(0x56, 0x9D, 0xE5));
+        if outlined {
+            if let Ok(mut e) = commands.get_entity(next) {
+                e.insert(bevy::ui::Outline {
+                    width: Val::Px(2.0),
+                    offset: Val::Px(1.0),
+                    color: crate::components::ACCENT,
+                });
+                state.control = Some(next);
+                state.outlined = true;
+            }
+        } else if let Ok(mut border) = borders.get_mut(next) {
+            state.saved = Some(*border);
+            state.control = Some(next);
+            state.outlined = false;
+            // WPF Aero2 TextBox.Focus.Border.
+            *border = BorderColor::all(Color::srgb_u8(0x56, 0x9D, 0xE5));
+        }
+    }
+}
+
+/// WPF keyboard interaction for the focused control: Space/Enter activate
+/// button-family controls, arrows adjust Slider/ScrollBar and move
+/// ListBox/ComboBox selection.
+fn keyboard_interaction(
+    keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<bevy::input_focus::InputFocus>,
+    kinds: Query<&crate::components::PfElementKind>,
+    windows: Query<Entity, With<bevy::window::Window>>,
+    mut commands: Commands,
+) {
+    let Some(entity) = focus.get() else { return };
+    let Ok(kind) = kinds.get(entity) else { return };
+    let kind = kind.0.as_str();
+
+    let pressed = |k: KeyCode| keys.just_pressed(k);
+    match kind {
+        "Button" | "RepeatButton" | "ToggleButton" | "CheckBox" | "RadioButton"
+        | "ToggleSwitch" | "Hyperlink" => {
+            if pressed(KeyCode::Space) || pressed(KeyCode::Enter) {
+                let Some(window) = windows.iter().next() else {
+                    return;
+                };
+                let Some(target) = bevy::camera::RenderTarget::Window(
+                    bevy::window::WindowRef::Entity(window),
+                )
+                .normalize(None) else {
+                    return;
+                };
+                commands.queue(move |world: &mut World| {
+                    synthetic_click(world, target, entity);
+                });
+            }
+        }
+        "Slider" | "ScrollBar" => {
+            let dir = if pressed(KeyCode::ArrowRight) || pressed(KeyCode::ArrowDown) {
+                1.0f32
+            } else if pressed(KeyCode::ArrowLeft) || pressed(KeyCode::ArrowUp) {
+                -1.0
+            } else {
+                return;
+            };
+            let scroll_bar = kind == "ScrollBar";
+            commands.queue(move |world: &mut World| {
+                if scroll_bar {
+                    crate::instantiate::scroll_bar_nudge(world, entity, dir);
+                    return;
+                }
+                let (min, max) = match world.get::<SliderRange>(entity) {
+                    Some(r) => (r.start(), r.end()),
+                    None => (0.0, 100.0),
+                };
+                // WPF Slider arrow step: SmallChange, defaulting to 1% of
+                // the range so any range feels responsive.
+                let step = ((max - min) / 100.0).max(f32::EPSILON) * dir;
+                if let Some(v) = world.get::<SliderValue>(entity).map(|v| v.0) {
+                    let next = (v + step).clamp(min, max);
+                    if next != v {
+                        world.entity_mut(entity).insert(SliderValue(next));
+                    }
+                }
+            });
+        }
+        "ListBox" | "ListView" => {
+            let delta: i32 = if pressed(KeyCode::ArrowDown) {
+                1
+            } else if pressed(KeyCode::ArrowUp) {
+                -1
+            } else {
+                return;
+            };
+            commands.queue(move |world: &mut World| {
+                let container = crate::items::items_container(world, entity);
+                let children: Vec<Entity> = world
+                    .get::<Children>(container)
+                    .map(|c| c.iter().collect())
+                    .unwrap_or_default();
+                if children.is_empty() {
+                    return;
+                }
+                let Some(mut list) = world.get_mut::<PfListBox>(entity) else {
+                    return;
+                };
+                let current = list
+                    .selected
+                    .and_then(|sel| children.iter().position(|&c| c == sel));
+                let next = match current {
+                    Some(i) => (i as i32 + delta).clamp(0, children.len() as i32 - 1) as usize,
+                    None => 0,
+                };
+                if list.selected != Some(children[next]) {
+                    list.selected = Some(children[next]);
+                }
+            });
+        }
+        "ComboBox" => {
+            let delta: i32 = if pressed(KeyCode::ArrowDown) {
+                1
+            } else if pressed(KeyCode::ArrowUp) {
+                -1
+            } else if pressed(KeyCode::Escape) {
+                commands.queue(move |world: &mut World| {
+                    if let Some(mut combo) = world.get_mut::<PfComboBox>(entity) {
+                        combo.open = false;
+                    }
+                });
+                return;
+            } else {
+                return;
+            };
+            commands.queue(move |world: &mut World| {
+                let Some(combo) = world.get::<PfComboBox>(entity) else {
+                    return;
+                };
+                let count = world
+                    .get::<Children>(combo.popup)
+                    .map(|c| c.iter().count())
+                    .unwrap_or(0);
+                if count == 0 {
+                    return;
+                }
+                let next = match combo.selected {
+                    Some(i) => (i as i32 + delta).clamp(0, count as i32 - 1) as usize,
+                    None => 0,
+                };
+                if combo.selected != Some(next) {
+                    crate::instantiate::select_combo_index(world, entity, next);
+                }
+            });
+        }
+        _ => {}
     }
 }
 

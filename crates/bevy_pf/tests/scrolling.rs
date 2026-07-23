@@ -172,3 +172,103 @@ fn focused_text_box_wears_accent_border_and_restores_on_blur() {
         "cleared focus restores the last control"
     );
 }
+
+// Keyboard interaction: focused buttons wear an outline and activate on
+// Space; a focused ListBox moves its selection with the arrow keys.
+#[test]
+fn keyboard_activation_and_arrow_selection() {
+    let mut app = test_app();
+    // The synthetic click needs a window to anchor its pointer location.
+    app.world_mut().spawn(bevy::window::Window::default());
+    let doc = bevy_pf_xaml::parse(
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <Button x:Name="Go" Content="Go"/>
+              <ListBox x:Name="L">
+                <ListBoxItem>one</ListBoxItem>
+                <ListBoxItem>two</ListBoxItem>
+                <ListBoxItem>three</ListBoxItem>
+              </ListBox>
+            </StackPanel>"##,
+    )
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn_empty().id();
+    let result =
+        instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (button, list) = (names.get("Go").unwrap(), names.get("L").unwrap());
+
+    // Controls are tab stops.
+    assert!(
+        app.world()
+            .get::<bevy::input_focus::tab_navigation::TabIndex>(button)
+            .is_some()
+    );
+
+    // Focusing the button draws the focus outline, not a border rewrite.
+    let clicks = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counter = clicks.clone();
+    app.world_mut().entity_mut(button).observe(
+        move |_: On<bevy::picking::events::Pointer<bevy::picking::events::Click>>| {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        },
+    );
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(button));
+    app.update();
+    assert!(
+        app.world().get::<bevy::ui::Outline>(button).is_some(),
+        "focused button wears the outline"
+    );
+
+    // Space activates it.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Space);
+    app.update();
+    assert_eq!(clicks.load(std::sync::atomic::Ordering::SeqCst), 1, "Space clicked");
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .reset_all();
+
+    // Focus the ListBox; ArrowDown selects the first, then second item.
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(list));
+    app.update();
+    assert!(
+        app.world().get::<bevy::ui::Outline>(button).is_none(),
+        "outline moved off the button"
+    );
+    let items: Vec<Entity> = app.world().get::<Children>(list).unwrap().iter().collect();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ArrowDown);
+    app.update();
+    assert_eq!(
+        app.world()
+            .get::<bevy_pf::components::PfListBox>(list)
+            .unwrap()
+            .selected,
+        Some(items[0]),
+        "first ArrowDown selects the first item"
+    );
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .reset_all();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ArrowDown);
+    app.update();
+    assert_eq!(
+        app.world()
+            .get::<bevy_pf::components::PfListBox>(list)
+            .unwrap()
+            .selected,
+        Some(items[1]),
+        "second ArrowDown advances"
+    );
+}
