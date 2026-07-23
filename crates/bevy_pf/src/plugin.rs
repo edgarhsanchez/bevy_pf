@@ -82,7 +82,15 @@ impl Plugin for PfUiPlugin {
             if !app.is_plugin_added::<bevy::ui_widgets::EditableTextInputPlugin>() {
                 app.add_plugins(bevy::ui_widgets::EditableTextInputPlugin);
             }
+            if !app
+                .is_plugin_added::<bevy::input_focus::tab_navigation::TabNavigationPlugin>()
+            {
+                app.add_plugins(bevy::input_focus::tab_navigation::TabNavigationPlugin);
+            }
         }
+        app.init_resource::<bevy::input_focus::InputFocus>();
+        app.init_resource::<PfFocusVisual>();
+        app.add_systems(Update, focus_visuals);
         app.add_systems(Update, crate::triggers::evaluate_triggers);
         // Mouse-wheel / trackpad scrolling for every scrollable node
         // (ScrollViewer, ListBox, ComboBox dropdowns, ...).
@@ -217,6 +225,80 @@ fn repeat_buttons(
                 entity,
             ));
         });
+    }
+}
+
+/// The control currently wearing the focus border, with its original
+/// border colors for restoration on blur.
+#[derive(Resource, Default)]
+struct PfFocusVisual {
+    control: Option<Entity>,
+    saved: Option<BorderColor>,
+}
+
+/// WPF focus feedback for default chrome: when keyboard focus moves (click
+/// or Tab), the focused control's border takes the accent focus color and
+/// the previous control's border is restored. Templated controls express
+/// focus through FocusStates instead; controls without a border are
+/// left untouched.
+fn focus_visuals(
+    focus: Res<bevy::input_focus::InputFocus>,
+    mut state: ResMut<PfFocusVisual>,
+    parents: Query<&ChildOf>,
+    kinds: Query<&crate::components::PfElementKind>,
+    templated: Query<&crate::components::PfTemplatedControl>,
+    mut borders: Query<&mut BorderColor>,
+) {
+    if !focus.is_changed() {
+        return;
+    }
+    // The focused entity is usually the inner editable; the border lives on
+    // the nearest control-root ancestor.
+    const FOCUSABLE: &[&str] = &[
+        "TextBox",
+        "PasswordBox",
+        "ComboBox",
+        "AutoSuggestBox",
+        "NumericUpDown",
+        "DatePicker",
+        "TimePicker",
+        "ColorPicker",
+    ];
+    let mut control = None;
+    if let Some(mut cursor) = focus.get() {
+        loop {
+            if kinds
+                .get(cursor)
+                .is_ok_and(|k| FOCUSABLE.contains(&k.0.as_str()))
+            {
+                control = Some(cursor);
+                break;
+            }
+            match parents.get(cursor) {
+                Ok(parent) => cursor = parent.parent(),
+                Err(_) => break,
+            }
+        }
+    }
+    if state.control == control {
+        return;
+    }
+    // Restore the previously-focused control's border.
+    if let Some(prev) = state.control.take()
+        && let Some(saved) = state.saved.take()
+        && let Ok(mut border) = borders.get_mut(prev)
+    {
+        *border = saved;
+    }
+    // Paint the newly-focused control (unless a template owns its look).
+    if let Some(next) = control
+        && templated.get(next).is_err()
+        && let Ok(mut border) = borders.get_mut(next)
+    {
+        state.saved = Some(*border);
+        state.control = Some(next);
+        // WPF Aero2 TextBox.Focus.Border.
+        *border = BorderColor::all(Color::srgb_u8(0x56, 0x9D, 0xE5));
     }
 }
 

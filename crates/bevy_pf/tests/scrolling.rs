@@ -84,3 +84,91 @@ fn wheel_scrolls_nearest_scrollable_ancestor() {
         .expect("scroll position on the viewer");
     assert_eq!(pos.0.y, 60.0, "3 wheel lines scroll 60px down");
 }
+
+// Focus feedback: the focused text input's control root wears the accent
+// border; moving focus restores it and paints the next control.
+#[test]
+fn focused_text_box_wears_accent_border_and_restores_on_blur() {
+    let mut app = test_app();
+    let doc = bevy_pf_xaml::parse(
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <TextBox x:Name="A" Text="first"/>
+              <TextBox x:Name="B" Text="second"/>
+            </StackPanel>"##,
+    )
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn_empty().id();
+    let result =
+        instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (a, b) = (names.get("A").unwrap(), names.get("B").unwrap());
+    let original = *app.world().get::<bevy::ui::BorderColor>(a).unwrap();
+    let accent = Color::srgb_u8(0x56, 0x9D, 0xE5);
+
+    // Text inputs are tab stops inside a root tab group.
+    let input_a = app
+        .world()
+        .get::<Children>(a)
+        .unwrap()
+        .iter()
+        .find(|&c| app.world().get::<bevy::text::EditableText>(c).is_some())
+        .expect("editable input child");
+    assert!(
+        app.world()
+            .get::<bevy::input_focus::tab_navigation::TabIndex>(input_a)
+            .is_some(),
+        "inputs are tab stops"
+    );
+    assert!(
+        app.world()
+            .get::<bevy::input_focus::tab_navigation::TabGroup>(root)
+            .is_some(),
+        "scene root is a tab group"
+    );
+
+    // Focusing the INNER editable highlights the OUTER TextBox chrome.
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(input_a));
+    app.update();
+    assert_eq!(
+        app.world().get::<bevy::ui::BorderColor>(a).unwrap().top,
+        accent,
+        "focused TextBox wears the accent border"
+    );
+
+    // Moving focus to the other TextBox restores A and paints B.
+    let input_b = app
+        .world()
+        .get::<Children>(b)
+        .unwrap()
+        .iter()
+        .find(|&c| app.world().get::<bevy::text::EditableText>(c).is_some())
+        .unwrap();
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(input_b));
+    app.update();
+    assert_eq!(
+        *app.world().get::<bevy::ui::BorderColor>(a).unwrap(),
+        original,
+        "blurred TextBox border restored"
+    );
+    assert_eq!(
+        app.world().get::<bevy::ui::BorderColor>(b).unwrap().top,
+        accent
+    );
+
+    // Clearing focus restores everything.
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::default());
+    app.update();
+    assert_eq!(
+        *app.world().get::<bevy::ui::BorderColor>(b).unwrap(),
+        original,
+        "cleared focus restores the last control"
+    );
+}

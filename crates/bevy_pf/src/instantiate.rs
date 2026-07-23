@@ -116,7 +116,10 @@ pub fn instantiate_document_env(
     let binding_entities = std::mem::take(&mut ctx.binding_entities);
     crate::binding::resolve_deferred_sources(world, &binding_entities, &names, &mut warnings);
 
-    world.entity_mut(root).insert(XamlNames(names));
+    world.entity_mut(root).insert((
+        XamlNames(names),
+        bevy::input_focus::tab_navigation::TabGroup::default(),
+    ));
     Ok(InstantiateResult { root, warnings })
 }
 
@@ -3358,6 +3361,7 @@ impl<'w> Ctx<'w> {
                             ..Default::default()
                         },
                         editable,
+                        bevy::input_focus::tab_navigation::TabIndex(0),
                         bevy::text::TextColor(convert::color(inherited.foreground)),
                     ))
                     .id();
@@ -4092,6 +4096,7 @@ impl<'w> Ctx<'w> {
                             ..Default::default()
                         },
                         editable,
+                        bevy::input_focus::tab_navigation::TabIndex(0),
                         bevy::text::TextColor(convert::color(self.inherited.foreground)),
                     ))
                     .id();
@@ -6500,6 +6505,7 @@ impl<'w> Ctx<'w> {
                     ..Default::default()
                 },
                 editable,
+                bevy::input_focus::tab_navigation::TabIndex(0),
                 bevy::text::TextColor(convert::color(self.inherited.foreground)),
                 PfAutoSuggestInput { owner: entity },
             ))
