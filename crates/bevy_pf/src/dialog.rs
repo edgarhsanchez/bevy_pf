@@ -75,6 +75,15 @@ pub fn show_message(world: &mut World, title: &str, body: &str, buttons: &[&str]
     // Cover the whole viewport, above every UI layer (including popups).
     if let Some(mut node) = world.get_mut::<Node>(root) {
         node.position_type = PositionType::Absolute;
+        // Center via flex, not grid: a grid item with Min/MaxWidth hands its
+        // child the OUTER width instead of the padded content box (taffy
+        // 0.10 grid sizing bug — see tests/layout_geometry.rs), which hung
+        // dialog buttons past the panel edge. Flex sizes the content box
+        // correctly.
+        node.display = Display::Flex;
+        node.flex_direction = FlexDirection::Column;
+        node.align_items = AlignItems::Center;
+        node.justify_content = JustifyContent::Center;
         node.left = Val::Px(0.0);
         node.top = Val::Px(0.0);
         node.width = Val::Percent(100.0);
@@ -177,6 +186,15 @@ pub fn show_content(
     // Cover the whole viewport, above every UI layer (including popups).
     if let Some(mut node) = world.get_mut::<Node>(root) {
         node.position_type = PositionType::Absolute;
+        // Center via flex, not grid: a grid item with Min/MaxWidth hands its
+        // child the OUTER width instead of the padded content box (taffy
+        // 0.10 grid sizing bug — see tests/layout_geometry.rs), which hung
+        // dialog buttons past the panel edge. Flex sizes the content box
+        // correctly.
+        node.display = Display::Flex;
+        node.flex_direction = FlexDirection::Column;
+        node.align_items = AlignItems::Center;
+        node.justify_content = JustifyContent::Center;
         node.left = Val::Px(0.0);
         node.top = Val::Px(0.0);
         node.width = Val::Percent(100.0);
