@@ -9,6 +9,7 @@
 use bevy::picking::Pickable;
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, GlobalZIndex, UiGlobalTransform};
+use bevy::window::PrimaryWindow;
 
 use crate::components::PfLogicalParent;
 
@@ -42,6 +43,12 @@ pub struct PfPopup {
 pub struct PfPopupBackdrop {
     pub popup: Entity,
 }
+
+/// Present on a popup that should open at an explicit point (logical window
+/// coordinates) instead of against its anchor element — e.g. a context menu,
+/// which WPF opens at the mouse cursor. [`position_popups`] uses it when set.
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct PfPointerAnchor(pub Vec2);
 
 /// Get or create the overlay root (a non-pickable full-screen layer).
 pub fn ensure_overlay_root(world: &mut World) -> Entity {
@@ -112,28 +119,54 @@ pub(crate) fn sync_popup_visibility(
 /// Position open popups against their anchors (runs after layout; positions
 /// settle one frame after opening, which matches typical popup behavior).
 pub(crate) fn position_popups(
-    mut popups: Query<(&PfPopup, &mut Node)>,
+    mut popups: Query<(&PfPopup, &mut Node, &ComputedNode, Option<&PfPointerAnchor>)>,
     anchors: Query<(&ComputedNode, &UiGlobalTransform)>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    for (popup, mut node) in &mut popups {
+    // Logical size of the window the overlay covers — the parent every popup
+    // must stay inside.
+    let viewport = windows.iter().next().map(|window| Vec2::new(window.width(), window.height()));
+
+    for (popup, mut node, popup_computed, pointer_anchor) in &mut popups {
         if !popup.open {
             continue;
         }
-        let Ok((computed, transform)) = anchors.get(popup.anchor) else {
-            continue;
+
+        // Desired top-left before clamping, plus the anchor width for
+        // width-matching dropdowns (never for pointer-anchored menus).
+        let (mut left, mut top, match_width) = if let Some(anchor) = pointer_anchor {
+            // A context menu opens at the click point, WPF-style.
+            (anchor.0.x, anchor.0.y, None)
+        } else {
+            let Ok((computed, transform)) = anchors.get(popup.anchor) else {
+                continue;
+            };
+            let size = computed.size();
+            if size == Vec2::ZERO {
+                continue;
+            }
+            let inv = computed.inverse_scale_factor();
+            let top_left = (transform.translation - size / 2.0) * inv;
+            let logical_size = size * inv;
+            let placed = match popup.placement {
+                PfPlacement::Bottom => (top_left.x, top_left.y + logical_size.y),
+                PfPlacement::Right => (top_left.x + logical_size.x, top_left.y),
+            };
+            (placed.0, placed.1, Some(logical_size.x))
         };
-        let size = computed.size();
-        if size == Vec2::ZERO {
-            continue;
+
+        // Keep the whole popup within the window: one near the right or bottom
+        // edge slides back on-screen instead of spilling past its parent. The
+        // popup's own laid-out size is zero on the frame it first opens, so the
+        // clamp simply waits one frame (positions already settle a frame late).
+        if let Some(view) = viewport {
+            let popup_size = popup_computed.size() * popup_computed.inverse_scale_factor();
+            if popup_size.x > 0.0 && popup_size.y > 0.0 {
+                left = left.clamp(0.0, (view.x - popup_size.x).max(0.0));
+                top = top.clamp(0.0, (view.y - popup_size.y).max(0.0));
+            }
         }
-        let inv = computed.inverse_scale_factor();
-        let center: Vec2 = transform.translation;
-        let top_left = (center - size / 2.0) * inv;
-        let logical_size = size * inv;
-        let (left, top) = match popup.placement {
-            PfPlacement::Bottom => (top_left.x, top_left.y + logical_size.y),
-            PfPlacement::Right => (top_left.x + logical_size.x, top_left.y),
-        };
+
         node.position_type = PositionType::Absolute;
         if node.left != Val::Px(left) {
             node.left = Val::Px(left);
@@ -141,8 +174,11 @@ pub(crate) fn position_popups(
         if node.top != Val::Px(top) {
             node.top = Val::Px(top);
         }
-        if popup.match_anchor_width && node.min_width != Val::Px(logical_size.x) {
-            node.min_width = Val::Px(logical_size.x);
+        if popup.match_anchor_width
+            && let Some(width) = match_width
+            && node.min_width != Val::Px(width)
+        {
+            node.min_width = Val::Px(width);
         }
     }
 }

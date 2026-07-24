@@ -5385,13 +5385,17 @@ impl<'w> Ctx<'w> {
         }
         self.add_children(popup, &children);
 
-        // Open on right-click.
+        // Open on right-click, AT the cursor (position_popups then keeps the
+        // menu inside the window).
         let menu_popup = popup;
         self.world.entity_mut(entity).observe(
-            move |click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>| {
+            move |click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>, mut commands: Commands| {
                 if click.button == bevy::picking::pointer::PointerButton::Secondary
                     && let Ok(mut p) = popups.get_mut(menu_popup) {
                         p.open = true;
+                        commands
+                            .entity(menu_popup)
+                            .insert(crate::overlay::PfPointerAnchor(click.pointer_location.position));
                     }
             },
         );
