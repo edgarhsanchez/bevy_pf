@@ -3802,6 +3802,19 @@ impl<'w> Ctx<'w> {
             ..Default::default()
         };
         self.world.entity_mut(entity).insert(font);
+        // A caret and selection highlight only render when the `EditableText`
+        // also carries a `TextCursorStyle` — bevy_ui_render's
+        // `extract_text_cursor` takes it as a REQUIRED query member, so an input
+        // without it is excluded from cursor/selection extraction entirely.
+        // Colour it to the foreground so it shows on dark themes (the default
+        // SLATE_700 is near-invisible there).
+        if self.world.get::<bevy::text::EditableText>(entity).is_some() {
+            let cursor_color = convert::color(self.inherited.foreground);
+            self.world.entity_mut(entity).insert(bevy::text::TextCursorStyle {
+                color: cursor_color,
+                ..Default::default()
+            });
+        }
     }
 
     // -----------------------------------------------------------------

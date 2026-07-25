@@ -71,6 +71,8 @@ pub fn show_message(world: &mut World, title: &str, body: &str, buttons: &[&str]
         warn!("bevy_pf: dialog failed to instantiate: {e}");
         return root;
     }
+    // Confine Tab to the dialog's buttons instead of leaking to the page behind.
+    confine_and_focus_dialog(world, root, None);
 
     // Cover the whole viewport, above every UI layer (including popups).
     if let Some(mut node) = world.get_mut::<Node>(root) {
@@ -169,19 +171,26 @@ pub fn show_content(
     let host = world
         .get::<XamlNames>(root)
         .and_then(|n| n.get("PfDlgContent"));
-    if let Some(host) = host {
+    let inner_scene = if let Some(host) = host {
         let inner = world.spawn_empty().id();
         match crate::instantiate_document_env(world, inner, &content.document(), &XamlEnv::default())
         {
             Ok(_) => {
                 world.entity_mut(host).add_children(&[inner]);
+                Some(inner)
             }
             Err(e) => {
                 warn!("bevy_pf: content dialog body failed to instantiate: {e}");
                 world.entity_mut(inner).despawn();
+                None
             }
         }
-    }
+    } else {
+        None
+    };
+    // Confine Tab to the dialog and auto-focus its first field, so an opened
+    // dialog (e.g. "Add video URL") can be typed into / pasted into at once.
+    confine_and_focus_dialog(world, root, inner_scene);
 
     // Cover the whole viewport, above every UI layer (including popups).
     if let Some(mut node) = world.get_mut::<Node>(root) {
@@ -225,6 +234,24 @@ pub fn show_content(
         );
     }
     root
+}
+
+/// Confine keyboard focus to a freshly-opened dialog: make its root a MODAL Tab
+/// scope (so Tab cycles only the dialog's own fields and buttons instead of
+/// leaking to the page behind the scrim), and auto-focus its first text field
+/// so typing and paste work immediately without a click. `inner_scene`, when
+/// present, is the caller's content scene whose own non-modal TabGroup is
+/// dropped first, so the modal traversal descends into its fields rather than
+/// stopping at the buttons.
+fn confine_and_focus_dialog(world: &mut World, root: Entity, inner_scene: Option<Entity>) {
+    use bevy::input_focus::tab_navigation::TabGroup;
+    if let Some(inner) = inner_scene {
+        world.entity_mut(inner).remove::<TabGroup>();
+    }
+    world.entity_mut(root).insert(TabGroup::modal());
+    if let Some(first) = crate::behaviors::find_editable_in(world, root) {
+        world.insert_resource(bevy::input_focus::InputFocus::from_entity(first));
+    }
 }
 
 /// Close a dialog programmatically, reporting `button` as the result.

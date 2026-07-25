@@ -143,7 +143,7 @@ pub fn run_actions(world: &mut World, host: Entity, actions: &[PfAction]) {
 }
 
 /// First descendant carrying an `EditableText` (a TextBox's input child).
-fn find_editable_in(world: &World, root: Entity) -> Option<Entity> {
+pub(crate) fn find_editable_in(world: &World, root: Entity) -> Option<Entity> {
     if world.get::<bevy::text::EditableText>(root).is_some() {
         return Some(root);
     }
