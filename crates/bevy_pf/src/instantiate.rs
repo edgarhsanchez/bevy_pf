@@ -6089,6 +6089,9 @@ impl<'w> Ctx<'w> {
         };
         let minimum = get("Minimum", 0.0);
         let maximum = get("Maximum", 10.0).max(minimum);
+        // MinRange: the smallest gap the two thumbs may be dragged to, capped at
+        // the full span so a too-large value can never invert the interval.
+        let min_range = get("MinRange", 0.0).clamp(0.0, maximum - minimum);
         let lower = get("LowerValue", minimum).clamp(minimum, maximum);
         let upper = get("UpperValue", maximum).clamp(lower, maximum);
         let span = (maximum - minimum).max(f32::EPSILON);
@@ -6146,6 +6149,7 @@ impl<'w> Ctx<'w> {
             upper,
             minimum,
             maximum,
+            min_range,
             thumb_lower,
             thumb_upper,
             fill,
@@ -6168,10 +6172,13 @@ impl<'w> Ctx<'w> {
                     let frac = ((drag.pointer_location.position.x - origin_x) / width)
                         .clamp(0.0, 1.0);
                     let value = rs.minimum + frac * (rs.maximum - rs.minimum);
+                    // Keep the two thumbs at least `min_range` apart so the
+                    // interval never collapses (WPF MinRange semantics).
+                    let gap = rs.min_range.clamp(0.0, rs.maximum - rs.minimum);
                     if is_lower {
-                        rs.lower = value.min(rs.upper);
+                        rs.lower = value.min(rs.upper - gap).max(rs.minimum);
                     } else {
-                        rs.upper = value.max(rs.lower);
+                        rs.upper = value.max(rs.lower + gap).min(rs.maximum);
                     }
                 },
             );

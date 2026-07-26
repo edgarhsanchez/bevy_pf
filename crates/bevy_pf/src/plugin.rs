@@ -764,6 +764,10 @@ fn progress_fill_sync(
     for (progress, visual) in &bars {
         if let Ok(mut node) = nodes.get_mut(visual.fill) {
             node.width = Val::Percent(progress.fraction() * 100.0);
+            // Clear any horizontal offset the indeterminate sweep left behind, so
+            // a bar that switches from indeterminate back to determinate fills
+            // from the track origin instead of the last swept position.
+            node.margin.left = Val::Px(0.0);
         }
     }
 }

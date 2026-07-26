@@ -420,6 +420,10 @@ pub struct PfRangeSlider {
     pub upper: f32,
     pub minimum: f32,
     pub maximum: f32,
+    /// Smallest allowed gap between the two thumbs (WPF `MinRange`). Dragging a
+    /// thumb never brings the interval below this, so the two knobs cannot fully
+    /// collapse. `0` = they may meet.
+    pub min_range: f32,
     pub thumb_lower: Entity,
     pub thumb_upper: Entity,
     pub fill: Entity,
