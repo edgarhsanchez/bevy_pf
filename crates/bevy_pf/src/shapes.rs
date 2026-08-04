@@ -53,6 +53,12 @@ pub struct PfShape {
     pub fill_rule: Option<FillRule>,
 }
 
+/// Marks a shape whose `ImageNode` is owned by the GPU backend, so the CPU
+/// rasterizer leaves it alone. Defined here (not behind the `vector_gpu`
+/// feature) so this filter compiles either way.
+#[derive(Component, Debug, Default, Clone, Copy)]
+pub struct PfShapeGpuOwned;
+
 /// Tracks the pixel size of the last rasterization to avoid redundant work.
 #[derive(Component, Debug, Default, Clone, PartialEq)]
 pub struct PfShapeRendered(pub UVec2);
@@ -157,7 +163,7 @@ fn brush_to_shader<'a>(brush: &v::PfBrush, w: f32, h: f32) -> tiny_skia::Shader<
 
 /// Convert an SVG-style endpoint arc into cubic bezier segments.
 /// Implements the endpoint -> center parameterization from the SVG spec.
-fn arc_to_cubics(
+pub(crate) fn arc_to_cubics(
     from: v::Point,
     radii: v::Point,
     rotation_deg: f32,
@@ -483,7 +489,7 @@ pub(crate) fn rasterize_shapes(
         &PfShape,
         &ComputedNode,
         Option<&PfShapeRendered>,
-    )>,
+    ), Without<PfShapeGpuOwned>>,
     images: Option<ResMut<Assets<Image>>>,
     mut commands: Commands,
 ) {

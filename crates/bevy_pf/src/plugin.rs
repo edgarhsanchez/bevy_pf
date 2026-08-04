@@ -9,8 +9,9 @@ use crate::components::*;
 use crate::instantiate::instantiate_document;
 
 /// Selected list item background (Windows 10 style).
+/// Stock WPF selection fill — the [`crate::components::PfControlTheme`]
+/// default; kept as a fallback for `World`-only paths.
 pub(crate) const LIST_SELECTED_BG: Color = Color::srgb(0.796, 0.909, 0.964); // #CBE8F6
-const LIST_HOVER_BG: Color = Color::srgb(0.898, 0.953, 1.0); // #E5F3FF
 
 /// Adds bevy_pf's runtime systems (control interaction visuals, and later
 /// bindings, triggers, and asset loading).
@@ -89,6 +90,8 @@ impl Plugin for PfUiPlugin {
             }
         }
         app.init_resource::<bevy::input_focus::InputFocus>();
+        app.init_resource::<PfFocusRingColor>();
+        app.init_resource::<crate::components::PfControlTheme>();
         app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<PfFocusVisual>();
         app.add_systems(Update, (focus_visuals, keyboard_interaction));
@@ -137,6 +140,10 @@ impl Plugin for PfUiPlugin {
             (crate::shapes::rasterize_shapes, viewbox_scale)
                 .after(bevy::ui::UiSystems::Layout),
         );
+        // GPU shape backend, when compiled in: claims what it can render and
+        // leaves the rest to the CPU rasterizer above.
+        #[cfg(feature = "vector_gpu")]
+        app.add_plugins(crate::shapes_gpu::PfShapeGpuPlugin);
         // Data binding: write control state back to sources, then apply
         // source changes to targets. Runs after item generation so freshly
         // templated rows bind in the same frame (deterministically, not by
@@ -256,6 +263,8 @@ struct PfFocusVisual {
 /// left untouched.
 fn focus_visuals(
     focus: Res<bevy::input_focus::InputFocus>,
+    ring: Res<PfFocusRingColor>,
+    visibilities: Query<&Visibility>,
     mut state: ResMut<PfFocusVisual>,
     parents: Query<&ChildOf>,
     kinds: Query<&crate::components::PfElementKind>,
@@ -314,6 +323,28 @@ fn focus_visuals(
             }
         }
     }
+    // A control that is not visibly rendered must not get a focus ring: a
+    // hidden buffer (a screen's off-screen text field) would otherwise flash
+    // an opaque border over whatever covers it. The AUTHORED `Visibility` is
+    // checked, ancestors included, rather than `InheritedVisibility` — the
+    // computed form is only filled in by the render-world propagation systems,
+    // which headless apps (and tests) never run.
+    if let Some(entity) = control {
+        let mut cursor = entity;
+        loop {
+            if visibilities
+                .get(cursor)
+                .is_ok_and(|v| *v == Visibility::Hidden)
+            {
+                control = None;
+                break;
+            }
+            match parents.get(cursor) {
+                Ok(parent) => cursor = parent.parent(),
+                Err(_) => break,
+            }
+        }
+    }
     if state.control == control {
         return;
     }
@@ -339,7 +370,8 @@ fn focus_visuals(
                 e.insert(bevy::ui::Outline {
                     width: Val::Px(2.0),
                     offset: Val::Px(1.0),
-                    color: crate::components::ACCENT,
+                    // Same themable ring as the border variant below.
+                    color: ring.0,
                 });
                 state.control = Some(next);
                 state.outlined = true;
@@ -348,9 +380,27 @@ fn focus_visuals(
             state.saved = Some(*border);
             state.control = Some(next);
             state.outlined = false;
-            // WPF Aero2 TextBox.Focus.Border.
-            *border = BorderColor::all(Color::srgb_u8(0x56, 0x9D, 0xE5));
+            // Themable: apps whose palette is not WPF-blue override the
+            // resource; the Aero2 TextBox.Focus.Border stays the default.
+            *border = BorderColor::all(ring.0);
         }
+    }
+}
+
+/// The colour `focus_visuals` paints on a focused control's border.
+///
+/// Defaults to WPF Aero2's `TextBox.Focus.Border` blue. An app with its own
+/// palette overrides it once at startup:
+///
+/// ```ignore
+/// app.insert_resource(PfFocusRingColor(Color::srgb_u8(0x2F, 0xE9, 0xFF)));
+/// ```
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct PfFocusRingColor(pub Color);
+
+impl Default for PfFocusRingColor {
+    fn default() -> Self {
+        Self(Color::srgb_u8(0x56, 0x9D, 0xE5))
     }
 }
 
@@ -573,6 +623,7 @@ fn toolkit_control_sync(
     mut nodes: Query<&mut Node>,
     mut colors: Query<&mut BackgroundColor>,
     mut texts: Query<&mut bevy::ui::widget::Text>,
+    control_theme: Res<crate::components::PfControlTheme>,
 ) {
     for (entity, watermark) in &watermarks {
         // Hide the placeholder as soon as the editable child has content.
@@ -581,12 +632,23 @@ fn toolkit_control_sync(
                 .find_map(|k| editables.get(k).ok())
                 .map(|e| !e.editor().text().to_string().is_empty())
         });
-        if let Some(has_text) = has_text
-            && let Ok(mut n) = nodes.get_mut(watermark.overlay)
-        {
-            let target = if has_text { Display::None } else { Display::Flex };
-            if n.display != target {
-                n.display = target;
+        // The overlay mirrors the control's padding so the placeholder sits
+        // exactly where typed text will: its absolute containing block is the
+        // control's padding box, which does NOT include the padding itself.
+        // Copied per frame rather than at build because style-driven Padding
+        // arrives through the property store after instantiation.
+        let padding = nodes.get(entity).map(|n| n.padding);
+        if let Ok(mut n) = nodes.get_mut(watermark.overlay) {
+            if let Ok(padding) = padding
+                && n.padding != padding
+            {
+                n.padding = padding;
+            }
+            if let Some(has_text) = has_text {
+                let target = if has_text { Display::None } else { Display::Flex };
+                if n.display != target {
+                    n.display = target;
+                }
             }
         }
     }
@@ -599,11 +661,7 @@ fn toolkit_control_sync(
             }
         }
         if let Ok(mut c) = colors.get_mut(switch.track) {
-            let target = if on {
-                crate::components::ACCENT
-            } else {
-                Color::srgb_u8(0xB6, 0xB6, 0xB6)
-            };
+            let target = if on { control_theme.accent } else { control_theme.track };
             if c.0 != target {
                 c.0 = target;
             }
@@ -723,6 +781,7 @@ fn checked_visual_sync(
     visuals: Query<&PfCheckVisual>,
     mut vis_q: Query<&mut Visibility>,
     mut bg_q: Query<&mut BackgroundColor>,
+    control_theme: Res<crate::components::PfControlTheme>,
 ) {
     let mut apply = |visual: &PfCheckVisual, checked: bool| {
         if let Ok(mut vis) = vis_q.get_mut(visual.glyph) {
@@ -734,7 +793,7 @@ fn checked_visual_sync(
         }
         if visual.accent_fills_box
             && let Ok(mut bg) = bg_q.get_mut(visual.box_node) {
-                bg.0 = if checked { ACCENT } else { Color::WHITE };
+                bg.0 = if checked { control_theme.accent } else { control_theme.control_face };
             }
     };
     for visual in &added {
@@ -814,6 +873,7 @@ fn listbox_selection_visuals(
     >,
     children_q: Query<&Children>,
     mut items: Query<&mut BackgroundColor, With<PfListBoxItem>>,
+    control_theme: Res<crate::components::PfControlTheme>,
 ) {
     for (entity, list, panel) in &lists {
         let container = panel.map(|p| p.panel).unwrap_or(entity);
@@ -823,7 +883,7 @@ fn listbox_selection_visuals(
         for child in children.iter() {
             if let Ok(mut bg) = items.get_mut(child) {
                 bg.0 = if Some(child) == list.selected {
-                    LIST_SELECTED_BG
+                    control_theme.selection_fill
                 } else {
                     Color::NONE
                 };
@@ -924,6 +984,7 @@ fn listbox_item_hover(
     mut items: HoveredListItems,
     lists: Query<&PfListBox>,
     panels: Query<&crate::components::PfGeneratedItemsHost>,
+    control_theme: Res<crate::components::PfControlTheme>,
 ) {
     for (entity, interaction, parent, mut bg) in &mut items {
         // The item's parent is the list itself, or its ItemsPanel.
@@ -940,7 +1001,7 @@ fn listbox_item_hover(
             continue;
         }
         bg.0 = match interaction {
-            Interaction::Hovered | Interaction::Pressed => LIST_HOVER_BG,
+            Interaction::Hovered | Interaction::Pressed => control_theme.hover_fill,
             Interaction::None => Color::NONE,
         };
     }

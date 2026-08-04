@@ -51,6 +51,8 @@ pub mod query;
 pub mod provider;
 pub mod resources;
 pub mod shapes;
+#[cfg(feature = "vector_gpu")]
+pub mod shapes_gpu;
 pub mod themes;
 pub mod toast;
 pub mod triggers;
@@ -80,6 +82,7 @@ pub use triggers::PfTriggers;
 
 pub mod prelude {
     pub use crate::asset::{XamlAsset, XamlView};
+    pub use crate::behaviors::{clear_focus, find_editable_in, focus_control};
     pub use crate::binding::{
         Bindable, DataContext, PfConverterAppExt, PfMultiValueConverter, PfValueConverter,
     };
@@ -88,7 +91,8 @@ pub mod prelude {
     pub use crate::instantiate::PfElementAppExt;
     pub use crate::navigation::{PfNavigationAppExt, PfNavigated};
     pub use crate::query::PfQuery;
-    pub use crate::plugin::{PfCommandsExt, PfUiPlugin};
+    pub use crate::components::PfControlTheme;
+    pub use crate::plugin::{PfCommandsExt, PfFocusRingColor, PfUiPlugin};
     pub use crate::{XamlScene, include_xaml, xaml};
 }
 

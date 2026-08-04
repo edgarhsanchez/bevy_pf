@@ -11,6 +11,11 @@ authors.workspace = true
 [features]
 # Watch asset files and re-instantiate XamlView trees on change.
 hot_reload = ["bevy/file_watcher"]
+# Render WPF shapes on the GPU with bevy_pf_vector (tessellate-once +
+# instanced, drawn into a shared atlas) instead of CPU tiny-skia
+# rasterization. The CPU path stays as the fallback for anything the atlas
+# cannot fit, so enabling this is additive.
+vector_gpu = ["dep:bevy_pf_vector"]
 
 [dependencies]
 bevy = { workspace = true }
@@ -18,6 +23,7 @@ bevy_pf_xaml = { workspace = true }
 bevy_pf_macros = { workspace = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
+bevy_pf_vector = { path = "E:/github/bevy_pf_vector/bevy_pf_vector", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window"] }
