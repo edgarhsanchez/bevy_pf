@@ -125,6 +125,19 @@ impl Bindable {
         Some(result)
     }
 
+    /// Read the model through a typed closure WITHOUT bumping the version.
+    ///
+    /// The mutating [`Self::update`] bumps the change version even when the
+    /// closure only looks, which forces every binding on the context through a
+    /// re-apply. A host system that polls the model each frame (e.g. mirroring
+    /// control write-backs into an app resource) must use this instead, or the
+    /// poll itself keeps the bindings permanently dirty.
+    pub fn read<T: Reflect, R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
+        let guard = self.inner.value.read().unwrap();
+        let target = guard.as_any().downcast_ref::<T>()?;
+        Some(f(target))
+    }
+
     /// Read the value at a reflection path, converted to a [`BoundValue`].
     pub fn read_path(&self, path: &str) -> Option<BoundValue> {
         let full = self.full_path(path);
@@ -325,6 +338,17 @@ pub enum BindingTarget {
     FontSize,
     Foreground,
     Background,
+    /// `BorderBrush`. Only solid colours: a bound value is a string, and a
+    /// gradient has no string form in WPF's converter grammar. Applies to all
+    /// four sides — per-side border brushes are not a WPF concept either
+    /// (`BorderThickness` varies per side, `BorderBrush` does not).
+    BorderBrush,
+    /// A `Shape`'s `Stroke`. The shape counterpart of [`Self::BorderBrush`],
+    /// and the only way to give each item of a bound list its own outline
+    /// colour.
+    Stroke,
+    /// A `Shape`'s `Fill`. The shape counterpart of [`Self::Background`].
+    Fill,
 }
 
 /// Where a binding reads its value from.
@@ -992,11 +1016,7 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
                     .parse::<v::Visibility>()
                     .unwrap_or(v::Visibility::Visible),
             };
-            let (visibility, display) = convert::visibility(vis);
-            world.entity_mut(entity).insert(visibility);
-            if let Some(mut node) = world.get_mut::<Node>(entity) {
-                node.display = display.unwrap_or(Display::DEFAULT);
-            }
+            crate::provider::apply_wpf_visibility(world, entity, vis);
         }
         BindingTarget::Width | BindingTarget::Height => {
             let Some(n) = value.as_f64() else { return };
@@ -1026,6 +1046,28 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
                 world
                     .entity_mut(entity)
                     .insert(BackgroundColor(convert::color(color)));
+            }
+        }
+        BindingTarget::BorderBrush => {
+            if let Ok(color) = value.to_display().parse::<v::PfColor>() {
+                world
+                    .entity_mut(entity)
+                    .insert(bevy::ui::BorderColor::all(convert::color(color)));
+            }
+        }
+        BindingTarget::Stroke | BindingTarget::Fill => {
+            let Ok(color) = value.to_display().parse::<v::PfColor>() else {
+                return;
+            };
+            let brush = v::PfBrush::Solid(color);
+            let Some(mut shape) = world.get_mut::<crate::shapes::PfShape>(entity) else {
+                return;
+            };
+            // `get_mut` flags the component as changed, which is what makes
+            // `rasterize_shapes` redraw at the same size.
+            match binding.target {
+                BindingTarget::Stroke => shape.stroke = Some(brush),
+                _ => shape.fill = Some(brush),
             }
         }
     }

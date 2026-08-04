@@ -515,3 +515,115 @@ fn content_control_selects_datatype_template_and_scalar_text() {
     app.update();
     assert_eq!(first_text(&app, note).as_deref(), Some("edited"));
 }
+
+#[derive(Reflect, Default)]
+struct RowsVm {
+    rows: Vec<RowVm>,
+}
+
+#[derive(Reflect, Default)]
+struct RowVm {
+    name: String,
+}
+
+/// Generated item containers take the full width of a vertically-stacking items
+/// panel, as WPF does.
+///
+/// Without it the wrapper shrink-wraps its template, so a `*` Grid track inside
+/// an item collapses and a flush-right trailing button lands next to the label
+/// instead of at the row's right edge — the layout bug this guards against.
+#[test]
+fn generated_items_stretch_across_a_column_items_panel() {
+    let mut app = test_app();
+    let vm = Bindable::new(RowsVm {
+        rows: vec![
+            RowVm { name: "alpha".into() },
+            RowVm { name: "beta".into() },
+        ],
+    });
+    let doc = bevy_pf_xaml::parse(
+        r##"<ItemsControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                          x:Name="List" ItemsSource="{Binding rows}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Height="20"><TextBlock Text="{Binding name}"/></Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>"##,
+    )
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn(DataContext(vm)).id();
+    instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
+    app.update();
+
+    let list = named(&app, root, "List");
+    let items = children_of(&app, list);
+    assert_eq!(items.len(), 2, "one container per bound row");
+    for item in items {
+        let node = app.world().get::<Node>(item).unwrap();
+        assert_eq!(
+            node.align_self,
+            bevy::ui::AlignSelf::Stretch,
+            "a column items panel hands its containers the full width"
+        );
+        // And the container stacks in a column, so the template root fills that
+        // width instead of shrink-wrapping on the main axis.
+        assert_eq!(
+            node.flex_direction,
+            bevy::ui::FlexDirection::Column,
+            "an item container lays its content out like a ContentPresenter"
+        );
+    }
+}
+
+/// The converse: a `WrapPanel` must NOT stretch its containers. Its cross axis is
+/// height, and WPF measures a wrapped item to its natural height — stretching
+/// would blow every item up to the tallest one on its line.
+#[test]
+fn generated_items_do_not_stretch_across_a_wrap_panel() {
+    let mut app = test_app();
+    let vm = Bindable::new(RowsVm {
+        rows: vec![RowVm { name: "alpha".into() }],
+    });
+    let doc = bevy_pf_xaml::parse(
+        r##"<ItemsControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                          x:Name="Chips" ItemsSource="{Binding rows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Width="40" Height="20"><TextBlock Text="{Binding name}"/></Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>"##,
+    )
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn(DataContext(vm)).id();
+    instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
+    app.update();
+
+    let chips = named(&app, root, "Chips");
+    // The items panel redirects generation, so walk to whichever node owns the
+    // generated containers.
+    let mut stack = vec![chips];
+    let mut checked = 0;
+    while let Some(entity) = stack.pop() {
+        for child in children_of(&app, entity) {
+            if app.world().get::<DataContext>(child).is_some() {
+                assert_ne!(
+                    app.world().get::<Node>(child).unwrap().align_self,
+                    bevy::ui::AlignSelf::Stretch,
+                    "a wrap panel measures items to their natural size"
+                );
+                checked += 1;
+            }
+            stack.push(child);
+        }
+    }
+    assert_eq!(checked, 1, "expected exactly one generated container");
+}

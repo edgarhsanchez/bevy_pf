@@ -119,8 +119,7 @@ pub fn run_actions(world: &mut World, host: Entity, actions: &[PfAction]) {
                 };
                 // Focus the inner editable if the target is a TextBox-like
                 // control, so typing lands where WPF users expect.
-                let target = find_editable_in(world, target).unwrap_or(target);
-                world.insert_resource(bevy::input_focus::InputFocus::from_entity(target));
+                focus_control(world, target);
             }
             PfAction::PlaySound { path, volume } => {
                 // AudioPlugin inserts GlobalVolume; without it (headless,
@@ -142,14 +141,57 @@ pub fn run_actions(world: &mut World, host: Entity, actions: &[PfAction]) {
     }
 }
 
-/// First descendant carrying an `EditableText` (a TextBox's input child).
-pub(crate) fn find_editable_in(world: &World, root: Entity) -> Option<Entity> {
+/// The editable entity inside a control, if it has one.
+///
+/// A `TextBox` is a *control* — chrome, watermark, padding — whose actual text
+/// buffer lives on a child carrying `EditableText`. Focus has to land on that
+/// child, so anything driving focus programmatically (rather than by click)
+/// needs this walk: `PfQuery::by_name` finds the control, this finds the thing
+/// that can receive keystrokes.
+///
+/// Returns `Some(root)` when `root` is itself editable, so it is safe to call
+/// with either.
+///
+/// See [`focus_control`] for the common case.
+pub fn find_editable_in(world: &World, root: Entity) -> Option<Entity> {
     if world.get::<bevy::text::EditableText>(root).is_some() {
         return Some(root);
     }
     let children = world.get::<Children>(root)?;
     let kids: Vec<Entity> = children.iter().collect();
     kids.into_iter().find_map(|c| find_editable_in(world, c))
+}
+
+/// Move keyboard focus to a control, resolving to its editable child.
+///
+/// The programmatic counterpart of clicking a `TextBox`. Use it when focus is
+/// driven by application state rather than by the pointer — an initial field on
+/// screen open, a "next field" key, or restoring focus after a modal closes.
+///
+/// Setting [`InputFocus`] directly to the control entity does *not* work: the
+/// control is not the thing carrying `EditableText`, so keystrokes go nowhere.
+/// That silent failure is the reason this is public.
+///
+/// [`InputFocus`]: bevy::input_focus::InputFocus
+pub fn focus_control(world: &mut World, control: Entity) {
+    let target = find_editable_in(world, control).unwrap_or(control);
+    // `set`, not `insert_resource(InputFocus::from_entity(..))`: the latter
+    // replaces the resource wholesale and drops any focus changes buffered this
+    // frame, which upstream documents as causing missed FocusGained/FocusLost.
+    world
+        .resource_mut::<bevy::input_focus::InputFocus>()
+        .set(target, bevy::input_focus::FocusCause::Navigated);
+}
+
+/// Clear keyboard focus, so no editable receives keystrokes.
+///
+/// Needed whenever a UI tree is hidden rather than despawned: hiding stops the
+/// pointer but not the keyboard, so a focused `TextBox` under a hidden screen
+/// keeps swallowing input.
+pub fn clear_focus(world: &mut World) {
+    world
+        .resource_mut::<bevy::input_focus::InputFocus>()
+        .clear();
 }
 
 /// Resolve a name against the host's template parts, then the scene

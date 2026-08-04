@@ -19,6 +19,13 @@ pub struct PfUid(pub String);
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 pub struct PfAutomationId(pub String);
 
+/// The `Node::display` an element had before `Visibility="Collapsed"` set it
+/// to `Display::None`. Restoring visibility puts this value back — guessing
+/// `Display::DEFAULT` (Flex) instead silently turned Grid containers (a
+/// ScrollViewer, a Grid) into flex rows whose children shrink-wrap.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PfCollapsedDisplay(pub bevy::ui::Display);
+
 /// On the root entity of an instantiated XAML scene: `x:Name` -> entity map.
 #[derive(Component, Debug, Default)]
 pub struct XamlNames(pub HashMap<String, Entity>);
@@ -74,6 +81,52 @@ impl Default for ButtonVisual {
 
 /// The WPF accent color used by default control chrome.
 pub const ACCENT: Color = Color::srgb(0.0, 0.47, 0.84); // #0078D7
+
+/// Colors for the built-in (non-templated) form-control chrome: CheckBox /
+/// RadioButton boxes, the Slider track and thumb, the ToggleSwitch track,
+/// the ComboBox face, and dropdown popups.
+///
+/// The default reproduces the classic WPF look. A host with its own design
+/// system overrides the resource once (`app.insert_resource`) and every stock
+/// control follows — the same pattern as [`crate::PfFocusRingColor`], for the
+/// controls whose visuals are spawned in code rather than styled in markup.
+#[derive(Resource, Debug, Clone)]
+pub struct PfControlTheme {
+    /// Checked / active fill: checked box, slider thumb, switch-on track.
+    pub accent: Color,
+    /// Glyph drawn on top of the accent (check mark, radio dot).
+    pub on_accent: Color,
+    /// Face of an idle control (unchecked box, combo face).
+    pub control_face: Color,
+    /// Border of an idle control.
+    pub control_border: Color,
+    /// Inactive rail fill: slider track, switch-off track.
+    pub track: Color,
+    /// Dropdown popup surface (ComboBox / menu popups).
+    pub popup_face: Color,
+    /// Dropdown popup border.
+    pub popup_border: Color,
+    /// Selected list-item fill.
+    pub selection_fill: Color,
+    /// Hovered list-item fill.
+    pub hover_fill: Color,
+}
+
+impl Default for PfControlTheme {
+    fn default() -> Self {
+        Self {
+            accent: ACCENT,
+            on_accent: Color::WHITE,
+            control_face: Color::WHITE,
+            control_border: Color::srgb_u8(0x70, 0x70, 0x70),
+            track: Color::srgb_u8(0xC4, 0xC4, 0xC4),
+            popup_face: Color::WHITE,
+            popup_border: Color::srgb_u8(0xAD, 0xAD, 0xAD),
+            selection_fill: Color::srgb(0.796, 0.909, 0.964), // #CBE8F6
+            hover_fill: Color::srgb(0.898, 0.953, 1.0),       // #E5F3FF
+        }
+    }
+}
 
 /// Links a CheckBox/RadioButton root to its box and check-glyph entities so
 /// visual-state systems can update them when `Checked` changes.

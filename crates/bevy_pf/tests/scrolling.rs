@@ -272,3 +272,155 @@ fn keyboard_activation_and_arrow_selection() {
         "second ArrowDown advances"
     );
 }
+
+fn spawn_scene(app: &mut App, xaml: &str) -> Entity {
+    let doc = bevy_pf_xaml::parse(xaml).expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn_empty().id();
+    let result =
+        instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    root
+}
+
+fn editable_in(app: &App, control: Entity) -> Entity {
+    app.world()
+        .get::<Children>(control)
+        .unwrap()
+        .iter()
+        .find(|&c| app.world().get::<bevy::text::EditableText>(c).is_some())
+        .expect("editable input child")
+}
+
+/// `IsTabStop="False"` keeps a control out of the Tab ring — the mechanism a
+/// screen uses so its buttons never steal keyboard focus from its fields.
+#[test]
+fn is_tab_stop_false_opts_out_of_the_tab_ring() {
+    let mut app = test_app();
+    let root = spawn_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <Button x:Name="Stop" Content="in the ring"/>
+              <Button x:Name="Skip" Content="out of it" IsTabStop="False"/>
+              <TextBox x:Name="Field"/>
+              <TextBox x:Name="Ghost" IsTabStop="False"/>
+            </StackPanel>"##,
+    );
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (stop, skip) = (names.get("Stop").unwrap(), names.get("Skip").unwrap());
+    let (field, ghost) = (names.get("Field").unwrap(), names.get("Ghost").unwrap());
+
+    use bevy::input_focus::tab_navigation::TabIndex;
+    assert!(app.world().get::<TabIndex>(stop).is_some());
+    assert!(
+        app.world().get::<TabIndex>(skip).is_none(),
+        "IsTabStop=False must not insert a TabIndex"
+    );
+    assert!(app.world().get::<TabIndex>(editable_in(&app, field)).is_some());
+    assert!(
+        app.world().get::<TabIndex>(editable_in(&app, ghost)).is_none(),
+        "a non-tab-stop TextBox keeps its editable out of the ring too"
+    );
+}
+
+/// An explicit `Width`/`Height` is a HARD size, like WPF. Without the min/max
+/// clamp a control's default minimums win — a TextBox carries min_height 24,
+/// so `Height="1"` silently laid out 24px tall.
+#[test]
+fn explicit_size_beats_a_controls_default_minimums() {
+    let mut app = test_app();
+    let root = spawn_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <TextBox x:Name="Thin" Height="1" Width="40"/>
+            </StackPanel>"##,
+    );
+    app.update();
+
+    let thin = app.world().get::<XamlNames>(root).unwrap().get("Thin").unwrap();
+    let node = app.world().get::<Node>(thin).unwrap();
+    assert_eq!(node.height, Val::Px(1.0));
+    assert_eq!(node.min_height, Val::Px(1.0), "explicit Height clamps min");
+    assert_eq!(node.max_height, Val::Px(1.0), "explicit Height clamps max");
+    assert_eq!(node.min_width, Val::Px(40.0), "explicit Width clamps min");
+}
+
+/// The focus ring is themable and never decorates a hidden control: a hidden
+/// off-screen text buffer would otherwise flash an opaque border over
+/// whatever visually replaces it.
+#[test]
+fn the_focus_ring_is_themable_and_skips_hidden_controls() {
+    let mut app = test_app();
+    let cyan = Color::srgb_u8(0x2F, 0xE9, 0xFF);
+    app.insert_resource(bevy_pf::plugin::PfFocusRingColor(cyan));
+
+    let root = spawn_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <TextBox x:Name="Seen" Text="visible"/>
+              <TextBox x:Name="Buffer" Text="hidden" Visibility="Hidden"/>
+            </StackPanel>"##,
+    );
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (seen, buffer) = (names.get("Seen").unwrap(), names.get("Buffer").unwrap());
+    let hidden_border = *app.world().get::<bevy::ui::BorderColor>(buffer).unwrap();
+
+    // Themed ring on the visible control.
+    let seen_editable = editable_in(&app, seen);
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(seen_editable));
+    app.update();
+    assert_eq!(
+        app.world().get::<bevy::ui::BorderColor>(seen).unwrap().top,
+        cyan,
+        "the ring takes the themed colour"
+    );
+
+    // No ring at all on the hidden control.
+    let buffer_editable = editable_in(&app, buffer);
+    app.world_mut()
+        .insert_resource(bevy::input_focus::InputFocus::from_entity(buffer_editable));
+    app.update();
+    assert_eq!(
+        *app.world().get::<bevy::ui::BorderColor>(buffer).unwrap(),
+        hidden_border,
+        "a hidden control must not wear a focus ring"
+    );
+}
+
+/// Subtree opacity reaches the text caret. bevy_ui_render draws
+/// `TextCursorStyle` at whatever alpha it carries, ignoring UI opacity, so a
+/// faded control otherwise keeps a fully opaque caret floating over it.
+#[test]
+fn subtree_opacity_fades_the_text_caret() {
+    let mut app = test_app();
+    let root = spawn_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <TextBox x:Name="Faded" Text="dim" Opacity="0"/>
+            </StackPanel>"##,
+    );
+    app.update();
+    app.update();
+
+    let faded = app.world().get::<XamlNames>(root).unwrap().get("Faded").unwrap();
+    let editable = editable_in(&app, faded);
+    let cursor = app
+        .world()
+        .get::<bevy::text::TextCursorStyle>(editable)
+        .expect("the editable carries a caret style");
+    assert_eq!(cursor.color.alpha(), 0.0, "caret fades with the subtree");
+    assert_eq!(
+        cursor.selection_color.alpha(),
+        0.0,
+        "selection highlight fades too"
+    );
+}

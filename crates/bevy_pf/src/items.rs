@@ -246,13 +246,26 @@ pub(crate) fn sync_items_sources(world: &mut World) {
             }
 
             // Wrapper per host kind.
+            //
+            // Item containers stack their content in a COLUMN, which is what
+            // makes a template root fill the container's width: bevy_ui's
+            // default cross-axis alignment stretches, and WPF's
+            // `ContentPresenter` fills its container horizontally the same way.
+            // A row-direction container would put the template on the main axis,
+            // where it shrink-wraps and every `*` Grid track inside it collapses.
             let wrapper = match source.kind {
                 ItemsHostKind::DataGrid => unreachable!("handled above"),
-                ItemsHostKind::ItemsControl => world.spawn(Node::default()).id(),
+                ItemsHostKind::ItemsControl => world
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        ..Default::default()
+                    })
+                    .id(),
                 ItemsHostKind::ListBox => {
                     let wrapper = world
                         .spawn((
                             Node {
+                                flex_direction: FlexDirection::Column,
                                 padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)),
                                 ..Default::default()
                             },
@@ -337,8 +350,38 @@ pub(crate) fn sync_items_sources(world: &mut World) {
             }
             items.push(wrapper);
         }
+
+        // WPF gives each generated item container the full cross-axis extent of
+        // a vertically-stacking items panel (`HorizontalContentAlignment`
+        // defaults to `Stretch` on the container). Without this the wrapper
+        // shrink-wraps its template, so every `*` Grid track *inside* an item
+        // collapses to content width and a trailing flush-right button ends up
+        // jammed against the label.
+        //
+        // Only for column panels: in a `WrapPanel` (a wrapping flex row) the
+        // cross axis is height, and WPF measures a wrapped item to its natural
+        // height, not the line height.
+        if column_stacking(world, container) {
+            for &item in &items {
+                if let Some(mut node) = world.get_mut::<Node>(item) {
+                    node.align_self = bevy::ui::AlignSelf::Stretch;
+                }
+            }
+        }
+
         world.entity_mut(container).add_children(&items);
     }
+}
+
+/// Whether an items panel stacks its children top-to-bottom, and so hands them
+/// its full width.
+fn column_stacking(world: &World, container: Entity) -> bool {
+    world.get::<Node>(container).is_some_and(|node| {
+        matches!(
+            node.flex_direction,
+            bevy::ui::FlexDirection::Column | bevy::ui::FlexDirection::ColumnReverse
+        ) && node.flex_wrap == bevy::ui::FlexWrap::NoWrap
+    })
 }
 
 /// Spawn a plain text node with the engine's default text style (used for

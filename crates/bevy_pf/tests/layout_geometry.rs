@@ -146,6 +146,121 @@ fn message_dialog_keeps_buttons_inside_panel() {
     );
 }
 
+#[derive(bevy::reflect::Reflect, Default)]
+struct DeckRow {
+    name: String,
+    count: String,
+}
+
+#[derive(bevy::reflect::Reflect, Default)]
+struct DeckVm {
+    rows: Vec<DeckRow>,
+    deck_visible: bool,
+}
+
+/// WPF contract: a ScrollViewer with vertical-only scrolling stretches its
+/// content to the viewport width — a generated item's `*` Grid track must
+/// span the full viewport, pushing a trailing right-aligned element flush
+/// right. Regression shape: the Play Hub operative deck, where a bound
+/// `Visibility` on the ScrollViewer rewrote its `display` to Flex (a flex
+/// ROW), so group headers rendered content-sized with the count glued to
+/// the title and cards never filled the module.
+#[test]
+fn scroll_viewer_stretches_generated_rows_to_viewport_width() {
+    let mut app = layout_app();
+    app.update();
+
+    let vm = Bindable::new(DeckVm {
+        rows: vec![
+            DeckRow { name: "BLACKSITE".into(), count: "01".into() },
+            DeckRow { name: "DELTA".into(), count: "02".into() },
+        ],
+        deck_visible: true,
+    });
+    let doc = bevy_pf_xaml::parse(
+        r##"<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                  Width="400" Height="120">
+              <ScrollViewer x:Name="SV" Visibility="{Binding deck_visible}">
+                <ItemsControl x:Name="List" ItemsSource="{Binding rows}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid HorizontalAlignment="Stretch" ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding name}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding count}"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Grid>"##,
+    )
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn(DataContext(vm.clone())).id();
+    bevy_pf::instantiate_document_env(world, root, &doc, &bevy_pf::XamlEnv::default())
+        .expect("instantiates");
+    for _ in 0..5 {
+        app.update();
+    }
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let viewer = names.get("SV").unwrap();
+    let list = names.get("List").unwrap();
+
+    let assert_stretched = |app: &App, label: &str| {
+        let (sv_min, sv_max) = rect_of(app.world(), viewer);
+        let sv_width = sv_max.x - sv_min.x;
+        assert!(
+            (sv_width - 400.0).abs() < 0.5,
+            "{label}: viewport width is definite"
+        );
+        assert_eq!(
+            app.world().get::<Node>(viewer).unwrap().display,
+            Display::Grid,
+            "{label}: a visible ScrollViewer keeps its Grid display"
+        );
+        let wrappers: Vec<Entity> = app.world().get::<Children>(list).unwrap().iter().collect();
+        assert_eq!(wrappers.len(), 2, "{label}: two generated rows");
+        for &wrapper in &wrappers {
+            // The template's Grid root and its trailing Auto column.
+            let grid = app.world().get::<Children>(wrapper).unwrap().iter().next().unwrap();
+            let (gmin, gmax) = rect_of(app.world(), grid);
+            assert!(
+                gmax.x - gmin.x >= sv_width - 0.5,
+                "{label}: template grid ({:.0}px) must span the {sv_width:.0}px viewport",
+                gmax.x - gmin.x
+            );
+            let cols: Vec<Entity> = app.world().get::<Children>(grid).unwrap().iter().collect();
+            let (_, count_max) = rect_of(app.world(), cols[1]);
+            assert!(
+                count_max.x >= sv_max.x - 1.0,
+                "{label}: trailing Auto column ({:.0}) must sit flush right ({:.0})",
+                count_max.x,
+                sv_max.x
+            );
+        }
+    };
+    assert_stretched(&app, "initial");
+
+    // Collapse and restore: the ScrollViewer must come back as a Grid, not
+    // Display::DEFAULT (Flex).
+    vm.update(|m: &mut DeckVm| m.deck_visible = false);
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_eq!(
+        app.world().get::<Node>(viewer).unwrap().display,
+        Display::None,
+        "collapsed ScrollViewer leaves layout"
+    );
+    vm.update(|m: &mut DeckVm| m.deck_visible = true);
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_stretched(&app, "after collapse/restore");
+}
+
 // Minimal probes for the Border content-box bug: which sizing mode makes a
 // Border's child take the OUTER width instead of the padded content box?
 #[test]

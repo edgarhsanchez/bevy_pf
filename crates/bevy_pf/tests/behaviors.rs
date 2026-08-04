@@ -226,3 +226,45 @@ fn set_focus_action_and_focus_scoped_key_trigger() {
     app.update();
     assert_eq!(fired.load(Ordering::SeqCst), 1, "focused: fired");
 }
+
+/// `focus_control` resolves a TextBox to its editable child.
+///
+/// Setting `InputFocus` to the control entity itself does nothing — the control
+/// is chrome, the buffer is a child — and that failure is silent, which is why
+/// the resolver is public API rather than an internal detail.
+#[test]
+fn focus_control_resolves_a_textbox_to_its_editable_child() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBox x:Name="Email" Width="200"/>
+           </StackPanel>"##,
+    );
+    app.update();
+
+    let control = app.world().get::<XamlNames>(root).unwrap().get("Email").unwrap();
+    assert!(
+        app.world().get::<bevy::text::EditableText>(control).is_none(),
+        "the control itself is not the editable — that is the whole point"
+    );
+
+    let editable = find_editable_in(app.world(), control).expect("editable child");
+    assert!(app.world().get::<bevy::text::EditableText>(editable).is_some());
+
+    focus_control(app.world_mut(), control);
+    assert_eq!(
+        app.world()
+            .resource::<bevy::input_focus::InputFocus>()
+            .get(),
+        Some(editable),
+        "focus must land on the editable child, not the control"
+    );
+
+    clear_focus(app.world_mut());
+    assert_eq!(
+        app.world().resource::<bevy::input_focus::InputFocus>().get(),
+        None
+    );
+}

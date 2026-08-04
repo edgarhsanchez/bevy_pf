@@ -135,12 +135,8 @@ struct PfShapeAtlasCamera;
 
 /// Frames the atlas camera stays active after the last shape edit.
 ///
-/// The atlas holds its contents when nothing draws into it, so a UI that is
-/// not changing costs nothing: no pass, no 2048x2048 clear. Without this the
-/// GPU backend would re-render the whole atlas every frame to reproduce an
-/// identical image, and lose to the CPU backend on static UI — which is most
-/// UI, most of the time. A couple of frames of slack covers the deferred
-/// spawn of a newly created draw entity.
+/// CURRENTLY UNUSED — see `gate_atlas_camera`. Kept because the idea is
+/// right and only the mechanism was wrong.
 #[derive(Resource, Default)]
 struct PfAtlasDirty(u8);
 
@@ -698,16 +694,26 @@ fn rebuild_atlas_if_full(
     }
 }
 
-/// Run the atlas camera only while there is something new to draw.
+/// The atlas camera runs every frame.
+///
+/// It used to be gated on a dirty counter — skip the pass and the 2048x2048
+/// clear when no shape changed — which measured ~0.13 ms better on static UI.
+/// That was WRONG: an inactive camera's render target does not reliably
+/// retain its contents, so every shape vanished a few frames after it was
+/// drawn. Caught in the game as "the borders around the access code fields
+/// disappeared", reproduced in `shapes_gpu_check` as every specimen blank.
+///
+/// The saving is real but needs a mechanism that does not depend on the
+/// target persisting: clear and redraw only the live slots, or double-buffer
+/// the atlas. Until then, correctness.
 fn gate_atlas_camera(
     mut dirty: ResMut<PfAtlasDirty>,
     mut cameras: Query<&mut Camera, With<PfShapeAtlasCamera>>,
 ) {
-    let active = dirty.0 > 0;
-    dirty.0 = dirty.0.saturating_sub(1);
+    dirty.0 = 0;
     for mut camera in &mut cameras {
-        if camera.is_active != active {
-            camera.is_active = active;
+        if !camera.is_active {
+            camera.is_active = true;
         }
     }
 }

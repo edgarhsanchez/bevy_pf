@@ -250,7 +250,7 @@ fn confine_and_focus_dialog(world: &mut World, root: Entity, inner_scene: Option
     }
     world.entity_mut(root).insert(TabGroup::modal());
     if let Some(first) = crate::behaviors::find_editable_in(world, root) {
-        world.insert_resource(bevy::input_focus::InputFocus::from_entity(first));
+        crate::behaviors::focus_control(world, first);
     }
 }
 

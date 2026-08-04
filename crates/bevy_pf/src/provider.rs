@@ -294,6 +294,11 @@ pub struct PfOpacity {
 struct OriginalAlphas {
     bg: Option<f32>,
     border: Option<[f32; 4]>,
+    /// Caret colour + selection colour alphas: `bevy_ui_render` draws the
+    /// text cursor at whatever alpha `TextCursorStyle` carries, ignoring UI
+    /// opacity entirely, so a faded control would otherwise keep a fully
+    /// opaque caret floating over it.
+    cursor: Option<[f32; 2]>,
     text: Option<f32>,
 }
 
@@ -343,6 +348,13 @@ fn apply_subtree_opacity(world: &mut World, root: Entity, value: f32) {
         if let Some(mut text) = world.get_mut::<bevy::text::TextColor>(e) {
             let base = *orig.text.get_or_insert_with(|| text.0.alpha());
             set_alpha(&mut text.0, base * value);
+        }
+        if let Some(mut cursor) = world.get_mut::<bevy::text::TextCursorStyle>(e) {
+            let base = *orig
+                .cursor
+                .get_or_insert([cursor.color.alpha(), cursor.selection_color.alpha()]);
+            set_alpha(&mut cursor.color, base[0] * value);
+            set_alpha(&mut cursor.selection_color, base[1] * value);
         }
         if let Some(children) = world.get::<Children>(e) {
             stack.extend(children.iter());
@@ -579,10 +591,19 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
         PropertyTarget::Width | PropertyTarget::Height => {
             let Some(px) = as_f32() else { return };
             if let Some(mut node) = world.get_mut::<Node>(entity) {
+                // WPF: an explicit Width/Height is a HARD size. Without the
+                // min/max clamp a control's default minimums win (a TextBox
+                // carries min_height 24), so `Height="1"` silently laid out
+                // 24px tall.
+                let dim = convert::dimension(px);
                 if target == PropertyTarget::Width {
-                    node.width = convert::dimension(px);
+                    node.width = dim;
+                    node.min_width = dim;
+                    node.max_width = dim;
                 } else {
-                    node.height = convert::dimension(px);
+                    node.height = dim;
+                    node.min_height = dim;
+                    node.max_height = dim;
                 }
             }
         }
@@ -601,12 +622,44 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
                 _ => None,
             };
             if let Some(vis) = vis {
-                let (visibility, display) = convert::visibility(vis);
-                world.entity_mut(entity).insert(visibility);
-                if let Some(mut node) = world.get_mut::<Node>(entity) {
-                    node.display = display.unwrap_or(Display::DEFAULT);
-                }
+                apply_wpf_visibility(world, entity, vis);
             }
+        }
+    }
+}
+
+/// Apply a WPF `Visibility` to an entity: the shared path for static
+/// attributes, styles, triggers, and runtime bindings.
+///
+/// Collapsing stashes the node's own `display` in [`PfCollapsedDisplay`] so
+/// restoring puts the real value back; a visible node's `display` is never
+/// touched. The old behavior wrote `Display::DEFAULT` (Flex) on every
+/// Visible application, which silently converted Grid containers into flex
+/// rows — a ScrollViewer with a bound `Visibility` shrink-wrapped its whole
+/// content tree.
+pub(crate) fn apply_wpf_visibility(world: &mut World, entity: Entity, vis: v::Visibility) {
+    use crate::components::PfCollapsedDisplay;
+    let (visibility, display) = convert::visibility(vis);
+    world.entity_mut(entity).insert(visibility);
+    if display == Some(Display::None) {
+        let current = world.get::<Node>(entity).map(|n| n.display);
+        if let Some(current) = current
+            && current != Display::None
+        {
+            world.entity_mut(entity).insert(PfCollapsedDisplay(current));
+        }
+        if let Some(mut node) = world.get_mut::<Node>(entity) {
+            node.display = Display::None;
+        }
+    } else {
+        let saved = world
+            .entity_mut(entity)
+            .take::<PfCollapsedDisplay>()
+            .map(|s| s.0);
+        if let Some(mut node) = world.get_mut::<Node>(entity)
+            && node.display == Display::None
+        {
+            node.display = saved.unwrap_or(Display::DEFAULT);
         }
     }
 }
@@ -674,18 +727,19 @@ fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
         PropertyTarget::Width => {
             if let Some(mut node) = world.get_mut::<Node>(entity) {
                 node.width = Val::Auto;
+                node.min_width = Val::Auto;
+                node.max_width = Val::Auto;
             }
         }
         PropertyTarget::Height => {
             if let Some(mut node) = world.get_mut::<Node>(entity) {
                 node.height = Val::Auto;
+                node.min_height = Val::Auto;
+                node.max_height = Val::Auto;
             }
         }
         PropertyTarget::Visibility => {
-            world.entity_mut(entity).insert(Visibility::Inherited);
-            if let Some(mut node) = world.get_mut::<Node>(entity) {
-                node.display = Display::DEFAULT;
-            }
+            apply_wpf_visibility(world, entity, v::Visibility::Visible);
         }
         // No sane "unset" for text properties without re-deriving
         // inheritance; keep the current value (the Inherited tier is seeded

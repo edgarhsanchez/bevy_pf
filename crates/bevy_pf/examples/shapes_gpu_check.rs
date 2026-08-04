@@ -149,6 +149,29 @@ fn specimens() -> Vec<(&'static str, PfShape)> {
     path.stroke_thickness = 2.0;
     out.push(("path", path));
 
+    // Stroke-only + Stretch=Fill: what the obsidian chrome's bevel passes
+    // are (BevelMid/BevelBloom). Regression specimen — these vanished once
+    // the GPU backend took over.
+    let outline = PathData {
+        fill_rule: bevy_pf_xaml::geometry::FillRule::NonZero,
+        figures: vec![PathFigure {
+            start: v::Point::new(14.0, 0.0),
+            segments: vec![
+                PathSegment::Line(v::Point::new(100.0, 0.0)),
+                PathSegment::Line(v::Point::new(100.0, 86.0)),
+                PathSegment::Line(v::Point::new(86.0, 100.0)),
+                PathSegment::Line(v::Point::new(0.0, 100.0)),
+                PathSegment::Line(v::Point::new(0.0, 14.0)),
+            ],
+            closed: true,
+        }],
+    };
+    let mut bevel = PfShape::new(ShapeGeometry::Path(outline));
+    bevel.stroke = Some(rgb(0x2F, 0xE9, 0xFF));
+    bevel.stroke_thickness = 1.5;
+    bevel.stretch = v::Stretch::Fill;
+    out.push(("stroke+stretch", bevel));
+
     out
 }
 

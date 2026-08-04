@@ -617,3 +617,146 @@ fn two_way_element_bindings_write_back_to_the_source_element() {
         "template part checked the templated parent"
     );
 }
+
+#[derive(Reflect, Default)]
+struct PaintVm {
+    fill: String,
+    stroke: String,
+}
+
+/// `BorderBrush="{Binding ...}"` — the counterpart of the `Background` binding.
+///
+/// Motivating case: a list where each row's stroke encodes that row's status, so
+/// one `DataTemplate` renders a ruined item in oxide and a finished one in
+/// green. Without this the row template needs a `DataTrigger` per status, which
+/// does not scale past a handful and cannot express a colour computed at
+/// runtime.
+#[test]
+fn border_brush_binds_and_updates() {
+    let mut app = test_app();
+    let vm = Bindable::new(PaintVm {
+        fill: "#FF101820".into(),
+        stroke: "#FFB4451A".into(),
+    });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border x:Name="Plate" Width="40" Height="20" BorderThickness="2"
+                     Background="{Binding fill}" BorderBrush="{Binding stroke}"/>
+           </StackPanel>"##,
+        vm.clone(),
+    );
+    app.update();
+
+    let plate = app.world().get::<XamlNames>(root).unwrap().get("Plate").unwrap();
+    let border = |app: &App| -> Color { app.world().get::<bevy::ui::BorderColor>(plate).unwrap().top };
+    let background = |app: &App| -> Color {
+        app.world().get::<bevy::ui::BackgroundColor>(plate).unwrap().0
+    };
+
+    assert_eq!(border(&app), Color::srgba_u8(0xB4, 0x45, 0x1A, 0xFF));
+    assert_eq!(background(&app), Color::srgba_u8(0x10, 0x18, 0x20, 0xFF));
+
+    // A status change repaints the stroke, which is the whole point.
+    vm.update(|m: &mut PaintVm| m.stroke = "#FF2BF59B".into());
+    app.update();
+    assert_eq!(border(&app), Color::srgba_u8(0x2B, 0xF5, 0x9B, 0xFF));
+
+    // All four sides, like WPF: BorderThickness varies per side, BorderBrush
+    // does not.
+    let sides = app.world().get::<bevy::ui::BorderColor>(plate).unwrap();
+    assert_eq!(sides.top, sides.bottom);
+    assert_eq!(sides.left, sides.right);
+    assert_eq!(sides.top, sides.left);
+}
+
+/// An unparseable colour leaves the existing stroke alone rather than falling
+/// back to a default: a transient bad value in a view-model should not flash the
+/// UI to black.
+#[test]
+fn a_malformed_border_brush_leaves_the_previous_colour() {
+    let mut app = test_app();
+    let vm = Bindable::new(PaintVm {
+        fill: "#FF000000".into(),
+        stroke: "#FFB4451A".into(),
+    });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border x:Name="Plate" Width="40" Height="20" BorderThickness="2"
+                     BorderBrush="{Binding stroke}"/>
+           </StackPanel>"##,
+        vm.clone(),
+    );
+    app.update();
+    let plate = app.world().get::<XamlNames>(root).unwrap().get("Plate").unwrap();
+    assert_eq!(
+        app.world().get::<bevy::ui::BorderColor>(plate).unwrap().top,
+        Color::srgba_u8(0xB4, 0x45, 0x1A, 0xFF)
+    );
+
+    vm.update(|m: &mut PaintVm| m.stroke = "not a colour".into());
+    app.update();
+    assert_eq!(
+        app.world().get::<bevy::ui::BorderColor>(plate).unwrap().top,
+        Color::srgba_u8(0xB4, 0x45, 0x1A, 0xFF),
+        "a bad value must not flash the stroke to a default"
+    );
+}
+
+/// `Stroke` / `Fill` bind on shapes — the counterpart of `BorderBrush` /
+/// `Background` for chamfered plates and code cells, which are `Path`s rather
+/// than `Border`s because a Border cannot express a cut corner.
+///
+/// The subtle half is repainting: shapes rasterize to an image cached on their
+/// pixel size, so a colour change at the SAME size has to invalidate that cache
+/// or the old colour silently persists.
+#[test]
+fn shape_stroke_and_fill_bind_and_repaint_at_the_same_size() {
+    let mut app = test_app();
+    let vm = Bindable::new(PaintVm {
+        fill: "#FF101820".into(),
+        stroke: "#FFB4451A".into(),
+    });
+    let root = spawn_bound_scene(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Path x:Name="Cell" Width="40" Height="40" Stretch="Fill"
+                   StrokeThickness="1"
+                   Fill="{Binding fill}" Stroke="{Binding stroke}"
+                   Data="M 0,0 L 32,0 L 40,8 L 40,40 L 0,40 Z"/>
+           </StackPanel>"##,
+        vm.clone(),
+    );
+    app.update();
+
+    let cell = app.world().get::<XamlNames>(root).unwrap().get("Cell").unwrap();
+    fn solid(brush: Option<&bevy_pf_xaml::value::PfBrush>) -> (u8, u8, u8) {
+        match brush {
+            Some(bevy_pf_xaml::value::PfBrush::Solid(c)) => (c.r, c.g, c.b),
+            other => panic!("expected a solid brush, got {other:?}"),
+        }
+    }
+    let paint = |app: &App| -> ((u8, u8, u8), (u8, u8, u8)) {
+        let shape = app.world().get::<bevy_pf::shapes::PfShape>(cell).unwrap();
+        (solid(shape.stroke.as_ref()), solid(shape.fill.as_ref()))
+    };
+
+    let (stroke, fill) = paint(&app);
+    assert_eq!(stroke, (0xB4, 0x45, 0x1A), "oxide stroke bound");
+    assert_eq!(fill, (0x10, 0x18, 0x20), "dark fill bound");
+
+    // A status change repaints. The shape keeps its size, so this is exactly
+    // the case a size-keyed raster cache would miss.
+    vm.update(|m: &mut PaintVm| m.stroke = "#FF2BF59B".into());
+    app.update();
+    let (stroke, _) = paint(&app);
+    assert_eq!(
+        stroke,
+        (0x2B, 0xF5, 0x9B),
+        "a same-size colour change must actually repaint"
+    );
+}

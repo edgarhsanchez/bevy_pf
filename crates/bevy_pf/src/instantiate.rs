@@ -735,20 +735,29 @@ impl<'w> Ctx<'w> {
         self.pending.is_content_control = node.name == "ContentControl";
 
         // WPF: interactive controls are tab stops (text inputs get their
-        // TabIndex on the inner editable instead).
-        if matches!(
-            kind,
-            ElemKind::Button
-                | ElemKind::ToggleButton
-                | ElemKind::CheckBox
-                | ElemKind::RadioButton
-                | ElemKind::Slider
-                | ElemKind::ScrollBar
-                | ElemKind::ComboBox
-                | ElemKind::ListBox
-                | ElemKind::ToggleSwitch
-                | ElemKind::Hyperlink
-        ) {
+        // TabIndex on the inner editable instead). `IsTabStop="False"` opts a
+        // control out of the Tab ring AND out of click-to-focus -- both key
+        // off TabIndex -- which is how a screen keeps its buttons from
+        // stealing keyboard focus from its text fields.
+        let is_tab_stop = !matches!(
+            node.attribute("IsTabStop"),
+            Some(XamlValue::Str(v)) if v.eq_ignore_ascii_case("false")
+        );
+        if is_tab_stop
+            && matches!(
+                kind,
+                ElemKind::Button
+                    | ElemKind::ToggleButton
+                    | ElemKind::CheckBox
+                    | ElemKind::RadioButton
+                    | ElemKind::Slider
+                    | ElemKind::ScrollBar
+                    | ElemKind::ComboBox
+                    | ElemKind::ListBox
+                    | ElemKind::ToggleSwitch
+                    | ElemKind::Hyperlink
+            )
+        {
             self.world
                 .entity_mut(entity)
                 .insert(bevy::input_focus::tab_navigation::TabIndex(0));
@@ -1235,6 +1244,7 @@ impl<'w> Ctx<'w> {
             }
         };
 
+        let control_theme = self.control_theme();
         let mut e = self.world.entity_mut(entity);
         e.insert((ui_node, PfElementKind(node.name.clone())));
 
@@ -1283,8 +1293,8 @@ impl<'w> Ctx<'w> {
             }
             ElemKind::ComboBox => {
                 e.insert((
-                    BackgroundColor(Color::WHITE),
-                    BorderColor::all(Color::srgb_u8(0x7A, 0x7A, 0x7A)),
+                    BackgroundColor(control_theme.control_face),
+                    BorderColor::all(control_theme.control_border),
                     Interaction::default(),
                 ));
             }
@@ -2765,6 +2775,8 @@ impl<'w> Ctx<'w> {
             "Value" | "Increment" | "FormatString" if kind == ElemKind::NumericUpDown => {}
             "Watermark" | "PlaceholderText" if kind == ElemKind::TextBox => {}
             "Password" | "PasswordChar" if kind == ElemKind::TextBox => {}
+            // Consumed at build time (TabIndex insertion checks it directly).
+            "IsTabStop" => {}
             "Value" if kind == ElemKind::RatingBar => {}
             "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
             // Consumed by spawn_scroll_bar (Orientation hits the generic arm).
@@ -3009,7 +3021,7 @@ impl<'w> Ctx<'w> {
             "ShowGridLines" | "SizeToContent" | "WindowStartupLocation" | "Icon"
             | "ResizeMode" | "WindowStyle" | "WindowState"
             | "IsDefault" | "IsCancel" | "SnapsToDevicePixels" | "UseLayoutRounding"
-            | "Focusable" | "IsTabStop" | "TabIndex" | "ClipToBounds" | "LastChildFill"
+            | "Focusable" | "TabIndex" | "ClipToBounds" | "LastChildFill"
             | "IsReadOnly" | "IsIndeterminate" | "SmallChange" | "LargeChange"
             | "TickPlacement" | "TickFrequency" | "IsSnapToTickEnabled" | "SelectionMode"
             | "AcceptsTab" | "IsThreeState" | "CharacterCasing" | "PasswordChar"
@@ -3381,11 +3393,42 @@ impl<'w> Ctx<'w> {
                             ..Default::default()
                         },
                         editable,
-                        bevy::input_focus::tab_navigation::TabIndex(0),
                         bevy::text::TextColor(convert::color(inherited.foreground)),
                     ))
                     .id();
+                // `IsTabStop="False"`: editable and clickable, but out of the
+                // Tab ring.
+                let tab_stop = !matches!(
+                    node.attribute("IsTabStop"),
+                    Some(XamlValue::Str(v)) if v.eq_ignore_ascii_case("false")
+                );
+                if tab_stop {
+                    self.world
+                        .entity_mut(input)
+                        .insert(bevy::input_focus::tab_navigation::TabIndex(0));
+                }
                 self.apply_text_font(input);
+                // Click-to-focus for the WHOLE control, not just the
+                // editable child. bevy routes a press through a bubbling
+                // `AcquireFocus`: each hop with a `TabIndex` claims it, and an
+                // unclaimed event reaches the window and CLEARS focus. The
+                // editable child claims its own presses, but a press on the
+                // control's padding or border started a walk that found
+                // nothing — so clicking a TextBox's edge silently unfocused
+                // it. Intercepting the walk at the control redirects it to the
+                // editable; racing the press with a direct focus write loses,
+                // because the window fallback applies at command flush, after
+                // any observer ran.
+                let editable_child = input;
+                self.world.entity_mut(entity).observe(
+                    move |mut acquire: On<bevy::input_focus::AcquireFocus>,
+                          mut focus: ResMut<bevy::input_focus::InputFocus>| {
+                        acquire.propagate(false);
+                        if focus.get() != Some(editable_child) {
+                            focus.set(editable_child, bevy::input_focus::FocusCause::Navigated);
+                        }
+                    },
+                );
                 if is_password {
                     self.world
                         .entity_mut(input)
@@ -3419,9 +3462,21 @@ impl<'w> Ctx<'w> {
                         .world
                         .spawn((
                             Node {
+                                // Cover the control and centre like the real
+                                // text does, instead of the old hardcoded
+                                // left:4/top:2 that ignored the control's
+                                // padding (a tall padded field drew its
+                                // placeholder pinned top-left while typed
+                                // text sat centre-left). Padding is copied
+                                // from the control every frame by
+                                // `toolkit_control_sync`, so style-applied
+                                // padding stays honoured too.
                                 position_type: PositionType::Absolute,
-                                left: Val::Px(4.0),
-                                top: Val::Px(2.0),
+                                left: Val::Px(0.0),
+                                right: Val::Px(0.0),
+                                top: Val::Px(0.0),
+                                bottom: Val::Px(0.0),
+                                align_items: AlignItems::Center,
                                 display: if text.is_empty() {
                                     Display::Flex
                                 } else {
@@ -4261,15 +4316,16 @@ impl<'w> Ctx<'w> {
         let checked = pending.is_checked.unwrap_or(false);
         let is_radio = kind == ElemKind::RadioButton;
 
-        let box_border = Color::srgb_u8(0x70, 0x70, 0x70);
+        let theme = self.control_theme();
+        let box_border = theme.control_border;
         let (box_bg, glyph_vis) = match (is_radio, checked) {
-            (false, true) => (ACCENT, Visibility::Inherited),
-            (false, false) => (Color::WHITE, Visibility::Hidden),
-            (true, true) => (Color::WHITE, Visibility::Inherited),
-            (true, false) => (Color::WHITE, Visibility::Hidden),
+            (false, true) => (theme.accent, Visibility::Inherited),
+            (false, false) => (theme.control_face, Visibility::Hidden),
+            (true, true) => (theme.control_face, Visibility::Inherited),
+            (true, false) => (theme.control_face, Visibility::Hidden),
         };
 
-        // Inner glyph: white square for CheckBox, accent dot for RadioButton.
+        // Inner glyph: on-accent square for CheckBox, accent dot for RadioButton.
         let glyph = self
             .world
             .spawn((
@@ -4283,7 +4339,7 @@ impl<'w> Ctx<'w> {
                     },
                     ..Default::default()
                 },
-                BackgroundColor(if is_radio { ACCENT } else { Color::WHITE }),
+                BackgroundColor(if is_radio { theme.accent } else { theme.on_accent }),
                 glyph_vis,
             ))
             .id();
@@ -4330,6 +4386,15 @@ impl<'w> Ctx<'w> {
         });
         self.toggle_behavior(entity, kind);
         Ok(())
+    }
+
+    /// The host's control chrome palette ([`crate::components::PfControlTheme`]),
+    /// falling back to the stock WPF look.
+    fn control_theme(&self) -> crate::components::PfControlTheme {
+        self.world
+            .get_resource::<crate::components::PfControlTheme>()
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The behavioral half of CheckBox/RadioButton — always runs, templated
@@ -4398,6 +4463,7 @@ impl<'w> Ctx<'w> {
         let range = SliderRange::new(min, max);
         let fraction = range.thumb_position(value);
 
+        let theme = self.control_theme();
         const THUMB: f32 = 16.0;
         let track = self
             .world
@@ -4413,7 +4479,7 @@ impl<'w> Ctx<'w> {
                     border_radius: BorderRadius::all(Val::Px(2.0)),
                     ..Default::default()
                 },
-                BackgroundColor(Color::srgb_u8(0xC4, 0xC4, 0xC4)),
+                BackgroundColor(theme.track),
             ))
             .id();
         let thumb = self
@@ -4428,7 +4494,7 @@ impl<'w> Ctx<'w> {
                     border_radius: BorderRadius::MAX,
                     ..Default::default()
                 },
-                BackgroundColor(ACCENT),
+                BackgroundColor(theme.accent),
                 SliderThumb,
             ))
             .id();
@@ -4509,11 +4575,12 @@ impl<'w> Ctx<'w> {
 
         if let Some(idx) = pending.selected_index
             && let Some(&item) = items.get(idx) {
+                let selection_fill = self.control_theme().selection_fill;
                 if let Some(mut list_state) = self.world.get_mut::<PfListBox>(entity) {
                     list_state.selected = Some(item);
                 }
                 if let Some(mut bg) = self.world.get_mut::<BackgroundColor>(item) {
-                    bg.0 = crate::plugin::LIST_SELECTED_BG;
+                    bg.0 = selection_fill;
                 }
             }
     }
@@ -4802,6 +4869,7 @@ impl<'w> Ctx<'w> {
         use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
 
         // Popup + backdrop under the overlay root.
+        let theme = self.control_theme();
         let overlay = ensure_overlay_root(self.world);
         let popup = self.world
             .spawn((
@@ -4822,8 +4890,8 @@ impl<'w> Ctx<'w> {
                     overflow: bevy::ui::Overflow::scroll_y(),
                     ..Default::default()
                 },
-                BackgroundColor(Color::WHITE),
-                BorderColor::all(Color::srgb_u8(0xAD, 0xAD, 0xAD)),
+                BackgroundColor(theme.popup_face),
+                BorderColor::all(theme.popup_border),
                 bevy::ui::GlobalZIndex(i32::MAX - 900),
             ))
             .id();
@@ -5869,6 +5937,7 @@ impl<'w> Ctx<'w> {
                 BackgroundColor(Color::WHITE),
             ))
             .id();
+        let theme = self.control_theme();
         let track = self.world
             .spawn((
                 Node {
@@ -5877,7 +5946,7 @@ impl<'w> Ctx<'w> {
                     border_radius: bevy::ui::BorderRadius::all(Val::Px(999.0)),
                     ..Default::default()
                 },
-                BackgroundColor(if on { crate::components::ACCENT } else { Color::srgb_u8(0xB6, 0xB6, 0xB6) }),
+                BackgroundColor(if on { theme.accent } else { theme.track }),
             ))
             .id();
         self.world.entity_mut(track).add_children(&[thumb]);
@@ -7156,6 +7225,13 @@ impl<'w> Ctx<'w> {
                 v::BindingMode::OneWay,
             ),
             "Background" => (entity, BindingTarget::Background, v::BindingMode::OneWay),
+            "BorderBrush" => (entity, BindingTarget::BorderBrush, v::BindingMode::OneWay),
+            "Stroke" if kind == ElemKind::Shape => {
+                (entity, BindingTarget::Stroke, v::BindingMode::OneWay)
+            }
+            "Fill" if kind == ElemKind::Shape => {
+                (entity, BindingTarget::Fill, v::BindingMode::OneWay)
+            }
             other => {
                 self.warn(format!(
                     "binding on property `{other}` is not supported yet"
@@ -7709,10 +7785,14 @@ pub fn toggle_tree_item(world: &mut World, tree: Entity, item: Entity) {
                 bg.0 = Color::NONE;
             }
     }
+    let selection_fill = world
+        .get_resource::<crate::components::PfControlTheme>()
+        .map(|t| t.selection_fill)
+        .unwrap_or(crate::plugin::LIST_SELECTED_BG);
     let header = world.get::<Children>(item).and_then(|c| c.iter().next());
     if let Some(h) = header
         && let Some(mut bg) = world.get_mut::<BackgroundColor>(h) {
-            bg.0 = crate::plugin::LIST_SELECTED_BG;
+            bg.0 = selection_fill;
         }
     if let Some(mut t) = world.get_mut::<crate::components::PfTreeView>(tree) {
         t.selected = Some(item);
