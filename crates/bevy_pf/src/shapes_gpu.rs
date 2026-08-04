@@ -129,6 +129,21 @@ fn slot_capacity(px: UVec2) -> UVec2 {
 #[derive(Resource, Default)]
 struct PfAtlasFull(bool);
 
+/// Marker for the atlas camera so its activity can be gated.
+#[derive(Component)]
+struct PfShapeAtlasCamera;
+
+/// Frames the atlas camera stays active after the last shape edit.
+///
+/// The atlas holds its contents when nothing draws into it, so a UI that is
+/// not changing costs nothing: no pass, no 2048x2048 clear. Without this the
+/// GPU backend would re-render the whole atlas every frame to reproduce an
+/// identical image, and lose to the CPU backend on static UI — which is most
+/// UI, most of the time. A couple of frames of slack covers the deferred
+/// spawn of a newly created draw entity.
+#[derive(Resource, Default)]
+struct PfAtlasDirty(u8);
+
 pub struct PfShapeGpuPlugin;
 
 impl Plugin for PfShapeGpuPlugin {
@@ -140,10 +155,11 @@ impl Plugin for PfShapeGpuPlugin {
         // size; before it in the same set so the CPU path sees the
         // `PfShapeGpuOwned` marker and skips anything this backend owns.
         app.init_resource::<PfAtlasFull>()
+            .init_resource::<PfAtlasDirty>()
             .add_systems(Startup, setup_atlas)
             .add_systems(
                 PostUpdate,
-                (sync_gpu_shapes, rebuild_atlas_if_full)
+                (sync_gpu_shapes, rebuild_atlas_if_full, gate_atlas_camera)
                     .chain()
                     .after(bevy::ui::UiSystems::Layout)
                     .before(crate::shapes::rasterize_shapes),
@@ -194,6 +210,7 @@ fn setup_atlas(
         Projection::Orthographic(projection),
         bevy::render::view::Msaa::Off,
         RenderLayers::layer(SHAPE_LAYER),
+        PfShapeAtlasCamera,
         Name::new("PfShapeAtlasCamera"),
     ));
 
@@ -552,6 +569,7 @@ fn sync_gpu_shapes(
     atlas: Option<ResMut<PfShapeAtlas>>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
     mut full: ResMut<PfAtlasFull>,
+    mut dirty: ResMut<PfAtlasDirty>,
     mut commands: Commands,
 ) {
     let Some(mut atlas) = atlas else { return };
@@ -580,6 +598,7 @@ fn sync_gpu_shapes(
         {
             vector.commands = path;
             vector.style = style;
+            dirty.0 = 2;
             if gpu.size != px {
                 gpu.size = px;
                 transform.translation = slot_center_world(gpu.origin, px).extend(0.0);
@@ -623,6 +642,7 @@ fn sync_gpu_shapes(
             ))
             .id();
 
+        dirty.0 = 2;
         commands.entity(entity).insert((
             ImageNode::from_atlas_image(
                 atlas.image.clone(),
@@ -675,5 +695,19 @@ fn rebuild_atlas_if_full(
         commands
             .entity(entity)
             .remove::<(PfShapeGpu, PfShapeGpuOwned, ImageNode)>();
+    }
+}
+
+/// Run the atlas camera only while there is something new to draw.
+fn gate_atlas_camera(
+    mut dirty: ResMut<PfAtlasDirty>,
+    mut cameras: Query<&mut Camera, With<PfShapeAtlasCamera>>,
+) {
+    let active = dirty.0 > 0;
+    dirty.0 = dirty.0.saturating_sub(1);
+    for mut camera in &mut cameras {
+        if camera.is_active != active {
+            camera.is_active = active;
+        }
     }
 }

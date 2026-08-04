@@ -483,7 +483,9 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
 }
 
 /// Rasterize shapes whose laid-out size changed, updating their UI image.
-pub(crate) fn rasterize_shapes(
+/// CPU rasterization backend. Public so a harness can register it directly
+/// and compare it against the `vector_gpu` backend on the same workload.
+pub fn rasterize_shapes(
     mut shapes: Query<(
         Entity,
         &PfShape,
