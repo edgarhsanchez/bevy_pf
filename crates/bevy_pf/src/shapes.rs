@@ -53,11 +53,99 @@ pub struct PfShape {
     pub fill_rule: Option<FillRule>,
 }
 
-/// Marks a shape whose `ImageNode` is owned by the GPU backend, so the CPU
-/// rasterizer leaves it alone. Defined here (not behind the `vector_gpu`
-/// feature) so this filter compiles either way.
+/// Marks a shape drawn by something other than the CPU rasterizer, so
+/// `rasterize_shapes` leaves it alone.
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct PfShapeGpuOwned;
+
+/// Style a shape with bevy_ui's OWN node rendering where the geometry allows
+/// it, instead of rasterizing anything.
+///
+/// bevy_ui already draws rounded rectangles, borders and gradients on the GPU
+/// with a signed-distance shader, correctly clipped and z-ordered because it
+/// is part of the UI pass rather than a texture smuggled into it. A
+/// `<Rectangle>` or `<Ellipse>` with solid paint IS that primitive, so the
+/// fastest thing this backend can do for it is nothing at all: no tiny-skia
+/// raster, no texture upload, no atlas, no extra camera or pass.
+///
+/// That covers most UI chrome. Anything it cannot express — arbitrary paths,
+/// polylines, lines, dash patterns, elliptical corners, non-uniform ellipses
+/// — falls through to the rasterizer untouched.
+fn native_style(shape: &PfShape, px: UVec2) -> Option<(Option<Color>, Option<Color>, BorderRadius, f32)> {
+    let size = Vec2::new(px.x as f32, px.y as f32);
+    let solid = |brush: &v::PfBrush| match brush {
+        v::PfBrush::Solid(c) => Some(Color::srgba_u8(c.r, c.g, c.b, c.a)),
+        _ => None,
+    };
+    // A gradient or dashed stroke is not expressible as node styling.
+    if !shape.stroke_dash_array.is_empty() {
+        return None;
+    }
+    let fill = match &shape.fill {
+        Some(brush) => Some(solid(brush)?),
+        None => None,
+    };
+    let stroke = match &shape.stroke {
+        Some(brush) => Some(solid(brush)?),
+        None => None,
+    };
+    if fill.is_none() && stroke.is_none() {
+        return None;
+    }
+
+    let radius = match &shape.geometry {
+        ShapeGeometry::Rectangle { radius_x, radius_y } => {
+            // bevy_ui takes one radius per corner, not an ellipse per corner.
+            if (radius_x - radius_y).abs() > 0.01 {
+                return None;
+            }
+            BorderRadius::all(Val::Px(*radius_x))
+        }
+        // An inscribed ellipse is a box rounded by half its extents.
+        ShapeGeometry::Ellipse => BorderRadius::all(Val::Px(size.x.min(size.y) * 0.5)),
+        _ => return None,
+    };
+    Some((fill, stroke, radius, shape.stroke_thickness))
+}
+
+/// Applies [`native_style`] and marks what it handled.
+pub(crate) fn style_native_shapes(
+    mut shapes: Query<
+        (Entity, Ref<PfShape>, &ComputedNode, &mut bevy::ui::Node),
+        Without<PfShapeGpuOwned>,
+    >,
+    mut commands: Commands,
+) {
+    for (entity, shape, computed, mut node) in &mut shapes {
+        let size = computed.size();
+        let px = UVec2::new(size.x.round() as u32, size.y.round() as u32);
+        if px.x == 0 || px.y == 0 {
+            continue;
+        }
+        let Some((fill, stroke, radius, thickness)) = native_style(&shape, px) else {
+            continue;
+        };
+        // border_radius is a Node FIELD in bevy 0.19, not a component.
+        if node.border_radius != radius {
+            node.border_radius = radius;
+        }
+        let mut e = commands.entity(entity);
+        e.insert(PfShapeGpuOwned);
+        // Drop any texture a previous pass produced for this node.
+        e.remove::<(ImageNode, PfShapeRendered)>();
+        e.insert(BackgroundColor(fill.unwrap_or(Color::NONE)));
+        if let Some(stroke) = stroke {
+            e.insert(BorderColor::all(stroke));
+        }
+        // bevy_ui draws its border INSIDE the node; WPF straddles the edge.
+        // Half a pixel of difference on HUD chrome. Mutate the existing Node
+        // rather than insert one — it carries the layout.
+        let border = if stroke.is_some() { thickness } else { 0.0 };
+        if node.border != bevy::ui::UiRect::all(Val::Px(border)) {
+            node.border = bevy::ui::UiRect::all(Val::Px(border));
+        }
+    }
+}
 
 /// Tracks the pixel size of the last rasterization to avoid redundant work.
 #[derive(Component, Debug, Default, Clone, PartialEq)]

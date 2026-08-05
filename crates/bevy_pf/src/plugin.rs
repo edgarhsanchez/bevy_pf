@@ -137,7 +137,14 @@ impl Plugin for PfUiPlugin {
         // ui_layout_system also runs in PostUpdate and writes ComputedNode.
         app.add_systems(
             PostUpdate,
-            (crate::shapes::rasterize_shapes, viewbox_scale)
+            (
+                // Native node styling first: whatever it claims never reaches
+                // the rasterizer.
+                crate::shapes::style_native_shapes,
+                crate::shapes::rasterize_shapes,
+                viewbox_scale,
+            )
+                .chain()
                 .after(bevy::ui::UiSystems::Layout),
         );
         // GPU shape backend, when compiled in: claims what it can render and
