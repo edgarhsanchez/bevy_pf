@@ -22,6 +22,11 @@ pub enum ResolvedCondition {
     Checked(bool),
     Enabled(bool),
     Selected(bool),
+    /// `IsFocused`: true while this control OR A DESCENDANT holds keyboard
+    /// focus, matching WPF. The descendant walk matters because a TextBox's
+    /// editable child is what actually takes focus, so testing the control
+    /// alone would never fire.
+    Focused(bool),
     /// DataTrigger: `DataContext` path compared (string form) to a value.
     Data { path: String, expected: String },
 }
@@ -83,6 +88,24 @@ fn eval_condition(world: &World, entity: Entity, cond: &ResolvedCondition) -> bo
         }
         ResolvedCondition::Enabled(expected) => {
             (world.get::<InteractionDisabled>(entity).is_none()) == *expected
+        }
+        ResolvedCondition::Focused(expected) => {
+            let focused = world
+                .get_resource::<bevy::input_focus::InputFocus>()
+                .and_then(|f| f.get())
+                .is_some_and(|f| {
+                    let mut cursor = f;
+                    loop {
+                        if cursor == entity {
+                            break true;
+                        }
+                        match world.get::<ChildOf>(cursor) {
+                            Some(parent) => cursor = parent.parent(),
+                            None => break false,
+                        }
+                    }
+                });
+            focused == *expected
         }
         ResolvedCondition::Selected(expected) => {
             // The item's parent is the ListBox itself, or its ItemsPanel.

@@ -1668,6 +1668,12 @@ impl<'w> Ctx<'w> {
                             // IsExpanded state rides the Checked component.
                             "IsChecked" | "IsExpanded" => ResolvedCondition::Checked(expected),
                             "IsEnabled" => ResolvedCondition::Enabled(expected),
+                            // Focus lives in the InputFocus resource rather
+                            // than a component, so unlike IsMouseOver this
+                            // needs no interaction opt-in.
+                            "IsFocused" | "IsKeyboardFocusWithin" => {
+                                ResolvedCondition::Focused(expected)
+                            }
                             "IsSelected" => ResolvedCondition::Selected(expected),
                             _ => {
                                 self.warn(format!(
