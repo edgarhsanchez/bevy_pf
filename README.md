@@ -119,7 +119,13 @@ Working today:
   `#[derive(Reflect)]` view-model wrapped in a `Bindable` (the
   `INotifyPropertyChanged` analog), `DataContext` inherited down the tree,
   OneWay + TwoWay (TextBox text, CheckBox `IsChecked`, Slider `Value` write
-  back), reflection paths (`Player.Name`, `Items[0].Score`).
+  back), reflection paths (`Player.Name`, `Items[0].Score`). Bindable targets
+  include `Text`/`Content`, `Visibility`, `Width`/`Height`, `FontSize`, and the
+  paint properties `Foreground`, `Background`, `BorderBrush`, and (on shapes)
+  `Stroke` / `Fill` — so a single `DataTemplate` can render each row of a list,
+  or each cell of a chamfered `Path` strip, in that row's own status colour
+  without a `DataTrigger` per status. Shapes re-rasterize on a paint change
+  even when their size is unchanged.
 - **Vector graphics / WPF Shapes**: `Rectangle`, `Ellipse`, `Line`,
   `Polyline`, `Polygon`, and `Path` with the full geometry mini-language
   (`M/L/H/V/C/S/Q/T/A/Z`, `F0/F1`, relative commands, smooth-curve
