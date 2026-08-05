@@ -3919,12 +3919,15 @@ impl<'w> Ctx<'w> {
         // SLATE_700 is near-invisible there).
         if self.world.get::<bevy::text::EditableText>(entity).is_some() {
             let cursor_color = convert::color(self.inherited.foreground);
-            self.world
-                .entity_mut(entity)
-                .insert(bevy::text::TextCursorStyle {
+            self.world.entity_mut(entity).insert((
+                bevy::text::TextCursorStyle {
                     color: cursor_color,
                     ..Default::default()
-                });
+                },
+                // Blink modulates alpha every frame; it needs the authored
+                // colour kept aside or the first write would erode it.
+                crate::caret::PfCaretBase(cursor_color),
+            ));
         }
     }
 

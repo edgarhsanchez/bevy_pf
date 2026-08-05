@@ -33,6 +33,7 @@ pub mod animation;
 pub mod asset;
 pub mod behaviors;
 pub mod binding;
+pub mod caret;
 pub mod components;
 pub mod convert;
 pub mod dialog;

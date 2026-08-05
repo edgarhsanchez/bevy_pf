@@ -42,6 +42,7 @@ impl Plugin for PfUiPlugin {
             ),
         );
         app.init_resource::<crate::animation::PfRunningAnimations>();
+        app.init_resource::<crate::caret::PfCaretBlink>();
         if !app.world().contains_resource::<crate::binding::PfConverters>() {
             app.insert_resource(crate::binding::builtin_converters());
         }
@@ -53,6 +54,7 @@ impl Plugin for PfUiPlugin {
                 crate::behaviors::run_key_triggers,
                 crate::animation::drive_visual_states,
                 crate::animation::tick_animations,
+                crate::caret::blink_carets,
             )
                 .chain(),
         );
