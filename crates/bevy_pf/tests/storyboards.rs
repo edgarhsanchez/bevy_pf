@@ -613,7 +613,7 @@ fn focus_states_follow_input_focus() {
 /// difference: it asserts an INTERMEDIATE value partway through the ramp, so
 /// it fails both when nothing animates and when the value merely snaps.
 #[test]
-#[ignore = "KNOWN GAP: a VisualState storyboard inside a ControlTemplate never drives its target (measured 0.0 at the midpoint of a 1s ramp). Narrowed: the template expands, PfVisualStates IS attached to the control, and go_to_state is implemented -- so the remaining suspect is Storyboard.TargetName failing to resolve against the template's parts, which skips the animation. Start at the TargetName lookup. Un-ignore when fixed; do NOT author VSM in a product until then."]
+#[ignore = "KNOWN GAP: a VisualState storyboard inside a ControlTemplate never drives its target (measured 0.0 at the midpoint of a 1s ramp, i.e. nothing wrote at all -- not even the transparent-base fallback, which would have read ~0.5). RULED OUT by probing, do not re-check these: the template expands; PfVisualStates is attached to the control; the CommonStates driver is registered and chained before tick_animations; go_to_state is fully implemented; PfTemplateParts is present and DOES register the template part by name, so TargetName resolves. What remains is between go_to_state cloning the state storyboard and tick_animations writing a value: whether the parsed VisualState carries its <Storyboard> at all, and whether the Animation-tier store write reaches a template-part element. Un-ignore when fixed; do NOT author VSM in a product until then."]
 fn visual_state_storyboard_drives_a_value_over_time() {
     let mut app = test_app();
     let root = spawn(
