@@ -202,6 +202,19 @@ pub fn static_resource_key(ext: &bevy_pf_xaml::MarkupExtension) -> Result<Resour
 /// Parse the contents of a `Resources` property element into a dictionary.
 /// `scopes` provides lexically-earlier resources for `BasedOn` / nested
 /// `{StaticResource}` resolution.
+/// NOTE on failure semantics (verified 2026-08-05, after a self-inflicted
+/// outage): `parse_resource_entries_into` below is FAIL-SOFT — a resource
+/// that fails to parse is warned about and skipped, and the rest of the
+/// dictionary still loads. That is the right behaviour and it works.
+///
+/// What is NOT verified is what happens when the XML *around* a resource
+/// dictionary is mis-parsed — e.g. an element in a screen file gaining
+/// children it did not have. In one incident every style referenced by
+/// `access_code.xaml` came back "not found" while `controls.xaml` itself was
+/// fine, which points at the SCREEN's `Grid.Resources` scope failing rather
+/// than the dictionary parser. Diagnose there first if styles vanish
+/// wholesale; the dictionary loop is not the suspect it looks like.
+
 pub fn parse_resource_dictionary<'a>(
     nodes: impl Iterator<Item = &'a XamlNode>,
     scopes: &ResourceScopes,
