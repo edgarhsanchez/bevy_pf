@@ -387,6 +387,14 @@ fn column_stacking(world: &World, container: Entity) -> bool {
 /// Spawn a plain text node with the engine's default text style (used for
 /// runtime-generated items, where no lexical font inheritance exists).
 pub(crate) fn spawn_runtime_text(world: &mut World, text: &str) -> Entity {
+    // Generated rows sit under the overlay root, so there is no control to
+    // inherit Foreground from; the theme supplies the colour instead. This
+    // was hardcoded to BLACK, which is right for the default light theme and
+    // invisible on any dark one.
+    let color = world
+        .get_resource::<crate::components::PfControlTheme>()
+        .map(|theme| theme.item_text)
+        .unwrap_or(Color::BLACK);
     world
         .spawn((
             Node::default(),
@@ -396,7 +404,7 @@ pub(crate) fn spawn_runtime_text(world: &mut World, text: &str) -> Entity {
                 font: crate::fonts::default_font(),
                 ..Default::default()
             },
-            bevy::text::TextColor(Color::BLACK),
+            bevy::text::TextColor(color),
         ))
         .id()
 }

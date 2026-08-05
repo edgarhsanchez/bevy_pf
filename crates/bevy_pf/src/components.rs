@@ -110,6 +110,12 @@ pub struct PfControlTheme {
     pub selection_fill: Color,
     /// Hovered list-item fill.
     pub hover_fill: Color,
+    /// Text of GENERATED items (ComboBox dropdown rows, ItemsSource-bound
+    /// list rows). These live under the overlay root rather than under the
+    /// control, so they cannot inherit the control's `Foreground` the way
+    /// authored content does — the theme has to supply it. Must contrast
+    /// with `popup_face`.
+    pub item_text: Color,
 }
 
 impl Default for PfControlTheme {
@@ -124,6 +130,10 @@ impl Default for PfControlTheme {
             popup_border: Color::srgb_u8(0xAD, 0xAD, 0xAD),
             selection_fill: Color::srgb(0.796, 0.909, 0.964), // #CBE8F6
             hover_fill: Color::srgb(0.898, 0.953, 1.0),       // #E5F3FF
+            // Correct against the WHITE popup_face above. An app that
+            // darkens popup_face MUST darken this too, or its dropdown rows
+            // go black-on-black.
+            item_text: Color::BLACK,
         }
     }
 }
