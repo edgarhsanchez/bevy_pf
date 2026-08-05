@@ -274,8 +274,15 @@ impl ElemKind {
     /// The layout context this element provides for its children.
     fn as_parent(self, orientation: v::Orientation) -> ParentKind {
         match self {
-            Self::Grid | Self::Root | Self::Border | Self::Button | Self::ToggleButton
-            | Self::Label | Self::ScrollViewer | Self::ListBoxItem | Self::UniformGrid
+            Self::Grid
+            | Self::Root
+            | Self::Border
+            | Self::Button
+            | Self::ToggleButton
+            | Self::Label
+            | Self::ScrollViewer
+            | Self::ListBoxItem
+            | Self::UniformGrid
             | Self::ContentPresenter => ParentKind::Grid,
             Self::StackPanel | Self::WrapPanel | Self::DockPanel => match orientation {
                 v::Orientation::Vertical => ParentKind::FlexColumn,
@@ -283,18 +290,46 @@ impl ElemKind {
             },
             Self::Canvas => ParentKind::Canvas,
             Self::CheckBox | Self::RadioButton | Self::TextBox => ParentKind::FlexRow,
-            Self::TextBlock | Self::Image | Self::Unknown | Self::Slider
-            | Self::ScrollBar | Self::Track | Self::Thumb
-            | Self::ProgressBar | Self::Separator | Self::ListBox | Self::ItemsControl
-            | Self::ComboBox | Self::Shape | Self::GroupBox | Self::Expander
-            | Self::Viewbox | Self::TabControl | Self::TreeView | Self::Menu
-            | Self::DataGrid | Self::Hyperlink | Self::PopupElement
-            | Self::GridSplitter | Self::Calendar | Self::DatePicker
-            | Self::Frame | Self::ToggleSwitch | Self::NumericUpDown
-            | Self::RatingBar | Self::Badge | Self::BusyIndicator
-            | Self::RangeSlider | Self::TimePicker | Self::PackIcon
-            | Self::ColorPicker | Self::AutoSuggestBox => ParentKind::FlexColumn,
-            Self::StatusBar | Self::StatusBarItem | Self::ToolBar | Self::ToolBarTray
+            Self::TextBlock
+            | Self::Image
+            | Self::Unknown
+            | Self::Slider
+            | Self::ScrollBar
+            | Self::Track
+            | Self::Thumb
+            | Self::ProgressBar
+            | Self::Separator
+            | Self::ListBox
+            | Self::ItemsControl
+            | Self::ComboBox
+            | Self::Shape
+            | Self::GroupBox
+            | Self::Expander
+            | Self::Viewbox
+            | Self::TabControl
+            | Self::TreeView
+            | Self::Menu
+            | Self::DataGrid
+            | Self::Hyperlink
+            | Self::PopupElement
+            | Self::GridSplitter
+            | Self::Calendar
+            | Self::DatePicker
+            | Self::Frame
+            | Self::ToggleSwitch
+            | Self::NumericUpDown
+            | Self::RatingBar
+            | Self::Badge
+            | Self::BusyIndicator
+            | Self::RangeSlider
+            | Self::TimePicker
+            | Self::PackIcon
+            | Self::ColorPicker
+            | Self::AutoSuggestBox => ParentKind::FlexColumn,
+            Self::StatusBar
+            | Self::StatusBarItem
+            | Self::ToolBar
+            | Self::ToolBarTray
             | Self::NavigationView => ParentKind::FlexRow,
         }
     }
@@ -592,10 +627,7 @@ impl<'w> Ctx<'w> {
 
     /// Load and ingest a `Source=`-referenced dictionary file (memoized per
     /// resolved path; only genuine reference cycles are rejected).
-    fn load_merged_source(
-        &mut self,
-        src: &str,
-    ) -> Option<std::sync::Arc<ResourceDictionary>> {
+    fn load_merged_source(&mut self, src: &str) -> Option<std::sync::Arc<ResourceDictionary>> {
         let uri = match bevy_pf_xaml::uri::PfUri::parse(src) {
             Ok(u) => u,
             Err(e) => {
@@ -605,10 +637,7 @@ impl<'w> Ctx<'w> {
         };
         let base = self.base_stack.last().cloned().unwrap_or_default();
         let resolved = uri.resolve(&base);
-        let visit_key = format!(
-            "{}::{resolved}",
-            uri.assembly.as_deref().unwrap_or("")
-        );
+        let visit_key = format!("{}::{resolved}", uri.assembly.as_deref().unwrap_or(""));
         if let Some(cached) = self.merged_cache.get(&visit_key) {
             return Some(cached.clone());
         }
@@ -722,9 +751,7 @@ impl<'w> Ctx<'w> {
         self.apply_toolkit_presets(entity, kind, node);
 
         if kind == ElemKind::Thumb {
-            self.world
-                .entity_mut(entity)
-                .insert(Interaction::default());
+            self.world.entity_mut(entity).insert(Interaction::default());
         }
         // RepeatButton is a Button plus the repeat-while-held component.
         if node.name == "RepeatButton" {
@@ -857,8 +884,7 @@ impl<'w> Ctx<'w> {
             self.world.entity_mut(entity).observe(
                 move |_click: On<Pointer<Click>>, mut commands: Commands| {
                     commands.queue(move |world: &mut World| {
-                        let Some(cmd) =
-                            world.get::<crate::components::PfCommand>(source).cloned()
+                        let Some(cmd) = world.get::<crate::components::PfCommand>(source).cloned()
                         else {
                             return;
                         };
@@ -1452,16 +1478,8 @@ impl<'w> Ctx<'w> {
             // {x:Null}: masks lower tiers in the store; the effective value
             // becomes "unset" and components clear accordingly.
             PfSetterValue::Null => {
-                if let Some(target) =
-                    crate::provider::property_target_for(&setter.property)
-                {
-                    crate::provider::store_and_apply(
-                        self.world,
-                        entity,
-                        target,
-                        self.tier,
-                        None,
-                    );
+                if let Some(target) = crate::provider::property_target_for(&setter.property) {
+                    crate::provider::store_and_apply(self.world, entity, target, self.tier, None);
                 }
                 Ok(())
             }
@@ -1492,11 +1510,12 @@ impl<'w> Ctx<'w> {
         // the other AutomationProperties.* are accepted without warnings.
         if owner == Some("AutomationProperties") {
             if name == "AutomationId"
-                && let XamlValue::Str(s) = value {
-                    self.world
-                        .entity_mut(entity)
-                        .insert(crate::components::PfAutomationId(s.clone()));
-                }
+                && let XamlValue::Str(s) = value
+            {
+                self.world
+                    .entity_mut(entity)
+                    .insert(crate::components::PfAutomationId(s.clone()));
+            }
             return;
         }
 
@@ -1525,13 +1544,9 @@ impl<'w> Ctx<'w> {
                 self.record_binding(name, ext);
                 Ok(())
             }
-            XamlValue::Extension(ext)
-                if ext.name == "DynamicResource" && owner.is_none() =>
-            {
+            XamlValue::Extension(ext) if ext.name == "DynamicResource" && owner.is_none() => {
                 match static_resource_key(ext) {
-                    Ok(key) => {
-                        self.apply_dynamic_reference(entity, kind, parent_kind, name, key)
-                    }
+                    Ok(key) => self.apply_dynamic_reference(entity, kind, parent_kind, name, key),
                     Err(e) => Err(e),
                 }
             }
@@ -1614,9 +1629,7 @@ impl<'w> Ctx<'w> {
     ) -> Result<PfValue, PfError> {
         use crate::provider::PropertyTarget as T;
         Ok(match target {
-            T::Background | T::BorderBrush | T::Foreground | T::Fill => {
-                PfValue::Brush(s.parse()?)
-            }
+            T::Background | T::BorderBrush | T::Foreground | T::Fill => PfValue::Brush(s.parse()?),
             T::BorderThickness | T::Margin | T::Padding => PfValue::Thickness(s.parse()?),
             T::CornerRadius => PfValue::CornerRadius(s.parse()?),
             T::Width | T::Height | T::FontSize | T::Opacity => {
@@ -1628,7 +1641,10 @@ impl<'w> Ctx<'w> {
 
     /// Resolve a style's triggers against the current scopes and attach the
     /// runtime component.
-    fn attach_triggers(&mut self, entity: Entity, triggers: &[crate::resources::PfTrigger],
+    fn attach_triggers(
+        &mut self,
+        entity: Entity,
+        triggers: &[crate::resources::PfTrigger],
         template_parts: Option<&crate::components::PfTemplateParts>,
     ) {
         use crate::provider::PropertyTarget;
@@ -1654,8 +1670,7 @@ impl<'w> Ctx<'w> {
                         // Class-qualified condition properties from theme
                         // markup ("ToggleButton.IsChecked") match by their
                         // unqualified name, like WPF's owner resolution.
-                        let unqualified =
-                            property.rsplit('.').next().unwrap_or(property.as_str());
+                        let unqualified = property.rsplit('.').next().unwrap_or(property.as_str());
                         let condition = match unqualified {
                             "IsMouseOver" => {
                                 needs_interaction = true;
@@ -1709,8 +1724,7 @@ impl<'w> Ctx<'w> {
                     ));
                     continue;
                 }
-                let Some(target) = crate::provider::property_target_for(&setter.property)
-                else {
+                let Some(target) = crate::provider::property_target_for(&setter.property) else {
                     self.warn(format!(
                         "trigger setter `{}` is not dynamically writable yet; skipped",
                         setter.property
@@ -1718,8 +1732,7 @@ impl<'w> Ctx<'w> {
                     continue;
                 };
                 let value = match &setter.value {
-                    PfSetterValue::Literal(text) => match self.literal_to_pf_value(target, text)
-                    {
+                    PfSetterValue::Literal(text) => match self.literal_to_pf_value(target, text) {
                         Ok(v) => TriggerValue::Static(Some(v)),
                         Err(e) => {
                             self.warn(format!("trigger setter `{}`: {e}", setter.property));
@@ -1753,9 +1766,10 @@ impl<'w> Ctx<'w> {
                     (None, None) => (None, crate::provider::ValueSource::StyleTrigger),
                     (Some(_), None) => (None, crate::provider::ValueSource::TemplateTrigger),
                     (Some(parts), Some(name)) => match parts.get(name) {
-                        Some(dest) => {
-                            (Some(dest), crate::provider::ValueSource::ParentTemplateTrigger)
-                        }
+                        Some(dest) => (
+                            Some(dest),
+                            crate::provider::ValueSource::ParentTemplateTrigger,
+                        ),
                         None => {
                             self.warn(format!(
                                 "trigger setter TargetName `{name}` does not match a template x:Name; skipped"
@@ -1764,7 +1778,10 @@ impl<'w> Ctx<'w> {
                         }
                     },
                 };
-                if matches!(target, PropertyTarget::Foreground | PropertyTarget::FontSize) {
+                if matches!(
+                    target,
+                    PropertyTarget::Foreground | PropertyTarget::FontSize
+                ) {
                     self.ensure_inherited_seed(dest.unwrap_or(entity), target);
                 }
                 setters.push(ResolvedTriggerSetter {
@@ -1814,11 +1831,7 @@ impl<'w> Ctx<'w> {
     }
 
     /// Parse and wire `<Interaction.Triggers>` behavior triggers.
-    fn apply_behavior_triggers(
-        &mut self,
-        entity: Entity,
-        pe: &bevy_pf_xaml::XamlPropertyElement,
-    ) {
+    fn apply_behavior_triggers(&mut self, entity: Entity, pe: &bevy_pf_xaml::XamlPropertyElement) {
         use crate::behaviors::PfAction;
         for trigger in pe.elements() {
             // KeyTrigger shares the action grammar; its dispatch differs.
@@ -1892,16 +1905,13 @@ impl<'w> Ctx<'w> {
                             _ => None,
                         };
                         let Some(name) = name else {
-                            self.warn(format!(
-                                "{}: InvokeCommandAction needs Command",
-                                action.pos
-                            ));
+                            self.warn(format!("{}: InvokeCommandAction needs Command", action.pos));
                             continue;
                         };
                         let parameter = match action.attribute("CommandParameter") {
-                            Some(XamlValue::Str(p)) => Some(
-                                crate::binding::PfCommandParameter::Literal(p.clone()),
-                            ),
+                            Some(XamlValue::Str(p)) => {
+                                Some(crate::binding::PfCommandParameter::Literal(p.clone()))
+                            }
                             Some(XamlValue::Extension(ext))
                                 if matches!(
                                     ext.name.as_str(),
@@ -1939,14 +1949,12 @@ impl<'w> Ctx<'w> {
                     }
                     "GoToStateAction" => match attr("StateName") {
                         Some(state) => actions.push(PfAction::GoToState { state }),
-                        None => self.warn(format!(
-                            "{}: GoToStateAction needs StateName",
-                            action.pos
-                        )),
+                        None => {
+                            self.warn(format!("{}: GoToStateAction needs StateName", action.pos))
+                        }
                     },
                     "ChangePropertyAction" => {
-                        let (Some(property), Some(value)) =
-                            (attr("PropertyName"), attr("Value"))
+                        let (Some(property), Some(value)) = (attr("PropertyName"), attr("Value"))
                         else {
                             self.warn(format!(
                                 "{}: ChangePropertyAction needs PropertyName and Value",
@@ -1962,10 +1970,9 @@ impl<'w> Ctx<'w> {
                     }
                     "LaunchUriOrFileAction" => match attr("Path") {
                         Some(path) => actions.push(PfAction::LaunchUri { path }),
-                        None => self.warn(format!(
-                            "{}: LaunchUriOrFileAction needs Path",
-                            action.pos
-                        )),
+                        None => {
+                            self.warn(format!("{}: LaunchUriOrFileAction needs Path", action.pos))
+                        }
                     },
                     "SetFocusAction" => {
                         actions.push(PfAction::SetFocus {
@@ -1979,10 +1986,7 @@ impl<'w> Ctx<'w> {
                                 .and_then(|v| v.trim().parse().ok())
                                 .unwrap_or(1.0),
                         }),
-                        None => self.warn(format!(
-                            "{}: PlaySoundAction needs Source",
-                            action.pos
-                        )),
+                        None => self.warn(format!("{}: PlaySoundAction needs Source", action.pos)),
                     },
                     other => self.warn(format!(
                         "{}: behavior action `{other}` is not supported yet",
@@ -2011,9 +2015,7 @@ impl<'w> Ctx<'w> {
             match event.as_str() {
                 "Loaded" => {
                     let mut e = self.world.entity_mut(entity);
-                    if let Some(mut pending) =
-                        e.get_mut::<crate::behaviors::PfPendingActions>()
-                    {
+                    if let Some(mut pending) = e.get_mut::<crate::behaviors::PfPendingActions>() {
                         pending.0.push(actions);
                     } else {
                         e.insert(crate::behaviors::PfPendingActions(vec![actions]));
@@ -2052,9 +2054,7 @@ impl<'w> Ctx<'w> {
                         },
                     );
                 }
-                other => self.warn(format!(
-                    "behavior EventName `{other}` is not supported yet"
-                )),
+                other => self.warn(format!("behavior EventName `{other}` is not supported yet")),
             }
         }
     }
@@ -2072,8 +2072,7 @@ impl<'w> Ctx<'w> {
             match launcher.event.as_str() {
                 "Loaded" => {
                     let mut e = self.world.entity_mut(entity);
-                    if let Some(mut pending) =
-                        e.get_mut::<crate::animation::PfPendingStoryboards>()
+                    if let Some(mut pending) = e.get_mut::<crate::animation::PfPendingStoryboards>()
                     {
                         pending.0.push(sb);
                     } else {
@@ -2390,8 +2389,7 @@ impl<'w> Ctx<'w> {
                         &mut self.warnings,
                     ) {
                         Ok(style) => {
-                            self.pending.item_container_style =
-                                Some(std::sync::Arc::new(style));
+                            self.pending.item_container_style = Some(std::sync::Arc::new(style));
                         }
                         Err(e) => self.warn(format!("{}: ItemContainerStyle: {e}", pe.pos)),
                     }
@@ -2562,11 +2560,19 @@ impl<'w> Ctx<'w> {
         match name {
             "Width" => {
                 let px = value.to_f32()?;
-                self.store_apply(entity, crate::provider::PropertyTarget::Width, PfValue::Double(px as f64));
+                self.store_apply(
+                    entity,
+                    crate::provider::PropertyTarget::Width,
+                    PfValue::Double(px as f64),
+                );
             }
             "Height" => {
                 let px = value.to_f32()?;
-                self.store_apply(entity, crate::provider::PropertyTarget::Height, PfValue::Double(px as f64));
+                self.store_apply(
+                    entity,
+                    crate::provider::PropertyTarget::Height,
+                    PfValue::Double(px as f64),
+                );
             }
             "Opacity" => {
                 let v = value.to_f32()?;
@@ -2594,11 +2600,19 @@ impl<'w> Ctx<'w> {
             }
             "Margin" => {
                 let t = value.to_thickness()?;
-                self.store_apply(entity, crate::provider::PropertyTarget::Margin, PfValue::Thickness(t));
+                self.store_apply(
+                    entity,
+                    crate::provider::PropertyTarget::Margin,
+                    PfValue::Thickness(t),
+                );
             }
             "Padding" => {
                 let t = value.to_thickness()?;
-                self.store_apply(entity, crate::provider::PropertyTarget::Padding, PfValue::Thickness(t));
+                self.store_apply(
+                    entity,
+                    crate::provider::PropertyTarget::Padding,
+                    PfValue::Thickness(t),
+                );
             }
             "HorizontalAlignment" => {
                 let a: v::HorizontalAlignment = value.parse_enum()?;
@@ -2726,7 +2740,8 @@ impl<'w> Ctx<'w> {
                 if matches!(
                     kind,
                     ElemKind::Slider | ElemKind::ProgressBar | ElemKind::ScrollBar
-                ) => {
+                ) =>
+            {
                 self.pending.value = Some(value.to_f32()?)
             }
             "IsIndeterminate" if kind == ElemKind::ProgressBar => {
@@ -2753,15 +2768,14 @@ impl<'w> Ctx<'w> {
             "SelectedDate" | "DisplayDate" | "DisplayMode" | "FirstDayOfWeek"
                 if matches!(kind, ElemKind::Calendar | ElemKind::DatePicker) => {}
             "ResizeDirection" | "ResizeBehavior" if kind == ElemKind::GridSplitter => {}
-            "Source" | "NavigationUIVisibility" | "JournalOwnership"
-                if kind == ElemKind::Frame => {}
+            "Source" | "NavigationUIVisibility" | "JournalOwnership" if kind == ElemKind::Frame => {
+            }
             // Code-behind pointer events: the attribute value is a handler
             // name resolved against `PfEventHandlers` (app.on_ui_event) at
             // fire time; unregistered names stay silent, so verbatim WPF
             // markup still instantiates clean without any Rust code-behind.
-            "Click" | "MouseEnter" | "MouseLeave" | "MouseDown" | "MouseUp"
-            | "MouseMove" | "MouseDoubleClick" | "DragStart" | "Drag" | "DragEnd"
-            | "Drop" => {
+            "Click" | "MouseEnter" | "MouseLeave" | "MouseDown" | "MouseUp" | "MouseMove"
+            | "MouseDoubleClick" | "DragStart" | "Drag" | "DragEnd" | "Drop" => {
                 let handler = value.to_text()?;
                 self.pending
                     .event_handlers
@@ -2769,11 +2783,10 @@ impl<'w> Ctx<'w> {
             }
             // Code-behind event handlers with no pointer analog yet. There
             // is no C# to call; these are accepted without noise.
-            "Loaded" | "Unloaded" | "Initialized" | "TargetUpdated"
-            | "SelectionChanged" | "TextChanged" | "Checked" | "Unchecked"
-            | "ValueChanged" | "Navigating" | "Navigated" | "KeyDown" | "KeyUp"
-            | "GotFocus" | "LostFocus" | "SizeChanged" | "DataContextChanged"
-            | "Closed" | "Opened" | "ContextMenuOpening" => {}
+            "Loaded" | "Unloaded" | "Initialized" | "TargetUpdated" | "SelectionChanged"
+            | "TextChanged" | "Checked" | "Unchecked" | "ValueChanged" | "Navigating"
+            | "Navigated" | "KeyDown" | "KeyUp" | "GotFocus" | "LostFocus" | "SizeChanged"
+            | "DataContextChanged" | "Closed" | "Opened" | "ContextMenuOpening" => {}
             // WPF DataGrid knobs that don't apply here: columns are never
             // auto-generated, headers always show, sizing is fixed. Accepted
             // silently so verbatim WPF markup instantiates clean.
@@ -2786,20 +2799,23 @@ impl<'w> Ctx<'w> {
             "Value" if kind == ElemKind::RatingBar => {}
             "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
             // Consumed by spawn_scroll_bar (Orientation hits the generic arm).
-            "ViewportSize" | "SmallChange" | "LargeChange"
-                if kind == ElemKind::ScrollBar => {}
+            "ViewportSize" | "SmallChange" | "LargeChange" if kind == ElemKind::ScrollBar => {}
             "Badge" | "BadgePlacementMode" if kind == ElemKind::Badge => {}
             "IsBusy" | "BusyContent" if kind == ElemKind::BusyIndicator => {}
             "Command" => {
                 self.pending.command = Some(value.to_text()?);
             }
             "CommandParameter" => {
-                self.pending.command_parameter =
-                    Some(crate::binding::PfCommandParameter::Literal(value.to_text()?));
+                self.pending.command_parameter = Some(crate::binding::PfCommandParameter::Literal(
+                    value.to_text()?,
+                ));
             }
             "SelectedTime" if kind == ElemKind::TimePicker => {}
-            "ContentSource" | "RecognizesAccessKey" | "ContentTemplate"
-            | "ContentTemplateSelector" | "ContentStringFormat"
+            "ContentSource"
+            | "RecognizesAccessKey"
+            | "ContentTemplate"
+            | "ContentTemplateSelector"
+            | "ContentStringFormat"
                 if kind == ElemKind::ContentPresenter =>
             {
                 self.warn(format!(
@@ -2808,15 +2824,26 @@ impl<'w> Ctx<'w> {
             }
             "Kind" | "Symbol" | "Glyph" if kind == ElemKind::PackIcon => {}
             "SelectedColor" if kind == ElemKind::ColorPicker => {}
-            "Suggestions" | "QueryIcon" | "PlaceholderText"
-                if kind == ElemKind::AutoSuggestBox => {}
-            "PaneDisplayMode" | "IsPaneOpen" | "OpenPaneLength" | "IsBackButtonVisible"
+            "Suggestions" | "QueryIcon" | "PlaceholderText" if kind == ElemKind::AutoSuggestBox => {
+            }
+            "PaneDisplayMode"
+            | "IsPaneOpen"
+            | "OpenPaneLength"
+            | "IsBackButtonVisible"
             | "IsSettingsVisible"
                 if kind == ElemKind::NavigationView => {}
-            "AutoGenerateColumns" | "HeadersVisibility" | "CanUserResizeColumns"
-            | "CanUserResizeRows" | "CanUserSortColumns" | "CanUserAddRows"
-            | "CanUserDeleteRows" | "CanUserReorderColumns" | "IsReadOnly"
-            | "ColumnHeaderStyle" | "GridLinesVisibility" | "SelectionMode"
+            "AutoGenerateColumns"
+            | "HeadersVisibility"
+            | "CanUserResizeColumns"
+            | "CanUserResizeRows"
+            | "CanUserSortColumns"
+            | "CanUserAddRows"
+            | "CanUserDeleteRows"
+            | "CanUserReorderColumns"
+            | "IsReadOnly"
+            | "ColumnHeaderStyle"
+            | "GridLinesVisibility"
+            | "SelectionMode"
             | "SelectionUnit"
                 if kind == ElemKind::DataGrid => {}
             "MaxLength" => self.pending.max_length = Some(value.to_f32()? as usize),
@@ -2871,8 +2898,10 @@ impl<'w> Ctx<'w> {
                     // approximation, same as DataTemplate expansion).
                     let scopes = std::sync::Arc::new(self.scopes.clone());
                     self.pending.control_template = Some((t.clone(), scopes));
-                    // Expansion is not implemented yet (plan phase 2); the
-                    // template is recorded so styles carrying it stay clean.
+                    // Recorded, not applied: expansion happens in
+                    // `expand_control_template` once the element's kind is
+                    // known (only template-capable kinds accept one), and no
+                    // borrow may be held across that `&mut self` call.
                 }
                 Resolved::Value(PfValue::Template(_)) => {
                     return Err(PfError::instantiate(
@@ -2959,26 +2988,23 @@ impl<'w> Ctx<'w> {
             "Y1" => self.pending.shape.y1 = value.to_f32()?,
             "X2" => self.pending.shape.x2 = value.to_f32()?,
             "Y2" => self.pending.shape.y2 = value.to_f32()?,
-            "RadiusX" if kind == ElemKind::Shape => {
-                self.pending.shape.radius_x = value.to_f32()?
-            }
-            "RadiusY" if kind == ElemKind::Shape => {
-                self.pending.shape.radius_y = value.to_f32()?
-            }
+            "RadiusX" if kind == ElemKind::Shape => self.pending.shape.radius_x = value.to_f32()?,
+            "RadiusY" if kind == ElemKind::Shape => self.pending.shape.radius_y = value.to_f32()?,
             "Points" if kind == ElemKind::Shape => {
                 self.pending.shape.points = Some(v::parse_points(&value.to_text()?)?)
             }
             "FillRule" if kind == ElemKind::Shape => {
                 let text = value.to_text()?;
-                self.pending.shape.fill_rule = Some(match text.trim().to_ascii_lowercase().as_str() {
-                    "nonzero" => bevy_pf_xaml::geometry::FillRule::NonZero,
-                    "evenodd" => bevy_pf_xaml::geometry::FillRule::EvenOdd,
-                    other => {
-                        return Err(PfError::instantiate(format!(
-                            "unknown FillRule `{other}`"
-                        )));
-                    }
-                });
+                self.pending.shape.fill_rule =
+                    Some(match text.trim().to_ascii_lowercase().as_str() {
+                        "nonzero" => bevy_pf_xaml::geometry::FillRule::NonZero,
+                        "evenodd" => bevy_pf_xaml::geometry::FillRule::EvenOdd,
+                        other => {
+                            return Err(PfError::instantiate(format!(
+                                "unknown FillRule `{other}`"
+                            )));
+                        }
+                    });
             }
             "Data" if kind == ElemKind::Shape => {
                 self.pending.shape.data = Some(match value {
@@ -2997,23 +3023,19 @@ impl<'w> Ctx<'w> {
                 }
             }
             "StrokeLineJoin" => self.pending.shape.stroke_join = Some(value.parse_enum()?),
-            "StrokeMiterLimit" => {
-                self.pending.shape.stroke_miter_limit = Some(value.to_f32()?)
-            }
+            "StrokeMiterLimit" => self.pending.shape.stroke_miter_limit = Some(value.to_f32()?),
             "StrokeDashArray" => {
-                self.pending.shape.stroke_dash_array =
-                    Some(v::parse_doubles(&value.to_text()?)?)
+                self.pending.shape.stroke_dash_array = Some(v::parse_doubles(&value.to_text()?)?)
             }
-            "StrokeDashOffset" => {
-                self.pending.shape.stroke_dash_offset = Some(value.to_f32()?)
-            }
+            "StrokeDashOffset" => self.pending.shape.stroke_dash_offset = Some(value.to_f32()?),
 
             // Root-only.
             "Title" if kind == ElemKind::Root => {
                 let title = value.to_text()?;
                 let mut q = self
                     .world
-                    .query_filtered::<&mut bevy::window::Window, With<bevy::window::PrimaryWindow>>();
+                    .query_filtered::<&mut bevy::window::Window, With<bevy::window::PrimaryWindow>>(
+                    );
                 if let Ok(mut window) = q.single_mut(self.world) {
                     window.title = title;
                 }
@@ -3024,15 +3046,39 @@ impl<'w> Ctx<'w> {
             "Style" | "Text" | "Content" | "Source" | "Header" => {}
 
             // Recognized but deliberately ignored (design-time / app-level).
-            "ShowGridLines" | "SizeToContent" | "WindowStartupLocation" | "Icon"
-            | "ResizeMode" | "WindowStyle" | "WindowState"
-            | "IsDefault" | "IsCancel" | "SnapsToDevicePixels" | "UseLayoutRounding"
-            | "Focusable" | "TabIndex" | "ClipToBounds" | "LastChildFill"
-            | "IsReadOnly" | "IsIndeterminate" | "SmallChange" | "LargeChange"
-            | "TickPlacement" | "TickFrequency" | "IsSnapToTickEnabled" | "SelectionMode"
-            | "AcceptsTab" | "IsThreeState" | "CharacterCasing" | "PasswordChar"
-            | "RenderTransformOrigin" | "LayoutTransform" | "FocusVisualStyle"
-            | "StartupUri" | "OverridesDefaultStyle" | "Cursor" => {}
+            "ShowGridLines"
+            | "SizeToContent"
+            | "WindowStartupLocation"
+            | "Icon"
+            | "ResizeMode"
+            | "WindowStyle"
+            | "WindowState"
+            | "IsDefault"
+            | "IsCancel"
+            | "SnapsToDevicePixels"
+            | "UseLayoutRounding"
+            | "Focusable"
+            | "TabIndex"
+            | "ClipToBounds"
+            | "LastChildFill"
+            | "IsReadOnly"
+            | "IsIndeterminate"
+            | "SmallChange"
+            | "LargeChange"
+            | "TickPlacement"
+            | "TickFrequency"
+            | "IsSnapToTickEnabled"
+            | "SelectionMode"
+            | "AcceptsTab"
+            | "IsThreeState"
+            | "CharacterCasing"
+            | "PasswordChar"
+            | "RenderTransformOrigin"
+            | "LayoutTransform"
+            | "FocusVisualStyle"
+            | "StartupUri"
+            | "OverridesDefaultStyle"
+            | "Cursor" => {}
 
             // Unknown/custom elements own their attribute surface: the
             // registered builder reads them off the node, and unregistered
@@ -3190,13 +3236,15 @@ impl<'w> Ctx<'w> {
         }
         // WPF: Left beats Right, Top beats Bottom.
         if attached.get("Canvas", "Left").is_none()
-            && let Some(right) = attached.parse::<f32>("Canvas", "Right") {
-                node.right = Val::Px(right);
-            }
+            && let Some(right) = attached.parse::<f32>("Canvas", "Right")
+        {
+            node.right = Val::Px(right);
+        }
         if attached.get("Canvas", "Top").is_none()
-            && let Some(bottom) = attached.parse::<f32>("Canvas", "Bottom") {
-                node.bottom = Val::Px(bottom);
-            }
+            && let Some(bottom) = attached.parse::<f32>("Canvas", "Bottom")
+        {
+            node.bottom = Val::Px(bottom);
+        }
     }
 
     // -----------------------------------------------------------------
@@ -3243,9 +3291,10 @@ impl<'w> Ctx<'w> {
                 // WPF inlines with anchors: flow text runs and Hyperlinks as
                 // real children instead of flattening the link away.
                 let has_inline_links = node.attribute("Text").is_none()
-                    && node.children.iter().any(|c| {
-                        matches!(c, XamlChild::Element(el) if el.name == "Hyperlink")
-                    });
+                    && node
+                        .children
+                        .iter()
+                        .any(|c| matches!(c, XamlChild::Element(el) if el.name == "Hyperlink"));
                 if has_inline_links {
                     if let Some(mut n) = self.world.get_mut::<Node>(entity) {
                         n.display = Display::Flex;
@@ -3263,8 +3312,7 @@ impl<'w> Ctx<'w> {
                                 }
                             }
                             XamlChild::Element(el) if el.name == "Hyperlink" => {
-                                spawned
-                                    .push(self.spawn_element(el, ParentKind::FlexRow, None)?);
+                                spawned.push(self.spawn_element(el, ParentKind::FlexRow, None)?);
                             }
                             XamlChild::Element(el) => {
                                 let flat = collect_inline_text(el);
@@ -3284,8 +3332,7 @@ impl<'w> Ctx<'w> {
                     }
                     None => Some(collect_inline_text(node)),
                 };
-                let has_text_binding =
-                    self.pending.bindings.iter().any(|(p, _)| p == "Text");
+                let has_text_binding = self.pending.bindings.iter().any(|(p, _)| p == "Text");
                 if let Some(text) = text {
                     self.insert_text_components(entity, text);
                 } else if has_text_binding {
@@ -3296,9 +3343,7 @@ impl<'w> Ctx<'w> {
             ElemKind::Image => {
                 if let Some(XamlValue::Str(path)) = node.attribute("Source") {
                     let path = path.clone();
-                    if let Some(assets) =
-                        self.world.get_resource::<bevy::asset::AssetServer>()
-                    {
+                    if let Some(assets) = self.world.get_resource::<bevy::asset::AssetServer>() {
                         let image: Handle<Image> = assets.load(path);
                         let mut image = bevy::ui::widget::ImageNode::new(image);
                         // Nine-slice: `Slice="24"` / `Slice="8,4,8,4"` (WPF
@@ -3308,21 +3353,19 @@ impl<'w> Ctx<'w> {
                         if let Some(XamlValue::Str(slice)) = node.attribute("Slice") {
                             match slice.parse::<v::Thickness>() {
                                 Ok(t) => {
-                                    image.image_mode =
-                                        bevy::ui::widget::NodeImageMode::Sliced(
-                                            bevy::sprite::TextureSlicer {
-                                                border: bevy::sprite::BorderRect {
-                                                    min_inset: Vec2::new(t.left, t.top),
-                                                    max_inset: Vec2::new(t.right, t.bottom),
-                                                },
-                                                ..Default::default()
+                                    image.image_mode = bevy::ui::widget::NodeImageMode::Sliced(
+                                        bevy::sprite::TextureSlicer {
+                                            border: bevy::sprite::BorderRect {
+                                                min_inset: Vec2::new(t.left, t.top),
+                                                max_inset: Vec2::new(t.right, t.bottom),
                                             },
-                                        );
+                                            ..Default::default()
+                                        },
+                                    );
                                 }
-                                Err(e) => self.warn(format!(
-                                    "{}: bad Slice thickness: {e}",
-                                    node.pos
-                                )),
+                                Err(e) => {
+                                    self.warn(format!("{}: bad Slice thickness: {e}", node.pos))
+                                }
                             }
                         }
                         self.world.entity_mut(entity).insert(image);
@@ -3353,7 +3396,10 @@ impl<'w> Ctx<'w> {
                     self.attach_children(entity, &children, ParentKind::Grid);
                 }
             }
-            ElemKind::Button | ElemKind::ToggleButton | ElemKind::Label | ElemKind::Root
+            ElemKind::Button
+            | ElemKind::ToggleButton
+            | ElemKind::Label
+            | ElemKind::Root
             | ElemKind::ListBoxItem => {
                 self.spawn_content_control_children(entity, kind, node)?;
                 if kind == ElemKind::ToggleButton {
@@ -3439,13 +3485,13 @@ impl<'w> Ctx<'w> {
                     self.world
                         .entity_mut(input)
                         .insert(crate::components::PfPasswordInput { owner: entity });
-                    self.world.entity_mut(entity).insert(
-                        crate::components::PfPasswordBox {
+                    self.world
+                        .entity_mut(entity)
+                        .insert(crate::components::PfPasswordBox {
                             input,
                             password,
                             mask,
-                        },
-                    );
+                        });
                     // WPF: Password is not bindable (security); Text bindings
                     // would fight the masking.
                     self.pending.text_input = None;
@@ -3496,9 +3542,9 @@ impl<'w> Ctx<'w> {
                         .id();
                     self.world.entity_mut(overlay).add_children(&[label]);
                     self.add_children(entity, &[overlay]);
-                    self.world.entity_mut(entity).insert(
-                        crate::components::PfWatermark { overlay },
-                    );
+                    self.world
+                        .entity_mut(entity)
+                        .insert(crate::components::PfWatermark { overlay });
                 }
             }
             ElemKind::Slider => {
@@ -3533,22 +3579,22 @@ impl<'w> Ctx<'w> {
             }
             ElemKind::Separator => {}
             ElemKind::Shape => {
-                let shape =
-                    crate::shapes::build_shape(&node.name, self.pending.shape.clone());
+                let shape = crate::shapes::build_shape(&node.name, self.pending.shape.clone());
                 match shape {
                     Some(shape) => {
                         // Stretch=None shapes get their natural geometry size
                         // unless an explicit size was set.
                         if shape.stretch == v::Stretch::None
-                            && let Some(size) = shape.natural_size() {
-                                let mut ui_node = self.node_mut(entity);
-                                if ui_node.width == Val::Auto {
-                                    ui_node.width = Val::Px(size.x);
-                                }
-                                if ui_node.height == Val::Auto {
-                                    ui_node.height = Val::Px(size.y);
-                                }
+                            && let Some(size) = shape.natural_size()
+                        {
+                            let mut ui_node = self.node_mut(entity);
+                            if ui_node.width == Val::Auto {
+                                ui_node.width = Val::Px(size.x);
                             }
+                            if ui_node.height == Val::Auto {
+                                ui_node.height = Val::Px(size.y);
+                            }
+                        }
                         self.world
                             .entity_mut(entity)
                             .insert((shape, crate::shapes::PfShapeRendered::default()));
@@ -3629,7 +3675,9 @@ impl<'w> Ctx<'w> {
             ElemKind::DataGrid => {
                 self.spawn_data_grid(entity, node)?;
             }
-            ElemKind::StatusBar | ElemKind::StatusBarItem | ElemKind::ToolBar
+            ElemKind::StatusBar
+            | ElemKind::StatusBarItem
+            | ElemKind::ToolBar
             | ElemKind::ToolBarTray => {
                 let children = self.spawn_child_elements(node, ParentKind::FlexRow)?;
                 self.add_children(entity, &children);
@@ -3871,10 +3919,12 @@ impl<'w> Ctx<'w> {
         // SLATE_700 is near-invisible there).
         if self.world.get::<bevy::text::EditableText>(entity).is_some() {
             let cursor_color = convert::color(self.inherited.foreground);
-            self.world.entity_mut(entity).insert(bevy::text::TextCursorStyle {
-                color: cursor_color,
-                ..Default::default()
-            });
+            self.world
+                .entity_mut(entity)
+                .insert(bevy::text::TextCursorStyle {
+                    color: cursor_color,
+                    ..Default::default()
+                });
         }
     }
 
@@ -3886,16 +3936,9 @@ impl<'w> Ctx<'w> {
     /// `{TemplateBinding Prop}` on a template child: apply the templated
     /// parent's current effective value at ParentTemplate tier and register
     /// a liveness link so later parent writes forward automatically.
-    fn apply_template_binding(
-        &mut self,
-        entity: Entity,
-        dst_name: &str,
-        ext: &MarkupExtension,
-    ) {
+    fn apply_template_binding(&mut self, entity: Entity, dst_name: &str, ext: &MarkupExtension) {
         let Some(tc) = self.template_ctx.last() else {
-            self.warn(
-                "{TemplateBinding} outside a ControlTemplate; property skipped".to_string(),
-            );
+            self.warn("{TemplateBinding} outside a ControlTemplate; property skipped".to_string());
             return;
         };
         let parent = tc.templated_parent;
@@ -3916,9 +3959,7 @@ impl<'w> Ctx<'w> {
         // Liveness link on the parent.
         {
             let mut e = self.world.entity_mut(parent);
-            if let Some(mut deps) =
-                e.get_mut::<crate::provider::PfTemplateBindingDependents>()
-            {
+            if let Some(mut deps) = e.get_mut::<crate::provider::PfTemplateBindingDependents>() {
                 deps.0.push((src, entity, dst));
             } else {
                 e.insert(crate::provider::PfTemplateBindingDependents(vec![(
@@ -4003,13 +4044,13 @@ impl<'w> Ctx<'w> {
         self.on_template_applied(entity, kind, node, &parts);
         if !template.state_groups.is_empty() {
             let count = template.state_groups.len();
-            self.world.entity_mut(entity).insert(
-                crate::animation::PfVisualStates {
+            self.world
+                .entity_mut(entity)
+                .insert(crate::animation::PfVisualStates {
                     groups: template.state_groups.clone(),
                     current: vec![None; count],
                     touched: vec![Vec::new(); count],
-                },
-            );
+                });
         }
         if !template.triggers.is_empty() {
             self.attach_triggers(entity, &template.triggers, Some(&parts));
@@ -4138,7 +4179,8 @@ impl<'w> Ctx<'w> {
                     .get("PART_SelectionBoxText")
                     .or_else(|| find_text_entity(self.world, entity))
                     .unwrap_or_else(|| {
-                        let hidden = self.world
+                        let hidden = self
+                            .world
                             .spawn((
                                 Node {
                                     display: Display::None,
@@ -4345,7 +4387,11 @@ impl<'w> Ctx<'w> {
                     },
                     ..Default::default()
                 },
-                BackgroundColor(if is_radio { theme.accent } else { theme.on_accent }),
+                BackgroundColor(if is_radio {
+                    theme.accent
+                } else {
+                    theme.on_accent
+                }),
                 glyph_vis,
             ))
             .id();
@@ -4420,9 +4466,7 @@ impl<'w> Ctx<'w> {
 
         if is_radio {
             let group = pending.group_name.clone().unwrap_or_default();
-            self.world
-                .entity_mut(entity)
-                .insert(PfRadioGroup(group));
+            self.world.entity_mut(entity).insert(PfRadioGroup(group));
             let radio = entity;
             self.world.entity_mut(entity).observe(
                 move |_click: On<Pointer<Click>>,
@@ -4580,24 +4624,21 @@ impl<'w> Ctx<'w> {
         self.add_children(entity, &items);
 
         if let Some(idx) = pending.selected_index
-            && let Some(&item) = items.get(idx) {
-                let selection_fill = self.control_theme().selection_fill;
-                if let Some(mut list_state) = self.world.get_mut::<PfListBox>(entity) {
-                    list_state.selected = Some(item);
-                }
-                if let Some(mut bg) = self.world.get_mut::<BackgroundColor>(item) {
-                    bg.0 = selection_fill;
-                }
+            && let Some(&item) = items.get(idx)
+        {
+            let selection_fill = self.control_theme().selection_fill;
+            if let Some(mut list_state) = self.world.get_mut::<PfListBox>(entity) {
+                list_state.selected = Some(item);
             }
+            if let Some(mut bg) = self.world.get_mut::<BackgroundColor>(item) {
+                bg.0 = selection_fill;
+            }
+        }
     }
 
     /// Spawn a `Header` (attribute string, binding, or property element).
     /// `bold` renders string headers semi-bold (GroupBox style).
-    fn spawn_header(
-        &mut self,
-        node: &XamlNode,
-        bold: bool,
-    ) -> Result<Option<Entity>, PfError> {
+    fn spawn_header(&mut self, node: &XamlNode, bold: bool) -> Result<Option<Entity>, PfError> {
         if let Some(value) = node.attribute("Header").cloned() {
             if let Some(text) = self.resolve_text_attr(&value) {
                 let saved = self.inherited.font_weight;
@@ -4611,7 +4652,11 @@ impl<'w> Ctx<'w> {
         } else if let Some(pe) = node.property_element("Header") {
             let pe = pe.clone();
             if let Some(el) = pe.single_element() {
-                return Ok(Some(self.spawn_element(el, ParentKind::FlexColumn, None)?));
+                return Ok(Some(self.spawn_element(
+                    el,
+                    ParentKind::FlexColumn,
+                    None,
+                )?));
             }
             if let Some(t) = pe.values.iter().find_map(XamlChild::as_text) {
                 return Ok(Some(self.spawn_text_child(t.to_string())));
@@ -4647,9 +4692,7 @@ impl<'w> Ctx<'w> {
         let viewport = attr_f32("ViewportSize").unwrap_or(10.0);
         let small_change = attr_f32("SmallChange").unwrap_or(1.0);
 
-        if horizontal
-            && let Some(mut n) = self.world.get_mut::<Node>(entity)
-        {
+        if horizontal && let Some(mut n) = self.world.get_mut::<Node>(entity) {
             {
                 n.flex_direction = FlexDirection::Row;
                 n.width = Val::Auto;
@@ -4683,7 +4726,8 @@ impl<'w> Ctx<'w> {
         };
         let dec = line_button(self.world);
         let inc = line_button(self.world);
-        let thumb = self.world
+        let thumb = self
+            .world
             .spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -4695,7 +4739,8 @@ impl<'w> Ctx<'w> {
                 BackgroundColor(Color::srgb_u8(0xC0, 0xC0, 0xC0)),
             ))
             .id();
-        let track = self.world
+        let track = self
+            .world
             .spawn((
                 Node {
                     flex_grow: 1.0,
@@ -4774,7 +4819,11 @@ impl<'w> Ctx<'w> {
             .world
             .spawn((
                 Node {
-                    display: if expanded { Display::Flex } else { Display::None },
+                    display: if expanded {
+                        Display::Flex
+                    } else {
+                        Display::None
+                    },
                     flex_direction: FlexDirection::Column,
                     padding: UiRect {
                         left: Val::Px(18.0),
@@ -4820,7 +4869,8 @@ impl<'w> Ctx<'w> {
         pending: &Pending,
     ) -> Result<(), PfError> {
         // Chrome: selection text + dropdown arrow.
-        let text = self.world
+        let text = self
+            .world
             .spawn((
                 Node {
                     flex_grow: 1.0,
@@ -4844,7 +4894,8 @@ impl<'w> Ctx<'w> {
             },
         )
         .expect("triangle");
-        let arrow = self.world
+        let arrow = self
+            .world
             .spawn((
                 Node {
                     width: Val::Px(8.0),
@@ -4877,7 +4928,8 @@ impl<'w> Ctx<'w> {
         // Popup + backdrop under the overlay root.
         let theme = self.control_theme();
         let overlay = ensure_overlay_root(self.world);
-        let popup = self.world
+        let popup = self
+            .world
             .spawn((
                 PfPopup {
                     anchor: entity,
@@ -4902,13 +4954,16 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let backdrop = spawn_backdrop(self.world, popup);
-        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+        self.world
+            .entity_mut(overlay)
+            .add_children(&[backdrop, popup]);
 
         // Static children become dropdown items (ItemsSource replaces them).
         let children = self.spawn_child_elements(node, ParentKind::FlexColumn)?;
         let mut items = Vec::with_capacity(children.len());
         for (index, &child) in children.iter().enumerate() {
-            let wrapper = self.world
+            let wrapper = self
+                .world
                 .spawn((
                     Node {
                         padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
@@ -4977,7 +5032,8 @@ impl<'w> Ctx<'w> {
     ) -> Result<(), PfError> {
         use crate::components::{PfTabControl, PfTabHeader};
 
-        let strip = self.world
+        let strip = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -4988,7 +5044,8 @@ impl<'w> Ctx<'w> {
                 PfElementKind("TabControl.Strip".to_string()),
             ))
             .id();
-        let host = self.world
+        let host = self
+            .world
             .spawn((
                 Node {
                     display: Display::Grid,
@@ -5007,9 +5064,7 @@ impl<'w> Ctx<'w> {
 
         let tab_items: Vec<XamlNode> = node
             .child_elements()
-            .filter(|c| {
-                c.name == "TabItem"
-            })
+            .filter(|c| c.name == "TabItem")
             .cloned()
             .collect();
 
@@ -5017,7 +5072,8 @@ impl<'w> Ctx<'w> {
         let mut contents = Vec::new();
         for (index, item) in tab_items.iter().enumerate() {
             // Header: a clickable pill in the strip.
-            let header = self.world
+            let header = self
+                .world
                 .spawn((
                     Node {
                         padding: UiRect::axes(Val::Px(12.0), Val::Px(5.0)),
@@ -5056,7 +5112,8 @@ impl<'w> Ctx<'w> {
             headers.push(header);
 
             // Content container (single-cell grid, hidden unless selected).
-            let content = self.world
+            let content = self
+                .world
                 .spawn((
                     Node {
                         display: Display::None,
@@ -5102,20 +5159,17 @@ impl<'w> Ctx<'w> {
         Ok(())
     }
 
-    fn build_tree_item(
-        &mut self,
-        tree: Entity,
-        node: &XamlNode,
-    ) -> Result<Entity, PfError> {
+    fn build_tree_item(&mut self, tree: Entity, node: &XamlNode) -> Result<Entity, PfError> {
         use crate::components::{PfTreeHeader, PfTreeItem};
 
         let saved_pending = std::mem::take(&mut self.pending);
         // Per-item attributes (IsExpanded, Header) live on the item node.
         for attr in &node.attributes {
             if attr.name == "IsExpanded"
-                && let XamlValue::Str(v) = &attr.value {
-                    self.pending.is_checked = Some(v.trim().eq_ignore_ascii_case("true"));
-                }
+                && let XamlValue::Str(v) = &attr.value
+            {
+                self.pending.is_checked = Some(v.trim().eq_ignore_ascii_case("true"));
+            }
         }
         let expanded = self.pending.is_checked.unwrap_or(false);
         self.pending = saved_pending;
@@ -5127,7 +5181,8 @@ impl<'w> Ctx<'w> {
             .collect();
         let has_children = !child_items.is_empty();
 
-        let item = self.world
+        let item = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -5149,7 +5204,8 @@ impl<'w> Ctx<'w> {
             }
             .to_string(),
         );
-        let header_row = self.world
+        let header_row = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -5170,10 +5226,15 @@ impl<'w> Ctx<'w> {
         }
 
         // Children container, indented.
-        let container = self.world
+        let container = self
+            .world
             .spawn((
                 Node {
-                    display: if expanded { Display::Flex } else { Display::None },
+                    display: if expanded {
+                        Display::Flex
+                    } else {
+                        Display::None
+                    },
                     flex_direction: FlexDirection::Column,
                     margin: UiRect {
                         left: Val::Px(18.0),
@@ -5222,7 +5283,8 @@ impl<'w> Ctx<'w> {
             match item.name.as_str() {
                 "MenuItem" => top.push(self.build_menu_item(entity, item, 0)?),
                 "Separator" => {
-                    let sep = self.world
+                    let sep = self
+                        .world
                         .spawn((
                             Node {
                                 width: Val::Px(1.0),
@@ -5253,7 +5315,8 @@ impl<'w> Ctx<'w> {
         use crate::components::{PfMenuItem, PfMenuPopup};
         use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root};
 
-        let item = self.world
+        let item = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -5278,7 +5341,11 @@ impl<'w> Ctx<'w> {
             {
                 let mut n = self.node_mut(glyph);
                 n.width = Val::Px(12.0);
-                n.display = if checked { Display::Flex } else { Display::None };
+                n.display = if checked {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
             }
             self.add_children(item, &[glyph]);
             self.world
@@ -5307,7 +5374,8 @@ impl<'w> Ctx<'w> {
                 self.add_children(item, &[mark]);
             }
             let overlay = ensure_overlay_root(self.world);
-            let popup = self.world
+            let popup = self
+                .world
                 .spawn((
                     PfPopup {
                         anchor: item,
@@ -5340,7 +5408,8 @@ impl<'w> Ctx<'w> {
                 match sub.name.as_str() {
                     "MenuItem" => children.push(self.build_menu_item(menu_root, sub, depth + 1)?),
                     _ => {
-                        let sep = self.world
+                        let sep = self
+                            .world
                             .spawn((
                                 Node {
                                     height: Val::Px(1.0),
@@ -5390,8 +5459,7 @@ impl<'w> Ctx<'w> {
             self.world.entity_mut(item).observe(
                 move |_click: On<Pointer<Click>>, mut commands: Commands| {
                     commands.queue(move |world: &mut World| {
-                        let Some(cmd) =
-                            world.get::<crate::components::PfCommand>(source).cloned()
+                        let Some(cmd) = world.get::<crate::components::PfCommand>(source).cloned()
                         else {
                             return;
                         };
@@ -5406,10 +5474,9 @@ impl<'w> Ctx<'w> {
             );
         }
 
-        self.world.entity_mut(item).insert(PfMenuItem {
-            menu_root,
-            submenu,
-        });
+        self.world
+            .entity_mut(item)
+            .insert(PfMenuItem { menu_root, submenu });
         let this = item;
         self.world.entity_mut(item).observe(
             move |_click: On<Pointer<Click>>, mut commands: Commands| {
@@ -5427,16 +5494,13 @@ impl<'w> Ctx<'w> {
 
     /// Attach a right-click ContextMenu to an element: a menu popup opened
     /// on secondary click, light-dismissed via a backdrop.
-    fn attach_context_menu(
-        &mut self,
-        entity: Entity,
-        menu_node: &XamlNode,
-    ) -> Result<(), PfError> {
+    fn attach_context_menu(&mut self, entity: Entity, menu_node: &XamlNode) -> Result<(), PfError> {
         use crate::components::PfMenuPopup;
         use crate::overlay::{PfPlacement, PfPopup, ensure_overlay_root, spawn_backdrop};
 
         let overlay = ensure_overlay_root(self.world);
-        let popup = self.world
+        let popup = self
+            .world
             .spawn((
                 PfPopup {
                     anchor: entity,
@@ -5461,7 +5525,9 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let backdrop = spawn_backdrop(self.world, popup);
-        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+        self.world
+            .entity_mut(overlay)
+            .add_children(&[backdrop, popup]);
 
         let items: Vec<XamlNode> = menu_node.child_elements().cloned().collect();
         let mut children = Vec::new();
@@ -5476,14 +5542,19 @@ impl<'w> Ctx<'w> {
         // menu inside the window).
         let menu_popup = popup;
         self.world.entity_mut(entity).observe(
-            move |click: On<Pointer<Click>>, mut popups: Query<&mut PfPopup>, mut commands: Commands| {
+            move |click: On<Pointer<Click>>,
+                  mut popups: Query<&mut PfPopup>,
+                  mut commands: Commands| {
                 if click.button == bevy::picking::pointer::PointerButton::Secondary
-                    && let Ok(mut p) = popups.get_mut(menu_popup) {
-                        p.open = true;
-                        commands
-                            .entity(menu_popup)
-                            .insert(crate::overlay::PfPointerAnchor(click.pointer_location.position));
-                    }
+                    && let Ok(mut p) = popups.get_mut(menu_popup)
+                {
+                    p.open = true;
+                    commands
+                        .entity(menu_popup)
+                        .insert(crate::overlay::PfPointerAnchor(
+                            click.pointer_location.position,
+                        ));
+                }
             },
         );
         let owner = entity;
@@ -5559,7 +5630,8 @@ impl<'w> Ctx<'w> {
             .collect();
 
         // Header row.
-        let header_row = self.world
+        let header_row = self
+            .world
             .spawn((
                 Node {
                     display: Display::Grid,
@@ -5591,7 +5663,8 @@ impl<'w> Ctx<'w> {
         self.inherited.font_weight = saved_weight;
 
         // Rows host (selection managed like a ListBox).
-        let rows_host = self.world
+        let rows_host = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -5603,20 +5676,15 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         self.add_children(entity, &[header_row, rows_host]);
-        self.world.entity_mut(entity).insert(PfDataGrid {
-            columns,
-            rows_host,
-        });
+        self.world
+            .entity_mut(entity)
+            .insert(PfDataGrid { columns, rows_host });
         Ok(())
     }
 
     /// Shared tail for DataGrid / column-mode ListView: header row + rows
     /// host, with per-column grid tracks.
-    fn build_column_grid(
-        &mut self,
-        entity: Entity,
-        columns: Vec<crate::components::PfGridColumn>,
-    ) {
+    fn build_column_grid(&mut self, entity: Entity, columns: Vec<crate::components::PfGridColumn>) {
         use crate::components::PfDataGrid;
 
         let template: Vec<RepeatedGridTrack> = columns
@@ -5627,7 +5695,8 @@ impl<'w> Ctx<'w> {
             })
             .collect();
 
-        let header_row = self.world
+        let header_row = self
+            .world
             .spawn((
                 Node {
                     display: Display::Grid,
@@ -5658,7 +5727,8 @@ impl<'w> Ctx<'w> {
         }
         self.inherited.font_weight = saved_weight;
 
-        let rows_host = self.world
+        let rows_host = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -5670,10 +5740,9 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         self.add_children(entity, &[header_row, rows_host]);
-        self.world.entity_mut(entity).insert(PfDataGrid {
-            columns,
-            rows_host,
-        });
+        self.world
+            .entity_mut(entity)
+            .insert(PfDataGrid { columns, rows_host });
     }
 
     /// WPF `ListView` + `GridView`: details view with `GridViewColumn`s
@@ -5742,9 +5811,10 @@ impl<'w> Ctx<'w> {
             }
         }
         if text.is_empty()
-            && let Some(XamlValue::Str(s)) = node.attribute("Content") {
-                text = s.clone();
-            }
+            && let Some(XamlValue::Str(s)) = node.attribute("Content")
+        {
+            text = s.clone();
+        }
         let uri = match node.attribute("NavigateUri") {
             Some(XamlValue::Str(s)) => s.clone(),
             _ => String::new(),
@@ -5760,9 +5830,7 @@ impl<'w> Ctx<'w> {
             .entity_mut(entity)
             .insert((PfHyperlink(uri), Interaction::default()));
         self.world.entity_mut(entity).observe(
-            move |click: On<Pointer<Click>>,
-                  links: Query<&PfHyperlink>,
-                  mut commands: Commands| {
+            move |click: On<Pointer<Click>>, links: Query<&PfHyperlink>, mut commands: Commands| {
                 let link_entity = click.entity;
                 if let Ok(link) = links.get(link_entity)
                     && !link.0.is_empty()
@@ -5794,7 +5862,8 @@ impl<'w> Ctx<'w> {
 
         let chrome = if show_chrome {
             let mut make_button = |glyph: &str| {
-                let label = self.world
+                let label = self
+                    .world
                     .spawn((
                         Node::default(),
                         bevy::ui::widget::Text::new(glyph),
@@ -5806,7 +5875,8 @@ impl<'w> Ctx<'w> {
                         bevy::text::TextColor(Color::srgb_u8(0xAF, 0xAF, 0xAF)),
                     ))
                     .id();
-                let button = self.world
+                let button = self
+                    .world
                     .spawn((
                         Node {
                             width: Val::Px(30.0),
@@ -5840,7 +5910,8 @@ impl<'w> Ctx<'w> {
                     });
                 },
             );
-            let bar = self.world
+            let bar = self
+                .world
                 .spawn((
                     Node {
                         display: Display::Flex,
@@ -5851,14 +5922,20 @@ impl<'w> Ctx<'w> {
                     BackgroundColor(Color::NONE),
                 ))
                 .id();
-            self.world.entity_mut(bar).add_children(&[back_button, forward_button]);
+            self.world
+                .entity_mut(bar)
+                .add_children(&[back_button, forward_button]);
             self.add_children(entity, &[bar]);
-            Some(PfFrameChrome { back_button, forward_button })
+            Some(PfFrameChrome {
+                back_button,
+                forward_button,
+            })
         } else {
             None
         };
 
-        let content = self.world
+        let content = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -5881,7 +5958,6 @@ impl<'w> Ctx<'w> {
             pending_source: source,
         });
     }
-
 
     /// Toolkit presets that ride on Border's box model: `Card` and `Chip`.
     fn apply_toolkit_presets(&mut self, entity: Entity, kind: ElemKind, node: &XamlNode) {
@@ -5923,13 +5999,14 @@ impl<'w> Ctx<'w> {
 
     /// Toolkit `ToggleSwitch`: pill track, sliding thumb, latching Checked.
     fn spawn_toggle_switch(&mut self, entity: Entity, node: &XamlNode) {
-        use bevy::ui::Checked;
         use crate::components::PfToggleSwitch;
+        use bevy::ui::Checked;
         let on = matches!(
             node.attribute("IsOn").or_else(|| node.attribute("IsChecked")),
             Some(XamlValue::Str(s)) if s.eq_ignore_ascii_case("true")
         );
-        let thumb = self.world
+        let thumb = self
+            .world
             .spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -5944,7 +6021,8 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let theme = self.control_theme();
-        let track = self.world
+        let track = self
+            .world
             .spawn((
                 Node {
                     width: Val::Px(40.0),
@@ -5993,12 +6071,16 @@ impl<'w> Ctx<'w> {
             }
         };
         let value = get("Value", 0.0);
-        let (minimum, maximum, increment) =
-            (get("Minimum", f64::MIN), get("Maximum", f64::MAX), get("Increment", 1.0));
+        let (minimum, maximum, increment) = (
+            get("Minimum", f64::MIN),
+            get("Maximum", f64::MAX),
+            get("Increment", 1.0),
+        );
         fn spinner_button(ctx: &mut Ctx, glyph: &str) -> Entity {
             let this = ctx;
             let label = this.spawn_text_child(glyph.to_string());
-            let b = this.world
+            let b = this
+                .world
                 .spawn((
                     Node {
                         width: Val::Px(22.0),
@@ -6049,7 +6131,8 @@ impl<'w> Ctx<'w> {
         let mut pips = Vec::new();
         for i in 0..maximum {
             let filled = i < value;
-            let pip = self.world
+            let pip = self
+                .world
                 .spawn((
                     Node {
                         width: Val::Px(16.0),
@@ -6076,7 +6159,11 @@ impl<'w> Ctx<'w> {
             pips.push(pip);
         }
         self.add_children(entity, &pips);
-        self.world.entity_mut(entity).insert(PfRatingBar { value, maximum, pips });
+        self.world.entity_mut(entity).insert(PfRatingBar {
+            value,
+            maximum,
+            pips,
+        });
     }
 
     /// Toolkit `Badge`/`Badged`: content with a count bubble top-right.
@@ -6092,8 +6179,11 @@ impl<'w> Ctx<'w> {
             if let Some(mut t) = self.world.get_mut::<bevy::text::TextFont>(label) {
                 t.font_size = bevy::text::FontSize::Px(10.0);
             }
-            self.world.entity_mut(label).insert(bevy::text::TextColor(Color::WHITE));
-            let bubble = self.world
+            self.world
+                .entity_mut(label)
+                .insert(bevy::text::TextColor(Color::WHITE));
+            let bubble = self
+                .world
                 .spawn((
                     Node {
                         position_type: PositionType::Absolute,
@@ -6130,7 +6220,8 @@ impl<'w> Ctx<'w> {
             _ => "Working...".to_string(),
         };
         let label = self.spawn_text_child(busy_text);
-        let overlay = self.world
+        let overlay = self
+            .world
             .spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -6148,10 +6239,11 @@ impl<'w> Ctx<'w> {
             .id();
         self.world.entity_mut(overlay).add_children(&[label]);
         self.add_children(entity, &[overlay]);
-        self.world.entity_mut(entity).insert(PfBusyIndicator { overlay, busy });
+        self.world
+            .entity_mut(entity)
+            .insert(PfBusyIndicator { overlay, busy });
         Ok(())
     }
-
 
     /// Toolkit `RangeSlider`: track, highlighted interval, two drag thumbs.
     fn spawn_range_slider(&mut self, entity: Entity, node: &XamlNode) {
@@ -6171,7 +6263,8 @@ impl<'w> Ctx<'w> {
         let upper = get("UpperValue", maximum).clamp(lower, maximum);
         let span = (maximum - minimum).max(f32::EPSILON);
         const THUMB: f32 = 16.0;
-        let track = self.world
+        let track = self
+            .world
             .spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -6185,7 +6278,8 @@ impl<'w> Ctx<'w> {
                 BackgroundColor(Color::srgb_u8(0xC4, 0xC4, 0xC4)),
             ))
             .id();
-        let fill = self.world
+        let fill = self
+            .world
             .spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -6290,7 +6384,8 @@ impl<'w> Ctx<'w> {
         self.add_children(entity, &[display, arrow]);
 
         let overlay = ensure_overlay_root(self.world);
-        let popup = self.world
+        let popup = self
+            .world
             .spawn((
                 PfPopup {
                     anchor: entity,
@@ -6314,7 +6409,9 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let backdrop = spawn_backdrop(self.world, popup);
-        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+        self.world
+            .entity_mut(overlay)
+            .add_children(&[backdrop, popup]);
 
         let hours: Vec<u32> = (0..24).collect();
         let minutes: Vec<u32> = (0..60).step_by(5).collect();
@@ -6355,7 +6452,8 @@ impl<'w> Ctx<'w> {
 
     /// One scrollable column of clickable time values.
     fn spawn_time_column(&mut self, picker: Entity, values: &[u32], is_hour: bool) -> Entity {
-        let column = self.world
+        let column = self
+            .world
             .spawn(Node {
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
@@ -6366,7 +6464,8 @@ impl<'w> Ctx<'w> {
             .id();
         for &value in values {
             let label = self.spawn_text_child(format!("{value:02}"));
-            let cell = self.world
+            let cell = self
+                .world
                 .spawn((
                     Node {
                         padding: UiRect::axes(Val::Px(12.0), Val::Px(2.0)),
@@ -6408,7 +6507,10 @@ impl<'w> Ctx<'w> {
         let kind = match node.attribute("Kind").or_else(|| node.attribute("Symbol")) {
             Some(XamlValue::Str(k)) => k.clone(),
             _ => {
-                self.warn(format!("{}: {} needs Kind= or Symbol=", node.pos, node.name));
+                self.warn(format!(
+                    "{}: {} needs Kind= or Symbol=",
+                    node.pos, node.name
+                ));
                 return;
             }
         };
@@ -6418,8 +6520,8 @@ impl<'w> Ctx<'w> {
             self.add_children(entity, &[label]);
             return;
         };
-        let geometry = bevy_pf_xaml::geometry::parse_path_data(data)
-            .expect("icon path data is pre-validated");
+        let geometry =
+            bevy_pf_xaml::geometry::parse_path_data(data).expect("icon path data is pre-validated");
         let shape = crate::shapes::build_shape(
             "Path",
             crate::shapes::ShapeParams {
@@ -6430,7 +6532,8 @@ impl<'w> Ctx<'w> {
             },
         )
         .expect("icon shape");
-        let inner = self.world
+        let inner = self
+            .world
             .spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -6459,7 +6562,8 @@ impl<'w> Ctx<'w> {
             _ => Color::srgb_u8(0x33, 0x66, 0xCC),
         };
 
-        let swatch = self.world
+        let swatch = self
+            .world
             .spawn((
                 Node {
                     width: Val::Px(18.0),
@@ -6475,7 +6579,8 @@ impl<'w> Ctx<'w> {
         self.add_children(entity, &[swatch, arrow]);
 
         let overlay = ensure_overlay_root(self.world);
-        let popup = self.world
+        let popup = self
+            .world
             .spawn((
                 PfPopup {
                     anchor: entity,
@@ -6499,16 +6604,35 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let backdrop = spawn_backdrop(self.world, popup);
-        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+        self.world
+            .entity_mut(overlay)
+            .add_children(&[backdrop, popup]);
 
         // 20-color palette (5x4): a practical designer set.
         const PALETTE: [(u8, u8, u8); 20] = [
-            (0x00, 0x00, 0x00), (0x44, 0x44, 0x44), (0x88, 0x88, 0x88), (0xCC, 0xCC, 0xCC), (0xFF, 0xFF, 0xFF),
-            (0xE8, 0x1B, 0x23), (0xFF, 0x8C, 0x00), (0xFF, 0xD4, 0x00), (0x33, 0x99, 0x33), (0x00, 0x7F, 0x5F),
-            (0x00, 0xB7, 0xC3), (0x33, 0x66, 0xCC), (0x00, 0x3D, 0x99), (0x68, 0x21, 0x7A), (0xC2, 0x39, 0x8A),
-            (0x8B, 0x45, 0x13), (0xF4, 0xA0, 0x8C), (0xB5, 0xE6, 0x1D), (0x9B, 0xB7, 0xD4), (0x1A, 0x1A, 0x2E),
+            (0x00, 0x00, 0x00),
+            (0x44, 0x44, 0x44),
+            (0x88, 0x88, 0x88),
+            (0xCC, 0xCC, 0xCC),
+            (0xFF, 0xFF, 0xFF),
+            (0xE8, 0x1B, 0x23),
+            (0xFF, 0x8C, 0x00),
+            (0xFF, 0xD4, 0x00),
+            (0x33, 0x99, 0x33),
+            (0x00, 0x7F, 0x5F),
+            (0x00, 0xB7, 0xC3),
+            (0x33, 0x66, 0xCC),
+            (0x00, 0x3D, 0x99),
+            (0x68, 0x21, 0x7A),
+            (0xC2, 0x39, 0x8A),
+            (0x8B, 0x45, 0x13),
+            (0xF4, 0xA0, 0x8C),
+            (0xB5, 0xE6, 0x1D),
+            (0x9B, 0xB7, 0xD4),
+            (0x1A, 0x1A, 0x2E),
         ];
-        let grid = self.world
+        let grid = self
+            .world
             .spawn(Node {
                 display: Display::Grid,
                 grid_template_columns: vec![RepeatedGridTrack::px(5, 22.0)],
@@ -6518,7 +6642,8 @@ impl<'w> Ctx<'w> {
             })
             .id();
         for (r, g, b) in PALETTE {
-            let cell = self.world
+            let cell = self
+                .world
                 .spawn((
                     Node {
                         width: Val::Px(22.0),
@@ -6545,7 +6670,8 @@ impl<'w> Ctx<'w> {
 
         // Hex entry row.
         let hex = color_to_hex(selected);
-        let hex_input = self.world
+        let hex_input = self
+            .world
             .spawn((
                 Node {
                     flex_grow: 1.0,
@@ -6557,7 +6683,8 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         self.apply_text_font(hex_input);
-        let hex_row = self.world
+        let hex_row = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -6617,7 +6744,8 @@ impl<'w> Ctx<'w> {
         };
         let mut editable = bevy::text::EditableText::new(&text);
         editable.allow_newlines = false;
-        let input = self.world
+        let input = self
+            .world
             .spawn((
                 Node {
                     flex_grow: 1.0,
@@ -6642,16 +6770,18 @@ impl<'w> Ctx<'w> {
         }
         for child in &node.children {
             if let Some(el) = child.as_element()
-                && let Some(t) = el.text_content() {
-                    let t = t.trim().to_string();
-                    if !t.is_empty() {
-                        items.push(t);
-                    }
+                && let Some(t) = el.text_content()
+            {
+                let t = t.trim().to_string();
+                if !t.is_empty() {
+                    items.push(t);
                 }
+            }
         }
 
         let overlay = ensure_overlay_root(self.world);
-        let popup = self.world
+        let popup = self
+            .world
             .spawn((
                 PfPopup {
                     anchor: entity,
@@ -6676,11 +6806,18 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let backdrop = spawn_backdrop(self.world, popup);
-        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
-
         self.world
-            .entity_mut(entity)
-            .insert((PfAutoSuggestBox { input, popup, items }, Interaction::default()));
+            .entity_mut(overlay)
+            .add_children(&[backdrop, popup]);
+
+        self.world.entity_mut(entity).insert((
+            PfAutoSuggestBox {
+                input,
+                popup,
+                items,
+            },
+            Interaction::default(),
+        ));
 
         let popup_entity = popup;
         self.world.entity_mut(backdrop).observe(
@@ -6699,7 +6836,8 @@ impl<'w> Ctx<'w> {
     fn spawn_navigation_view(&mut self, entity: Entity, node: &XamlNode) {
         use crate::components::{PfFrame, PfNavigationView};
 
-        let pane = self.world
+        let pane = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -6715,7 +6853,8 @@ impl<'w> Ctx<'w> {
             ))
             .id();
 
-        let content = self.world
+        let content = self
+            .world
             .spawn(Node {
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
@@ -6723,7 +6862,8 @@ impl<'w> Ctx<'w> {
                 ..Default::default()
             })
             .id();
-        let frame = self.world
+        let frame = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -6750,7 +6890,9 @@ impl<'w> Ctx<'w> {
         let mut items = Vec::new();
         let mut first_tag: Option<String> = None;
         for child in &node.children {
-            let Some(el) = child.as_element() else { continue };
+            let Some(el) = child.as_element() else {
+                continue;
+            };
             if el.name != "NavigationViewItem" {
                 self.warn(format!(
                     "{}: NavigationView only takes NavigationViewItem children, got {}",
@@ -6767,7 +6909,8 @@ impl<'w> Ctx<'w> {
                 _ => label.clone(),
             };
 
-            let row = self.world
+            let row = self
+                .world
                 .spawn((
                     Node {
                         display: Display::Flex,
@@ -6783,33 +6926,35 @@ impl<'w> Ctx<'w> {
                 ))
                 .id();
             if let Some(XamlValue::Str(kind)) = el.attribute("Icon")
-                && let Some(data) = crate::icons::icon_path(kind) {
-                    let geometry = bevy_pf_xaml::geometry::parse_path_data(data)
-                        .expect("icon path data is pre-validated");
-                    let shape = crate::shapes::build_shape(
-                        "Path",
-                        crate::shapes::ShapeParams {
-                            data: Some(geometry),
-                            fill: Some(v::PfBrush::Solid(v::PfColor::rgb(0x44, 0x44, 0x44))),
-                            stretch: Some(v::Stretch::Uniform),
+                && let Some(data) = crate::icons::icon_path(kind)
+            {
+                let geometry = bevy_pf_xaml::geometry::parse_path_data(data)
+                    .expect("icon path data is pre-validated");
+                let shape = crate::shapes::build_shape(
+                    "Path",
+                    crate::shapes::ShapeParams {
+                        data: Some(geometry),
+                        fill: Some(v::PfBrush::Solid(v::PfColor::rgb(0x44, 0x44, 0x44))),
+                        stretch: Some(v::Stretch::Uniform),
+                        ..Default::default()
+                    },
+                )
+                .expect("icon shape");
+                let icon = self
+                    .world
+                    .spawn((
+                        Node {
+                            width: Val::Px(16.0),
+                            height: Val::Px(16.0),
+                            flex_shrink: 0.0,
                             ..Default::default()
                         },
-                    )
-                    .expect("icon shape");
-                    let icon = self.world
-                        .spawn((
-                            Node {
-                                width: Val::Px(16.0),
-                                height: Val::Px(16.0),
-                                flex_shrink: 0.0,
-                                ..Default::default()
-                            },
-                            shape,
-                            crate::shapes::PfShapeRendered::default(),
-                        ))
-                        .id();
-                    self.add_children(row, &[icon]);
-                }
+                        shape,
+                        crate::shapes::PfShapeRendered::default(),
+                    ))
+                    .id();
+                self.add_children(row, &[icon]);
+            }
             let text = self.spawn_text_child(label);
             self.add_children(row, &[text]);
 
@@ -6857,7 +7002,8 @@ impl<'w> Ctx<'w> {
         };
 
         let overlay = ensure_overlay_root(self.world);
-        let popup = self.world
+        let popup = self
+            .world
             .spawn((
                 PfPopup {
                     // Placeholder anchor; resolve_popup_sources swaps in the
@@ -6881,7 +7027,9 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let backdrop = spawn_backdrop(self.world, popup);
-        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+        self.world
+            .entity_mut(overlay)
+            .add_children(&[backdrop, popup]);
         let children = self.spawn_child_elements(node, ParentKind::FlexColumn)?;
         self.add_children(popup, &children);
         self.world
@@ -6956,7 +7104,8 @@ impl<'w> Ctx<'w> {
             n.flex_grow = 1.0;
             n.justify_content = JustifyContent::Center;
         }
-        let header = self.world
+        let header = self
+            .world
             .spawn(Node {
                 display: Display::Flex,
                 flex_direction: FlexDirection::Row,
@@ -6966,14 +7115,18 @@ impl<'w> Ctx<'w> {
             .id();
         self.add_children(header, &[prev, title, next]);
 
-        let weekdays = self.world
+        let weekdays = self
+            .world
             .spawn(Node {
                 display: Display::Grid,
                 grid_template_columns: vec![RepeatedGridTrack::fr(7, 1.0)],
                 ..Default::default()
             })
             .id();
-        for (i, wd) in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].iter().enumerate() {
+        for (i, wd) in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+            .iter()
+            .enumerate()
+        {
             let cell = self.spawn_text_child(wd.to_string());
             {
                 let mut n = self.node_mut(cell);
@@ -6984,7 +7137,8 @@ impl<'w> Ctx<'w> {
             self.add_children(weekdays, &[cell]);
         }
 
-        let days_host = self.world
+        let days_host = self
+            .world
             .spawn(Node {
                 display: Display::Grid,
                 grid_template_columns: vec![RepeatedGridTrack::fr(7, 1.0)],
@@ -7018,7 +7172,8 @@ impl<'w> Ctx<'w> {
 
     fn spawn_nav_button(&mut self, glyph: &str) -> Entity {
         let label = self.spawn_text_child(glyph.to_string());
-        let button = self.world
+        let button = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -7050,7 +7205,8 @@ impl<'w> Ctx<'w> {
         self.add_children(entity, &[display, arrow]);
 
         let overlay = ensure_overlay_root(self.world);
-        let popup = self.world
+        let popup = self
+            .world
             .spawn((
                 PfPopup {
                     anchor: entity,
@@ -7069,9 +7225,12 @@ impl<'w> Ctx<'w> {
             ))
             .id();
         let backdrop = spawn_backdrop(self.world, popup);
-        self.world.entity_mut(overlay).add_children(&[backdrop, popup]);
+        self.world
+            .entity_mut(overlay)
+            .add_children(&[backdrop, popup]);
 
-        let calendar = self.world
+        let calendar = self
+            .world
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -7154,7 +7313,10 @@ impl<'w> Ctx<'w> {
             let host = match kind {
                 // A ListView in GridView (column) mode hosts rows like a DataGrid.
                 ElemKind::ListBox
-                    if self.world.get::<crate::components::PfDataGrid>(entity).is_some() =>
+                    if self
+                        .world
+                        .get::<crate::components::PfDataGrid>(entity)
+                        .is_some() =>
                 {
                     crate::items::ItemsHostKind::DataGrid
                 }
@@ -7163,22 +7325,22 @@ impl<'w> Ctx<'w> {
                 ElemKind::ComboBox => crate::items::ItemsHostKind::ComboBox,
                 ElemKind::DataGrid => crate::items::ItemsHostKind::DataGrid,
                 _ => {
-                    self.warn(format!(
-                        "ItemsSource on `{kind:?}` is not supported yet"
-                    ));
+                    self.warn(format!("ItemsSource on `{kind:?}` is not supported yet"));
                     return;
                 }
             };
             let scopes = std::sync::Arc::new(self.scopes.clone());
-            self.world.entity_mut(entity).insert(crate::items::PfItemsSource {
-                path: spec.path,
-                template: self.pending.item_template.clone(),
-                scopes: Some(scopes),
-                display_member: self.pending.display_member.clone(),
-                container_style: self.pending.item_container_style.clone(),
-                kind: host,
-                seen_version: 0,
-            });
+            self.world
+                .entity_mut(entity)
+                .insert(crate::items::PfItemsSource {
+                    path: spec.path,
+                    template: self.pending.item_template.clone(),
+                    scopes: Some(scopes),
+                    display_member: self.pending.display_member.clone(),
+                    container_style: self.pending.item_container_style.clone(),
+                    kind: host,
+                    seen_version: 0,
+                });
             return;
         }
         if property == "Text" && kind == ElemKind::TextBox && self.pending.text_input.is_none() {
@@ -7195,9 +7357,7 @@ impl<'w> Ctx<'w> {
                 BindingTarget::EditableText,
                 v::BindingMode::TwoWay,
             ),
-            "SelectedIndex"
-                if matches!(kind, ElemKind::ListBox | ElemKind::ComboBox) =>
-            {
+            "SelectedIndex" if matches!(kind, ElemKind::ListBox | ElemKind::ComboBox) => {
                 (entity, BindingTarget::SelectedIndex, v::BindingMode::TwoWay)
             }
             "Text" => (entity, BindingTarget::Text, v::BindingMode::OneWay),
@@ -7207,16 +7367,12 @@ impl<'w> Ctx<'w> {
                 v::BindingMode::OneWay,
             ),
             "IsChecked" => (entity, BindingTarget::IsChecked, v::BindingMode::TwoWay),
-            "Value" if matches!(kind, ElemKind::Slider | ElemKind::ScrollBar) => (
-                entity,
-                BindingTarget::SliderValue,
-                v::BindingMode::TwoWay,
-            ),
-            "Value" if kind == ElemKind::ProgressBar => (
-                entity,
-                BindingTarget::ProgressValue,
-                v::BindingMode::OneWay,
-            ),
+            "Value" if matches!(kind, ElemKind::Slider | ElemKind::ScrollBar) => {
+                (entity, BindingTarget::SliderValue, v::BindingMode::TwoWay)
+            }
+            "Value" if kind == ElemKind::ProgressBar => {
+                (entity, BindingTarget::ProgressValue, v::BindingMode::OneWay)
+            }
             "Visibility" => (entity, BindingTarget::Visibility, v::BindingMode::OneWay),
             "Width" => (entity, BindingTarget::Width, v::BindingMode::OneWay),
             "Height" => (entity, BindingTarget::Height, v::BindingMode::OneWay),
@@ -7414,21 +7570,12 @@ impl<'w> Ctx<'w> {
     fn take_dock_alignment(
         &mut self,
         child: Entity,
-    ) -> (
-        Option<v::HorizontalAlignment>,
-        Option<v::VerticalAlignment>,
-    ) {
+    ) -> (Option<v::HorizontalAlignment>, Option<v::VerticalAlignment>) {
         let Some(mut attached) = self.world.get_mut::<PfAttachedProps>(child) else {
             return (None, None);
         };
-        let h = attached
-            .0
-            .remove("Pf.HAlign")
-            .and_then(|s| s.parse().ok());
-        let v = attached
-            .0
-            .remove("Pf.VAlign")
-            .and_then(|s| s.parse().ok());
+        let h = attached.0.remove("Pf.HAlign").and_then(|s| s.parse().ok());
+        let v = attached.0.remove("Pf.VAlign").and_then(|s| s.parse().ok());
         (h, v)
     }
 }
@@ -7592,7 +7739,9 @@ pub fn scroll_bar_nudge(world: &mut World, bar: Entity, dir: f32) {
     if let Some(v) = world.get::<bevy::ui_widgets::SliderValue>(bar).map(|v| v.0) {
         let next = (v + step).clamp(min, max);
         if next != v {
-            world.entity_mut(bar).insert(bevy::ui_widgets::SliderValue(next));
+            world
+                .entity_mut(bar)
+                .insert(bevy::ui_widgets::SliderValue(next));
         }
     }
 }
@@ -7628,7 +7777,9 @@ fn scroll_bar_drag(world: &mut World, bar: Entity, delta: Vec2) {
     if let Some(v) = world.get::<bevy::ui_widgets::SliderValue>(bar).map(|v| v.0) {
         let next = (v + axis_px / usable * (max - min)).clamp(min, max);
         if next != v {
-            world.entity_mut(bar).insert(bevy::ui_widgets::SliderValue(next));
+            world
+                .entity_mut(bar)
+                .insert(bevy::ui_widgets::SliderValue(next));
         }
     }
 }
@@ -7766,30 +7917,34 @@ pub fn select_tab(world: &mut World, tab_control: Entity, index: usize) {
 /// v1 toggles on any header click).
 pub fn toggle_tree_item(world: &mut World, tree: Entity, item: Entity) {
     if let Some(state) = world.get::<crate::components::PfTreeItem>(item).cloned()
-        && state.has_children {
-            let expanded = !state.expanded;
-            if let Some(mut node) = world.get_mut::<Node>(state.container) {
-                node.display = if expanded { Display::Flex } else { Display::None };
-            }
-            if let Some(mut text) = world.get_mut::<bevy::ui::widget::Text>(state.arrow) {
-                text.0 = if expanded { "−" } else { "+" }.to_string();
-            }
-            if let Some(mut s) = world.get_mut::<crate::components::PfTreeItem>(item) {
-                s.expanded = expanded;
-            }
+        && state.has_children
+    {
+        let expanded = !state.expanded;
+        if let Some(mut node) = world.get_mut::<Node>(state.container) {
+            node.display = if expanded {
+                Display::Flex
+            } else {
+                Display::None
+            };
         }
+        if let Some(mut text) = world.get_mut::<bevy::ui::widget::Text>(state.arrow) {
+            text.0 = if expanded { "−" } else { "+" }.to_string();
+        }
+        if let Some(mut s) = world.get_mut::<crate::components::PfTreeItem>(item) {
+            s.expanded = expanded;
+        }
+    }
     // Selection highlight on the header rows.
     let previous = world
         .get::<crate::components::PfTreeView>(tree)
         .and_then(|t| t.selected);
     if let Some(prev) = previous {
-        let prev_header = world
-            .get::<Children>(prev)
-            .and_then(|c| c.iter().next());
+        let prev_header = world.get::<Children>(prev).and_then(|c| c.iter().next());
         if let Some(h) = prev_header
-            && let Some(mut bg) = world.get_mut::<BackgroundColor>(h) {
-                bg.0 = Color::NONE;
-            }
+            && let Some(mut bg) = world.get_mut::<BackgroundColor>(h)
+        {
+            bg.0 = Color::NONE;
+        }
     }
     let selection_fill = world
         .get_resource::<crate::components::PfControlTheme>()
@@ -7797,9 +7952,10 @@ pub fn toggle_tree_item(world: &mut World, tree: Entity, item: Entity) {
         .unwrap_or(crate::plugin::LIST_SELECTED_BG);
     let header = world.get::<Children>(item).and_then(|c| c.iter().next());
     if let Some(h) = header
-        && let Some(mut bg) = world.get_mut::<BackgroundColor>(h) {
-            bg.0 = selection_fill;
-        }
+        && let Some(mut bg) = world.get_mut::<BackgroundColor>(h)
+    {
+        bg.0 = selection_fill;
+    }
     if let Some(mut t) = world.get_mut::<crate::components::PfTreeView>(tree) {
         t.selected = Some(item);
     }
@@ -7846,7 +8002,11 @@ fn toggle_checkable_menu_item(world: &mut World, item: Entity) {
         world.entity_mut(item).insert(bevy::ui::Checked);
     }
     if let Some(mut n) = world.get_mut::<Node>(state.glyph) {
-        n.display = if was_checked { Display::None } else { Display::Flex };
+        n.display = if was_checked {
+            Display::None
+        } else {
+            Display::Flex
+        };
     }
 }
 
@@ -7855,14 +8015,19 @@ fn open_menu_chain(world: &mut World, mut item: Entity) {
     loop {
         if let Some(state) = world.get::<crate::components::PfMenuItem>(item).cloned()
             && let Some(popup) = state.submenu
-                && let Some(mut p) = world.get_mut::<crate::overlay::PfPopup>(popup) {
-                    p.open = true;
-                }
+            && let Some(mut p) = world.get_mut::<crate::overlay::PfPopup>(popup)
+        {
+            p.open = true;
+        }
         // Walk up through popup logical parents to keep ancestors open.
         let Some(parent) = world
             .get::<ChildOf>(item)
             .map(|c| c.parent())
-            .and_then(|p| world.get::<crate::components::PfLogicalParent>(p).map(|l| l.0))
+            .and_then(|p| {
+                world
+                    .get::<crate::components::PfLogicalParent>(p)
+                    .map(|l| l.0)
+            })
         else {
             break;
         };
@@ -7880,9 +8045,10 @@ pub fn close_menu_popups(world: &mut World, menu_root: Entity) {
         .collect();
     for popup in popups {
         if let Some(mut p) = world.get_mut::<crate::overlay::PfPopup>(popup)
-            && p.open {
-                p.open = false;
-            }
+            && p.open
+        {
+            p.open = false;
+        }
     }
 }
 
@@ -7896,9 +8062,10 @@ fn close_popup_subtree(world: &mut World, popup: Entity) {
         .unwrap_or_default();
     for child in children {
         if let Some(state) = world.get::<crate::components::PfMenuItem>(child).cloned()
-            && let Some(sub) = state.submenu {
-                close_popup_subtree(world, sub);
-            }
+            && let Some(sub) = state.submenu
+        {
+            close_popup_subtree(world, sub);
+        }
     }
 }
 
@@ -7979,8 +8146,18 @@ fn day_of_week(year: i32, month: u32, day: u32) -> u32 {
 }
 
 const MONTH_NAMES: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 /// Repaint a Calendar's day grid + title for its current month/selection.
@@ -8061,12 +8238,7 @@ pub fn calendar_shift_month(world: &mut World, calendar: Entity, delta: i32) {
 
 /// Set a TimePicker's hour and/or minute; updates the display and closes the
 /// popup once a minute is chosen.
-pub fn time_picker_set(
-    world: &mut World,
-    picker: Entity,
-    hour: Option<u32>,
-    minute: Option<u32>,
-) {
+pub fn time_picker_set(world: &mut World, picker: Entity, hour: Option<u32>, minute: Option<u32>) {
     use crate::components::PfTimePicker;
     let Some(mut p) = world.get_mut::<PfTimePicker>(picker) else {
         return;
@@ -8086,9 +8258,10 @@ pub fn time_picker_set(
     };
     set_text(world, display, text);
     if minute.is_some()
-        && let Some(mut pop) = world.get_mut::<crate::overlay::PfPopup>(popup) {
-            pop.open = false;
-        }
+        && let Some(mut pop) = world.get_mut::<crate::overlay::PfPopup>(popup)
+    {
+        pop.open = false;
+    }
 }
 
 /// `#RRGGBB` for a color (alpha dropped).
@@ -8114,10 +8287,9 @@ pub fn color_picker_set(world: &mut World, picker: Entity, color: Color, update_
     if let Some(mut bg) = world.get_mut::<BackgroundColor>(swatch) {
         bg.0 = color;
     }
-    if update_hex
-        && let Some(mut et) = world.get_mut::<bevy::text::EditableText>(hex_input) {
-            et.editor.set_text(&color_to_hex(color));
-        }
+    if update_hex && let Some(mut et) = world.get_mut::<bevy::text::EditableText>(hex_input) {
+        et.editor.set_text(&color_to_hex(color));
+    }
 }
 
 /// Refilter an AutoSuggestBox's dropdown against its current text.
@@ -8180,8 +8352,9 @@ pub(crate) fn rebuild_suggestions(world: &mut World, owner: Entity) {
             .id();
         world.entity_mut(row).add_children(&[label]);
         let (input, popup) = (sugg.input, sugg.popup);
-        world.entity_mut(row).observe(
-            move |_click: On<Pointer<Click>>, mut commands: Commands| {
+        world
+            .entity_mut(row)
+            .observe(move |_click: On<Pointer<Click>>, mut commands: Commands| {
                 let chosen = item.clone();
                 commands.queue(move |world: &mut World| {
                     if let Some(mut et) = world.get_mut::<bevy::text::EditableText>(input) {
@@ -8191,8 +8364,7 @@ pub(crate) fn rebuild_suggestions(world: &mut World, owner: Entity) {
                         p.open = false;
                     }
                 });
-            },
-        );
+            });
         world.entity_mut(sugg.popup).add_children(&[row]);
     }
     if let Some(mut p) = world.get_mut::<PfPopup>(sugg.popup) {

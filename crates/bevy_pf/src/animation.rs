@@ -43,12 +43,27 @@ pub struct PfAnimationSpec {
     pub auto_reverse: bool,
     pub fill: PfFill,
     pub easing: PfEasing,
+    /// WPF `Timeline.SpeedRatio`: how fast this timeline's own clock runs
+    /// relative to its parent. 2.0 plays twice as fast. Scales `duration`
+    /// but NOT `begin_time` -- BeginTime is expressed in the parent's time
+    /// frame, so the timeline's own ratio does not apply to it.
+    pub speed_ratio: f32,
 }
 
 #[derive(Debug, Clone)]
 pub enum PfAnimKind {
-    Double { from: Option<f64>, to: f64 },
-    Color { from: Option<v::PfColor>, to: v::PfColor },
+    /// `to` and `by` are both optional but never both absent (the parser
+    /// rejects that case). WPF semantics: `By` is an offset from the start
+    /// value, and `To` wins when an author supplies both.
+    Double {
+        from: Option<f64>,
+        to: Option<f64>,
+        by: Option<f64>,
+    },
+    Color {
+        from: Option<v::PfColor>,
+        to: v::PfColor,
+    },
     /// `<DoubleAnimationUsingKeyFrames>`.
     DoubleKeyFrames { frames: Vec<PfKeyFrame> },
     /// `<ColorAnimationUsingKeyFrames>`.
@@ -78,7 +93,12 @@ pub enum PfKeyInterp {
     Linear,
     Easing(PfEasing),
     /// `KeySpline="x1,y1 x2,y2"` — a cubic bezier through (0,0) and (1,1).
-    Spline { x1: f32, y1: f32, x2: f32, y2: f32 },
+    Spline {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    },
 }
 
 impl PfKeyInterp {
@@ -136,7 +156,10 @@ pub enum PfEasing {
     Elastic(EasingMode),
     Bounce(EasingMode),
     Exponential(EasingMode),
-    AccelDecel { accel: f32, decel: f32 },
+    AccelDecel {
+        accel: f32,
+        decel: f32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -170,9 +193,7 @@ impl PfEasing {
             PfEasing::Cubic(m) => with_mode(m, |x| x * x * x, t),
             PfEasing::Quartic(m) => with_mode(m, |x| x * x * x * x, t),
             PfEasing::Quintic(m) => with_mode(m, |x| x * x * x * x * x, t),
-            PfEasing::Sine(m) => {
-                with_mode(m, |x| 1.0 - (x * std::f32::consts::FRAC_PI_2).cos(), t)
-            }
+            PfEasing::Sine(m) => with_mode(m, |x| 1.0 - (x * std::f32::consts::FRAC_PI_2).cos(), t),
             PfEasing::Circle(m) => with_mode(m, |x| 1.0 - (1.0 - x * x).max(0.0).sqrt(), t),
             PfEasing::Back(m) => with_mode(
                 m,
@@ -434,9 +455,7 @@ impl Track {
     /// progress (KeyFrames, which ease per segment).
     fn sample(&self, progress: f32, duration: f32, easing: PfEasing) -> Option<PfValue> {
         match self {
-            Track::Simple { from, to } => {
-                lerp_value(from, to, easing.ease(progress))
-            }
+            Track::Simple { from, to } => lerp_value(from, to, easing.ease(progress)),
             Track::KeyFrames { base, frames } => {
                 let t = progress * duration;
                 let mut prev_time = 0.0_f32;
@@ -597,18 +616,21 @@ pub(crate) fn begin_storyboard_timed(
             out.sort_by(|a, b| a.0.total_cmp(&b.0));
             out
         };
-        let duration = timing
-            .map(|(d, _)| d)
-            .unwrap_or(spec.duration)
-            .max(1.0 / 240.0);
+        let duration = (timing.map(|(d, _)| d).unwrap_or(spec.duration)
+            / spec.speed_ratio.max(f32::EPSILON))
+        .max(1.0 / 240.0);
         let track = match &spec.kind {
-            PfAnimKind::Double { from, to } => {
+            PfAnimKind::Double { from, to, by } => {
                 let from = from
                     .or_else(|| base.as_ref().and_then(pf_as_f64))
                     .unwrap_or(0.0);
+                // `By` is relative to wherever this animation STARTS, which is
+                // why it resolves here rather than at parse time: without an
+                // explicit `From`, the start is the live base value.
+                let to = to.unwrap_or_else(|| from + by.unwrap_or(0.0));
                 Track::Simple {
                     from: PfValue::Double(from),
-                    to: PfValue::Double(*to),
+                    to: PfValue::Double(to),
                 }
             }
             PfAnimKind::Color { from, to } => {
@@ -621,9 +643,7 @@ pub(crate) fn begin_storyboard_timed(
                 }
             }
             PfAnimKind::DoubleKeyFrames { frames } => Track::KeyFrames {
-                base: PfValue::Double(
-                    base.as_ref().and_then(pf_as_f64).unwrap_or(0.0),
-                ),
+                base: PfValue::Double(base.as_ref().and_then(pf_as_f64).unwrap_or(0.0)),
                 frames: resolve_frames(frames, duration, false),
             },
             PfAnimKind::ColorKeyFrames { frames } => Track::KeyFrames {
@@ -900,8 +920,7 @@ pub fn go_to_state(world: &mut World, control: Entity, group: &str, state: &str)
             if !from_ok || !to_ok {
                 return None;
             }
-            let score =
-                u8::from(t.from.is_some()) * 2 + u8::from(t.to.is_some());
+            let score = u8::from(t.from.is_some()) * 2 + u8::from(t.to.is_some());
             Some((score, t.duration, t.easing))
         })
         .max_by_key(|(score, ..)| *score)
@@ -983,9 +1002,7 @@ pub fn go_to_state(world: &mut World, control: Entity, group: &str, state: &str)
             if touched.iter().any(|(t, p, _)| t == target && p == prop) {
                 continue;
             }
-            let Some((_, _, Some(from))) = live
-                .iter()
-                .find(|(t, p, _)| t == target && p == prop)
+            let Some((_, _, Some(from))) = live.iter().find(|(t, p, _)| t == target && p == prop)
             else {
                 continue; // no live value: the instant revert already ran
             };
@@ -1001,8 +1018,7 @@ pub fn go_to_state(world: &mut World, control: Entity, group: &str, state: &str)
                     }
                 },
             };
-            let (Some(from), Some(to)) = (normalize(from), to.as_ref().and_then(normalize))
-            else {
+            let (Some(from), Some(to)) = (normalize(from), to.as_ref().and_then(normalize)) else {
                 continue; // not interpolable: the instant revert stands
             };
             if std::mem::discriminant(&from) != std::mem::discriminant(&to) {
@@ -1097,7 +1113,10 @@ mod tests {
             PfEasing::Circle(Out),
             PfEasing::Bounce(Out),
             PfEasing::Exponential(In),
-            PfEasing::AccelDecel { accel: 0.3, decel: 0.3 },
+            PfEasing::AccelDecel {
+                accel: 0.3,
+                decel: 0.3,
+            },
         ];
         for c in curves {
             assert!(c.ease(0.0).abs() < 1e-4, "{c:?} starts at 0");

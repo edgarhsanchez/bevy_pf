@@ -82,7 +82,10 @@ pub struct PfTrigger {
 #[derive(Debug, Clone)]
 pub enum PfTriggerCondition {
     /// `<Trigger Property="IsMouseOver" Value="True">`
-    Property { property: String, value: PfTriggerValue },
+    Property {
+        property: String,
+        value: PfTriggerValue,
+    },
     /// `<DataTrigger Binding="{Binding Path}" Value="...">`
     Data { path: String, value: PfTriggerValue },
 }
@@ -182,9 +185,7 @@ impl ResourceScopes {
 pub fn static_resource_key(ext: &bevy_pf_xaml::MarkupExtension) -> Result<ResourceKey, PfError> {
     match ext.positional.first() {
         Some(MarkupValue::Str(s)) => Ok(ResourceKey::Explicit(s.clone())),
-        Some(MarkupValue::Extension(inner))
-            if inner.name == "x:Type" || inner.name == "Type" =>
-        {
+        Some(MarkupValue::Extension(inner)) if inner.name == "x:Type" || inner.name == "Type" => {
             let ty = inner
                 .first_positional_str()
                 .ok_or_else(|| PfError::resource("x:Type missing a type name"))?;
@@ -192,10 +193,7 @@ pub fn static_resource_key(ext: &bevy_pf_xaml::MarkupExtension) -> Result<Resour
             let ty = ty.rsplit(':').next().unwrap_or(ty);
             Ok(ResourceKey::Type(ty.to_string()))
         }
-        _ => Err(PfError::resource(format!(
-            "unsupported {} key",
-            ext.name
-        ))),
+        _ => Err(PfError::resource(format!("unsupported {} key", ext.name))),
     }
 }
 
@@ -239,7 +237,10 @@ pub fn parse_resource_entries_into<'a>(
                 dict.insert(key, value);
             }
             Ok(None) => {}
-            Err(e) => warnings.push(format!("{}: skipped resource `{}`: {e}", node.pos, node.name)),
+            Err(e) => warnings.push(format!(
+                "{}: skipped resource `{}`: {e}",
+                node.pos, node.name
+            )),
         }
     }
 }
@@ -335,9 +336,7 @@ pub fn parse_resource_value(
         "SolidColorBrush" => {
             let color = match node.attribute("Color") {
                 Some(XamlValue::Str(s)) => s.parse::<v::PfColor>()?,
-                Some(XamlValue::Extension(ext)) => {
-                    resolve_color_resource(ext, scopes, local)?
-                }
+                Some(XamlValue::Extension(ext)) => resolve_color_resource(ext, scopes, local)?,
                 None => text.trim().parse::<v::PfColor>()?,
             };
             PfValue::Brush(v::PfBrush::Solid(color))
@@ -358,17 +357,11 @@ pub fn parse_resource_value(
             }
             PfValue::Template(Arc::new(root.clone()))
         }
-        "Storyboard" => {
-            PfValue::Storyboard(Arc::new(parse_storyboard(node, warnings)?))
-        }
+        "Storyboard" => PfValue::Storyboard(Arc::new(parse_storyboard(node, warnings)?)),
         "ControlTemplate" => {
             let target_type = match node.attribute("TargetType") {
-                Some(XamlValue::Str(t)) => {
-                    Some(t.rsplit(':').next().unwrap_or(t).to_string())
-                }
-                Some(XamlValue::Extension(ext))
-                    if ext.name == "x:Type" || ext.name == "Type" =>
-                {
+                Some(XamlValue::Str(t)) => Some(t.rsplit(':').next().unwrap_or(t).to_string()),
+                Some(XamlValue::Extension(ext)) if ext.name == "x:Type" || ext.name == "Type" => {
                     ext.first_positional_str()
                         .map(|t| t.rsplit(':').next().unwrap_or(t).to_string())
                 }
@@ -467,9 +460,7 @@ pub fn parse_resource_value(
             }))
         }
         // `<Geometry x:Key="X">M 0,0 ...</Geometry>` — mini-language text.
-        "Geometry" => PfValue::Geometry(bevy_pf_xaml::geometry::parse_path_data(
-            text.trim(),
-        )?),
+        "Geometry" => PfValue::Geometry(bevy_pf_xaml::geometry::parse_path_data(text.trim())?),
         "PathGeometry" | "StreamGeometry" | "EllipseGeometry" | "RectangleGeometry"
         | "LineGeometry" | "GeometryGroup" => {
             PfValue::Geometry(parse_geometry_element(node, warnings)?)
@@ -550,9 +541,7 @@ fn parse_gradient_stops(
             }
             let color: v::PfColor = match item.attribute("Color") {
                 Some(XamlValue::Str(s)) => s.parse()?,
-                Some(XamlValue::Extension(ext)) => {
-                    resolve_color_resource(ext, scopes, local)?
-                }
+                Some(XamlValue::Extension(ext)) => resolve_color_resource(ext, scopes, local)?,
                 None => return Err(PfError::resource("GradientStop needs Color")),
             };
             let offset: f64 = match item.attribute("Offset") {
@@ -630,8 +619,7 @@ pub fn parse_geometry_element(
         "LineGeometry" => {
             let start: v::Point =
                 attr_parse(node, "StartPoint")?.unwrap_or(v::Point::new(0.0, 0.0));
-            let end: v::Point =
-                attr_parse(node, "EndPoint")?.unwrap_or(v::Point::new(0.0, 0.0));
+            let end: v::Point = attr_parse(node, "EndPoint")?.unwrap_or(v::Point::new(0.0, 0.0));
             parse_path_data(&format!("M {},{} L {},{}", start.x, start.y, end.x, end.y))?
         }
         "RectangleGeometry" => {
@@ -649,8 +637,7 @@ pub fn parse_geometry_element(
             ))?
         }
         "EllipseGeometry" => {
-            let center: v::Point =
-                attr_parse(node, "Center")?.unwrap_or(v::Point::new(0.0, 0.0));
+            let center: v::Point = attr_parse(node, "Center")?.unwrap_or(v::Point::new(0.0, 0.0));
             let rx = match node.attribute("RadiusX") {
                 Some(XamlValue::Str(s)) => s.trim().parse().unwrap_or(0.0),
                 _ => 0.0,
@@ -672,9 +659,10 @@ pub fn parse_geometry_element(
         "GeometryGroup" => {
             let mut merged = bevy_pf_xaml::geometry::PathData::default();
             if let Some(XamlValue::Str(rule)) = node.attribute("FillRule")
-                && rule.eq_ignore_ascii_case("nonzero") {
-                    merged.fill_rule = bevy_pf_xaml::geometry::FillRule::NonZero;
-                }
+                && rule.eq_ignore_ascii_case("nonzero")
+            {
+                merged.fill_rule = bevy_pf_xaml::geometry::FillRule::NonZero;
+            }
             let children_pe = node
                 .property_element("Children")
                 .map(|p| p.elements().collect::<Vec<_>>());
@@ -708,9 +696,10 @@ fn parse_structured_path(
 
     let mut data = PathData::default();
     if let Some(XamlValue::Str(rule)) = node.attribute("FillRule")
-        && rule.eq_ignore_ascii_case("nonzero") {
-            data.fill_rule = bevy_pf_xaml::geometry::FillRule::NonZero;
-        }
+        && rule.eq_ignore_ascii_case("nonzero")
+    {
+        data.fill_rule = bevy_pf_xaml::geometry::FillRule::NonZero;
+    }
 
     let figures_pe = node
         .property_element("Figures")
@@ -906,25 +895,24 @@ pub fn parse_style(
 
     // BasedOn="{StaticResource ...}" — merge base setters first.
     if let Some(XamlValue::Extension(ext)) = node.attribute("BasedOn")
-        && ext.name == "StaticResource" {
-            let key = static_resource_key(ext)?;
-            let base = local
-                .get(&key)
-                .or_else(|| scopes.lookup(&key));
-            match base {
-                Some(PfValue::Style(base)) => {
-                    style.setters.extend(base.setters.iter().cloned());
-                    style.triggers.extend(base.triggers.iter().cloned());
-                    if style.target_type.is_none() {
-                        style.target_type = base.target_type.clone();
-                    }
+        && ext.name == "StaticResource"
+    {
+        let key = static_resource_key(ext)?;
+        let base = local.get(&key).or_else(|| scopes.lookup(&key));
+        match base {
+            Some(PfValue::Style(base)) => {
+                style.setters.extend(base.setters.iter().cloned());
+                style.triggers.extend(base.triggers.iter().cloned());
+                if style.target_type.is_none() {
+                    style.target_type = base.target_type.clone();
                 }
-                _ => warnings.push(format!(
-                    "{}: BasedOn resource not found (must be defined before use)",
-                    node.pos
-                )),
             }
+            _ => warnings.push(format!(
+                "{}: BasedOn resource not found (must be defined before use)",
+                node.pos
+            )),
         }
+    }
 
     // Setters: direct children (content property) or <Style.Setters>.
     let from_property = node
@@ -941,10 +929,9 @@ pub fn parse_style(
                 Ok(s) => style.setters.push(s),
                 Err(e) => warnings.push(format!("{}: skipped setter: {e}", setter.pos)),
             },
-            "EventSetter" => warnings.push(format!(
-                "{}: EventSetter is not supported yet",
-                setter.pos
-            )),
+            "EventSetter" => {
+                warnings.push(format!("{}: EventSetter is not supported yet", setter.pos))
+            }
             other => warnings.push(format!(
                 "{}: `{other}` in Style is not supported yet",
                 setter.pos
@@ -964,9 +951,7 @@ pub fn parse_style(
             match parse_trigger(trigger, scopes, local, warnings, false) {
                 Ok(Some(t)) => style.triggers.push(t),
                 Ok(None) => {}
-                Err(e) => {
-                    warnings.push(format!("{}: skipped trigger: {e}", trigger.pos))
-                }
+                Err(e) => warnings.push(format!("{}: skipped trigger: {e}", trigger.pos)),
             }
         }
     }
@@ -1013,10 +998,7 @@ fn parse_key_frames(
                     y2: nums[3],
                 }
             } else {
-                warnings.push(format!(
-                    "{}: bad KeySpline; Linear used",
-                    frame.pos
-                ));
+                warnings.push(format!("{}: bad KeySpline; Linear used", frame.pos));
                 PfKeyInterp::Linear
             }
         } else {
@@ -1070,6 +1052,53 @@ fn parse_key_frames(
 }
 
 /// Parse one easing-function element (`<CubicEase EasingMode=.../>`).
+/// Reduce a WPF `Storyboard.TargetProperty` path to the dependency property
+/// the store can write.
+///
+/// WPF paths address a property *chain*, and the animated property is the
+/// FIRST step -- everything after it just names how to reach the value inside
+/// that property. `ColorAnimation` is the common case, because a brush colour
+/// is canonically written as a two-step path:
+///
+/// ```text
+/// (Border.Background).(SolidColorBrush.Color)  -> Background
+/// Background.Color                             -> Background
+/// (Panel.Background)                           -> Background
+/// Opacity                                      -> Opacity
+/// ```
+///
+/// Taking the last segment (the old behaviour) yielded `Color` for the first
+/// two, which matches no target and was silently skipped -- so a correctly
+/// authored WPF brush animation did nothing. Take the first step instead, and
+/// strip a trailing value-accessor step when one is present.
+fn normalize_target_property(path: &str) -> String {
+    let path = path.trim();
+    let last = |seg: &str| -> String {
+        seg.rsplit('.')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+    // Multi-step: "(A.B).(C.D)" -- the animated property is the FIRST group;
+    // the rest only says how to reach the value inside it.
+    if path.starts_with('(') {
+        if let Some(end) = path.find(").") {
+            return last(&path[1..end]);
+        }
+        // A single parenthesized group is owner-qualified ("(UIElement.Opacity)"):
+        // the last segment is always the property, never an accessor.
+        return last(path.trim_start_matches('(').trim_end_matches(')'));
+    }
+    // Unparenthesized. A trailing value accessor ("Background.Color") names a
+    // field of the property before it; a bare "Owner.Prop" does not.
+    let segments: Vec<&str> = path.split('.').collect();
+    if segments.len() > 1 && matches!(segments[segments.len() - 1].trim(), "Color" | "Offset") {
+        return segments[segments.len() - 2].trim().to_string();
+    }
+    last(path)
+}
+
 /// `<VisualTransition From=.. To=.. GeneratedDuration=..>` with an
 /// optional `GeneratedEasingFunction` property element.
 fn parse_visual_transition(
@@ -1094,10 +1123,7 @@ fn parse_visual_transition(
     }
 }
 
-fn parse_easing_element(
-    f: &XamlNode,
-    warnings: &mut Vec<String>,
-) -> crate::animation::PfEasing {
+fn parse_easing_element(f: &XamlNode, warnings: &mut Vec<String>) -> crate::animation::PfEasing {
     use crate::animation::{EasingMode, PfEasing};
     let mode = match f.attribute("EasingMode") {
         Some(XamlValue::Str(m)) if m.eq_ignore_ascii_case("easein") => EasingMode::In,
@@ -1149,16 +1175,19 @@ pub(crate) fn parse_storyboard(
         };
         let kind = match child.name.as_str() {
             "DoubleAnimation" => {
-                let Some(to) = attr("To").and_then(|t| t.trim().parse::<f64>().ok()) else {
+                let to = attr("To").and_then(|t| t.trim().parse::<f64>().ok());
+                let by = attr("By").and_then(|t| t.trim().parse::<f64>().ok());
+                if to.is_none() && by.is_none() {
                     warnings.push(format!(
-                        "{}: DoubleAnimation needs To= (By= is phase 2b); skipped",
+                        "{}: DoubleAnimation needs To= or By=; skipped",
                         child.pos
                     ));
                     continue;
-                };
+                }
                 PfAnimKind::Double {
                     from: attr("From").and_then(|f| f.trim().parse().ok()),
                     to,
+                    by,
                 }
             }
             "ColorAnimation" => {
@@ -1192,25 +1221,18 @@ pub(crate) fn parse_storyboard(
             ));
             continue;
         };
-        // Strip WPF path parentheses: "(Panel.Background)" / "Opacity".
-        let target_property = target_property
-            .trim()
-            .trim_start_matches('(')
-            .trim_end_matches(')')
-            .rsplit('.')
-            .next()
-            .unwrap_or_default()
-            .to_string();
+        let target_property = normalize_target_property(&target_property);
         let duration = attr("Duration")
             .and_then(|d| parse_duration(&d))
             .unwrap_or_else(|| match &kind {
                 // Keyframe animations default to their last key time.
-                PfAnimKind::DoubleKeyFrames { frames }
-                | PfAnimKind::ColorKeyFrames { frames } => frames
-                    .iter()
-                    .filter_map(|f| f.time)
-                    .fold(0.0_f32, f32::max)
-                    .max(1.0 / 240.0),
+                PfAnimKind::DoubleKeyFrames { frames } | PfAnimKind::ColorKeyFrames { frames } => {
+                    frames
+                        .iter()
+                        .filter_map(|f| f.time)
+                        .fold(0.0_f32, f32::max)
+                        .max(1.0 / 240.0)
+                }
                 _ => 1.0,
             });
         let begin_time = attr("BeginTime")
@@ -1222,7 +1244,10 @@ pub(crate) fn parse_storyboard(
             Some(r) => match r.trim().trim_end_matches(['x', 'X']).parse::<f32>() {
                 Ok(n) => PfRepeat::Count(n),
                 Err(_) => {
-                    warnings.push(format!("{}: bad RepeatBehavior `{r}`; using Once", child.pos));
+                    warnings.push(format!(
+                        "{}: bad RepeatBehavior `{r}`; using Once",
+                        child.pos
+                    ));
                     PfRepeat::Once
                 }
             },
@@ -1263,6 +1288,10 @@ pub(crate) fn parse_storyboard(
                 .map(|a| a.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
             fill,
+            speed_ratio: attr("SpeedRatio")
+                .and_then(|s| s.trim().parse::<f32>().ok())
+                .filter(|r| *r > 0.0)
+                .unwrap_or(1.0),
         });
     }
     Ok(crate::animation::PfStoryboard { children })
@@ -1283,7 +1312,10 @@ pub(crate) fn parse_event_trigger(
             return None;
         }
     };
-    if !matches!(event.as_str(), "Loaded" | "MouseEnter" | "MouseLeave" | "Click") {
+    if !matches!(
+        event.as_str(),
+        "Loaded" | "MouseEnter" | "MouseLeave" | "Click"
+    ) {
         warnings.push(format!(
             "{}: EventTrigger RoutedEvent `{event}` is not supported yet",
             node.pos
@@ -1345,8 +1377,7 @@ fn parse_trigger(
         match el.attribute("Binding") {
             Some(XamlValue::Extension(ext)) if ext.name == "Binding" => {
                 let spec = crate::binding::parse_binding_extension(ext);
-                (spec.unsupported.is_none() && spec.element_name.is_none())
-                    .then_some(spec.path)
+                (spec.unsupported.is_none() && spec.element_name.is_none()).then_some(spec.path)
             }
             _ => None,
         }
@@ -1356,9 +1387,7 @@ fn parse_trigger(
     let trigger_value = |el: &XamlNode| -> Option<PfTriggerValue> {
         match el.attribute("Value") {
             Some(XamlValue::Str(v)) => return Some(PfTriggerValue::Text(v.clone())),
-            Some(XamlValue::Extension(ext))
-                if ext.name == "x:Null" || ext.name == "Null" =>
-            {
+            Some(XamlValue::Extension(ext)) if ext.name == "x:Null" || ext.name == "Null" => {
                 return Some(PfTriggerValue::Null);
             }
             _ => {}
@@ -1378,16 +1407,15 @@ fn parse_trigger(
         "Trigger" => {
             let property = attr_str(node, "Property")
                 .ok_or_else(|| PfError::resource("Trigger needs Property"))?;
-            let value = trigger_value(node)
-                .ok_or_else(|| PfError::resource("Trigger needs Value"))?;
+            let value =
+                trigger_value(node).ok_or_else(|| PfError::resource("Trigger needs Value"))?;
             conditions.push(PfTriggerCondition::Property { property, value });
         }
         "DataTrigger" => {
-            let path = binding_path(node).ok_or_else(|| {
-                PfError::resource("DataTrigger needs a plain-path Binding")
-            })?;
-            let value = trigger_value(node)
-                .ok_or_else(|| PfError::resource("DataTrigger needs Value"))?;
+            let path = binding_path(node)
+                .ok_or_else(|| PfError::resource("DataTrigger needs a plain-path Binding"))?;
+            let value =
+                trigger_value(node).ok_or_else(|| PfError::resource("DataTrigger needs Value"))?;
             conditions.push(PfTriggerCondition::Data { path, value });
         }
         "MultiTrigger" | "MultiDataTrigger" => {
@@ -1431,39 +1459,42 @@ fn parse_trigger(
     }
 
     // Enter/ExitActions: BeginStoryboard launchers run on activation flips.
-    let parse_actions = |pe_name: &str, warnings: &mut Vec<String>| -> Vec<Arc<crate::animation::PfStoryboard>> {
-        let Some(pe) = node.property_element(pe_name) else {
-            return Vec::new();
+    let parse_actions =
+        |pe_name: &str, warnings: &mut Vec<String>| -> Vec<Arc<crate::animation::PfStoryboard>> {
+            let Some(pe) = node.property_element(pe_name) else {
+                return Vec::new();
+            };
+            let mut out = Vec::new();
+            for action in pe.elements() {
+                if action.name != "BeginStoryboard" {
+                    warnings.push(format!(
+                        "{}: trigger action `{}` is not supported yet",
+                        action.pos, action.name
+                    ));
+                    continue;
+                }
+                if let Some(sb) = action.child_elements().find(|c| c.name == "Storyboard") {
+                    match parse_storyboard(sb, warnings) {
+                        Ok(sb) => out.push(Arc::new(sb)),
+                        Err(e) => warnings.push(format!("{}: {e}", action.pos)),
+                    }
+                } else if let Some(XamlValue::Extension(ext)) = action.attribute("Storyboard") {
+                    match static_resource_key(ext).ok().and_then(|key| {
+                        local
+                            .get(&key)
+                            .cloned()
+                            .or_else(|| scopes.lookup(&key).cloned())
+                    }) {
+                        Some(PfValue::Storyboard(sb)) => out.push(sb),
+                        _ => warnings.push(format!(
+                            "{}: BeginStoryboard Storyboard resource not found",
+                            action.pos
+                        )),
+                    }
+                }
+            }
+            out
         };
-        let mut out = Vec::new();
-        for action in pe.elements() {
-            if action.name != "BeginStoryboard" {
-                warnings.push(format!(
-                    "{}: trigger action `{}` is not supported yet",
-                    action.pos, action.name
-                ));
-                continue;
-            }
-            if let Some(sb) = action.child_elements().find(|c| c.name == "Storyboard") {
-                match parse_storyboard(sb, warnings) {
-                    Ok(sb) => out.push(Arc::new(sb)),
-                    Err(e) => warnings.push(format!("{}: {e}", action.pos)),
-                }
-            } else if let Some(XamlValue::Extension(ext)) = action.attribute("Storyboard") {
-                match static_resource_key(ext)
-                    .ok()
-                    .and_then(|key| local.get(&key).cloned().or_else(|| scopes.lookup(&key).cloned()))
-                {
-                    Some(PfValue::Storyboard(sb)) => out.push(sb),
-                    _ => warnings.push(format!(
-                        "{}: BeginStoryboard Storyboard resource not found",
-                        action.pos
-                    )),
-                }
-            }
-        }
-        out
-    };
     let enter_storyboards = parse_actions("EnterActions", warnings);
     let exit_storyboards = parse_actions("ExitActions", warnings);
 
@@ -1567,4 +1598,150 @@ fn parse_setter(
             _ => None,
         },
     })
+}
+
+#[cfg(test)]
+mod target_property_tests {
+    use super::normalize_target_property;
+
+    #[test]
+    fn plain_property() {
+        assert_eq!(normalize_target_property("Opacity"), "Opacity");
+        assert_eq!(normalize_target_property(" Width "), "Width");
+    }
+
+    #[test]
+    fn single_parenthesized_step() {
+        assert_eq!(
+            normalize_target_property("(Panel.Background)"),
+            "Background"
+        );
+    }
+
+    /// The canonical WPF brush-colour path. Previously reduced to `Color`,
+    /// which matched no target, so the animation was silently dropped.
+    #[test]
+    fn brush_color_chain_resolves_to_the_brush_property() {
+        assert_eq!(
+            normalize_target_property("(Border.Background).(SolidColorBrush.Color)"),
+            "Background"
+        );
+        assert_eq!(
+            normalize_target_property("(Control.Foreground).(SolidColorBrush.Color)"),
+            "Foreground"
+        );
+    }
+
+    #[test]
+    fn unparenthesized_value_accessor() {
+        assert_eq!(normalize_target_property("Background.Color"), "Background");
+    }
+
+    /// A bare `Owner.Property` is NOT an accessor chain -- the last segment is
+    /// the property and must survive.
+    /// Owner-qualified single group: the last segment is the property, and
+    /// must NOT be mistaken for a value accessor even when it is named like
+    /// one. `(UIElement.Opacity)` is Opacity, not UIElement.
+    #[test]
+    fn owner_qualified_property_named_like_an_accessor() {
+        assert_eq!(normalize_target_property("(UIElement.Opacity)"), "Opacity");
+        assert_eq!(normalize_target_property("(GradientStop.Color)"), "Color");
+    }
+
+    /// A transform path names a property the store cannot write; it must not
+    /// silently collapse onto a real property. Either way it is unsupported,
+    /// but it should not resolve to something writable by accident.
+    #[test]
+    fn transform_chain_does_not_alias_a_writable_property() {
+        let got =
+            normalize_target_property("(FrameworkElement.LayoutTransform).(RotateTransform.Angle)");
+        assert_eq!(got, "LayoutTransform");
+        assert!(crate::provider::property_target_for(&got).is_none());
+    }
+
+    #[test]
+    fn attached_style_owner_property_keeps_last_segment() {
+        assert_eq!(
+            normalize_target_property("Border.BorderThickness"),
+            "BorderThickness"
+        );
+        assert_eq!(normalize_target_property("(Grid.Row)"), "Row");
+    }
+}
+
+#[cfg(test)]
+mod storyboard_parse_tests {
+    use super::parse_storyboard;
+    use crate::animation::PfAnimKind;
+
+    /// Parse a `<Storyboard>` through the real XAML parser.
+    fn storyboard(inner: &str) -> crate::animation::PfStoryboard {
+        let doc = bevy_pf_xaml::parse(&format!("<Storyboard>{inner}</Storyboard>"))
+            .expect("test XAML must parse");
+        let mut warnings = Vec::new();
+        parse_storyboard(&doc.root, &mut warnings).expect("storyboard must parse")
+    }
+
+    #[test]
+    fn by_is_accepted_without_to() {
+        let sb = storyboard(
+            r#"<DoubleAnimation Storyboard.TargetProperty="Opacity" By="0.25" Duration="0:0:1"/>"#,
+        );
+        assert_eq!(sb.children.len(), 1, "By= must no longer be skipped");
+        match &sb.children[0].kind {
+            PfAnimKind::Double { to, by, .. } => {
+                assert_eq!(*by, Some(0.25));
+                assert_eq!(*to, None);
+            }
+            other => panic!("expected Double, got {other:?}"),
+        }
+    }
+
+    /// WPF: when an author supplies both, `To` wins and `By` is ignored.
+    #[test]
+    fn to_and_by_both_parsed_so_to_can_win() {
+        let sb = storyboard(
+            r#"<DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" By="5"/>"#,
+        );
+        match &sb.children[0].kind {
+            PfAnimKind::Double { from, to, by } => {
+                assert_eq!(*from, Some(0.0));
+                assert_eq!(*to, Some(1.0));
+                assert_eq!(*by, Some(5.0));
+            }
+            other => panic!("expected Double, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn neither_to_nor_by_is_still_rejected() {
+        let sb = storyboard(r#"<DoubleAnimation Storyboard.TargetProperty="Opacity"/>"#);
+        assert!(sb.children.is_empty());
+    }
+
+    #[test]
+    fn speed_ratio_defaults_to_one_and_rejects_nonpositive() {
+        let sb = storyboard(
+            r#"<DoubleAnimation Storyboard.TargetProperty="Opacity" To="1"/>
+               <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" SpeedRatio="2.5"/>
+               <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" SpeedRatio="0"/>"#,
+        );
+        assert_eq!(sb.children[0].speed_ratio, 1.0);
+        assert_eq!(sb.children[1].speed_ratio, 2.5);
+        // A zero ratio would divide the duration to infinity; fall back to 1.
+        assert_eq!(sb.children[2].speed_ratio, 1.0);
+    }
+
+    /// The canonical WPF brush path must survive parsing, not just the
+    /// normalizer -- this is the form a `ColorAnimation` is written in.
+    #[test]
+    fn color_animation_with_canonical_brush_path() {
+        // r##..##: the `"#` in a colour literal would close an r#".."# string.
+        let sb = storyboard(
+            r##"<ColorAnimation To="#FF00FF"
+                 Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"/>"##,
+        );
+        assert_eq!(sb.children.len(), 1);
+        assert_eq!(sb.children[0].target_property, "Background");
+    }
 }
