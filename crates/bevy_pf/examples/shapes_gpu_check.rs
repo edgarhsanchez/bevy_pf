@@ -30,6 +30,9 @@ fn main() {
     if std::env::args().any(|a| a == "--screenshot") {
         app.add_systems(Update, screenshot_and_exit);
     }
+    if std::env::args().any(|a| a == "--stress") {
+        app.add_systems(Update, stress_across_frames);
+    }
     app.run();
 }
 
@@ -231,6 +234,91 @@ fn screenshot_and_exit(
             ));
     }
     if *frame == 400 {
+        exit.write(AppExit::Success);
+    }
+}
+
+/// Exercise the backend ACROSS FRAMES, which is what a settled screenshot
+/// cannot do.
+///
+/// Every regression this backend has shipped was a time-domain bug -- shapes
+/// vanishing a few frames after being drawn, chrome blinking, layout shifting
+/// on remount -- and every one of them survived a check that rendered one
+/// frame and looked at it. Two things move here:
+///
+///   * RESIZE: slots are reserved on a 16px grain and mutated in place while
+///     the shape still fits, so sweeping the size crosses grain boundaries and
+///     forces genuine re-reservations.
+///   * REMOUNT: despawning and respawning a shape must return its slot to a
+///     working state, not leak it.
+///
+/// The assertion is the atlas REBUILD COUNT. A rebuild drops every
+/// reservation, so shapes have no slot for a frame -- the blink. A couple
+/// during warmup is fine; a count that climbs with frames means thrashing.
+/// Frame time cannot see this: a thrashing atlas draws less and can measure
+/// FASTER than a healthy one.
+fn stress_across_frames(
+    mut frame: Local<u32>,
+    mut nodes: Query<&mut Node, With<PfShape>>,
+    shapes: Query<Entity, With<PfShape>>,
+    slotted: Query<Entity, With<bevy_pf::shapes_gpu::PfShapeGpu>>,
+    rebuilds: Res<bevy_pf::shapes_gpu::PfAtlasRebuilds>,
+    mut warmup_rebuilds: Local<Option<u32>>,
+    mut commands: Commands,
+    mut exit: MessageWriter<AppExit>,
+) {
+    *frame += 1;
+    const WARMUP: u32 = 60;
+    const TOTAL: u32 = 600;
+
+    // Baseline after the working set settles, so startup rebuilds are not
+    // counted against the steady state.
+    if *frame == WARMUP {
+        *warmup_rebuilds = Some(rebuilds.0);
+    }
+
+    // Sweep every shape's size continuously.
+    if *frame > WARMUP {
+        let t = (*frame - WARMUP) as f32 / 30.0;
+        let w = 120.0 + 60.0 * t.sin();
+        let h = 96.0 + 40.0 * (t * 0.7).cos();
+        for mut node in &mut nodes {
+            node.width = Val::Px(w);
+            node.height = Val::Px(h);
+        }
+    }
+
+    // Remount one shape periodically: despawn it and let the next frames
+    // re-register a fresh slot.
+    if *frame > WARMUP && *frame % 120 == 0 {
+        if let Some(entity) = shapes.iter().next() {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    if *frame >= TOTAL {
+        let baseline = warmup_rebuilds.unwrap_or(0);
+        let steady = rebuilds.0.saturating_sub(baseline);
+        let frames = TOTAL - WARMUP;
+        println!(
+            "stress: frames={frames} shapes={} slotted={} rebuilds_total={} rebuilds_steady={steady}",
+            shapes.iter().count(),
+            slotted.iter().count(),
+            rebuilds.0,
+        );
+        // A handful of rebuilds over 540 frames of continuous resizing is
+        // acceptable (slots are never individually freed, so reclamation is
+        // expected); one every few frames is thrashing.
+        let budget = frames / 60;
+        if steady > budget {
+            println!("stress: FAIL -- {steady} rebuilds in steady state exceeds budget {budget}; atlas is thrashing");
+            std::process::exit(1);
+        }
+        if slotted.iter().count() == 0 {
+            println!("stress: FAIL -- no shape holds an atlas slot at exit");
+            std::process::exit(1);
+        }
+        println!("stress: PASS");
         exit.write(AppExit::Success);
     }
 }

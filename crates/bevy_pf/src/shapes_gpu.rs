@@ -66,6 +66,14 @@ pub struct PfShapeAtlas {
     cursor: UVec2,
     /// Height of the current shelf.
     shelf_height: u32,
+    /// Regions returned by shapes that outgrew them, keyed by capacity.
+    ///
+    /// Shelf packing cannot reclaim an arbitrary hole, which is why released
+    /// regions are only ever handed back for the SAME capacity. That is enough
+    /// because capacities are quantized to a 16px grain, so a shape whose size
+    /// oscillates cycles through a handful of distinct capacities and reuses
+    /// them instead of consuming the atlas.
+    free: std::collections::HashMap<UVec2, Vec<UVec2>>,
 }
 
 impl PfShapeAtlas {
@@ -75,6 +83,15 @@ impl PfShapeAtlas {
     /// the old one is abandoned — so the atlas is rebuilt wholesale when it
     /// fills rather than fragmenting.
     fn allocate(&mut self, size: UVec2) -> Option<UVec2> {
+        // Reuse before consuming. Without this, every resize past the current
+        // grain step abandoned its region: five shapes sweeping their size
+        // exhausted a 2048² atlas twelve times in nine seconds, and each
+        // exhaustion drops EVERY reservation for a frame -- the blink.
+        if let Some(origins) = self.free.get_mut(&size)
+            && let Some(origin) = origins.pop()
+        {
+            return Some(origin);
+        }
         let step = size + UVec2::splat(SLOT_PADDING);
         if step.x > ATLAS_SIZE || step.y > ATLAS_SIZE {
             return None;
@@ -93,9 +110,16 @@ impl PfShapeAtlas {
         Some(origin)
     }
 
+    /// Hand a region back for reuse at the same capacity.
+    fn release(&mut self, capacity: UVec2, origin: UVec2) {
+        self.free.entry(capacity).or_default().push(origin);
+    }
+
     fn reset(&mut self) {
         self.cursor = UVec2::ZERO;
         self.shelf_height = 0;
+        // The regions these point at no longer exist after a rebuild.
+        self.free.clear();
     }
 }
 
@@ -132,6 +156,17 @@ fn slot_capacity(px: UVec2) -> UVec2 {
 #[derive(Resource, Default)]
 struct PfAtlasFull(bool);
 
+/// How many wholesale atlas rebuilds have happened.
+///
+/// A rebuild drops every reservation, so each one costs a frame in which
+/// shapes have no slot -- which is what "blinking" looked like in the game.
+/// One or two during startup is normal as the working set settles; a counter
+/// that keeps climbing means the atlas is thrashing and the content does not
+/// fit. Exposed because frame-time percentiles CANNOT see this: a thrashing
+/// atlas can measure faster than a healthy one while drawing less.
+#[derive(Resource, Default)]
+pub struct PfAtlasRebuilds(pub u32);
+
 /// Marker for the atlas camera so its activity can be gated.
 #[derive(Component)]
 struct PfShapeAtlasCamera;
@@ -154,6 +189,7 @@ impl Plugin for PfShapeGpuPlugin {
         // size; before it in the same set so the CPU path sees the
         // `PfShapeGpuOwned` marker and skips anything this backend owns.
         app.init_resource::<PfAtlasFull>()
+            .init_resource::<PfAtlasRebuilds>()
             .init_resource::<PfAtlasDirty>()
             .add_systems(Startup, setup_atlas)
             .add_systems(
@@ -168,9 +204,15 @@ impl Plugin for PfShapeGpuPlugin {
 
 fn setup_atlas(
     mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+    images: Option<ResMut<Assets<Image>>>,
+    layouts: Option<ResMut<Assets<TextureAtlasLayout>>>,
 ) {
+    // Headless apps have no image/atlas asset collections. Without this the
+    // system fails parameter validation and takes the process down, so simply
+    // ADDING this plugin broke any test that did not have a renderer.
+    let (Some(mut images), Some(mut layouts)) = (images, layouts) else {
+        return;
+    };
     let mut image = Image::new_fill(
         Extent3d {
             width: ATLAS_SIZE,
@@ -218,6 +260,7 @@ fn setup_atlas(
         layout,
         cursor: UVec2::ZERO,
         shelf_height: 0,
+            free: Default::default(),
     });
 }
 
@@ -703,6 +746,10 @@ fn sync_gpu_shapes(
             .map(|g| [Some(g.draw), g.draw_stroke].into_iter().flatten().collect())
             .unwrap_or_default();
 
+        // Copied before the fast path moves `gpu`: if this shape ends up
+        // re-reserving below, this is the region to hand back.
+        let old_slot = gpu.as_ref().map(|g| (g.capacity, g.origin));
+
         // Fast path: the shape still fits its reservation, so the slot, the
         // layout index and the draw entity all stand. A colour-only edit
         // re-tessellates nothing (the engine hashes path content) and uploads
@@ -730,6 +777,12 @@ fn sync_gpu_shapes(
             continue;
         }
 
+        // Falling through to here means the shape outgrew its reservation.
+        // Give the old region back first, or it is leaked until the atlas
+        // fills and rebuilds wholesale.
+        if let Some((capacity, origin)) = old_slot {
+            atlas.release(capacity, origin);
+        }
         let capacity = slot_capacity(px);
         let Some(origin) = atlas.allocate(capacity) else {
             // Out of room: rebuild the whole atlas next. Until then this shape
@@ -786,12 +839,14 @@ fn rebuild_atlas_if_full(
     atlas: Option<ResMut<PfShapeAtlas>>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
     slots: Query<(Entity, &PfShapeGpu)>,
+    mut rebuilds: ResMut<PfAtlasRebuilds>,
     mut commands: Commands,
 ) {
     if !full.0 {
         return;
     }
     full.0 = false;
+    rebuilds.0 = rebuilds.0.saturating_add(1);
     let Some(mut atlas) = atlas else { return };
     atlas.reset();
     if let Some(mut layout) = layouts.get_mut(&atlas.layout) {
