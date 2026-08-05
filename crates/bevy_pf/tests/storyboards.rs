@@ -613,7 +613,7 @@ fn focus_states_follow_input_focus() {
 /// difference: it asserts an INTERMEDIATE value partway through the ramp, so
 /// it fails both when nothing animates and when the value merely snaps.
 #[test]
-#[ignore = "KNOWN GAP: VisualState storyboards do not run. The template expands and PfVisualStates is inserted, but the MouseOver storyboard never drives the value (measured: 0.0 at the midpoint, i.e. it never started). go_to_state is implemented, so the break is between the CommonStates driver and it. Un-ignore when fixed -- do NOT author VSM in a product until then."]
+#[ignore = "KNOWN GAP: a VisualState storyboard inside a ControlTemplate never drives its target (measured 0.0 at the midpoint of a 1s ramp). Narrowed: the template expands, PfVisualStates IS attached to the control, and go_to_state is implemented -- so the remaining suspect is Storyboard.TargetName failing to resolve against the template's parts, which skips the animation. Start at the TargetName lookup. Un-ignore when fixed; do NOT author VSM in a product until then."]
 fn visual_state_storyboard_drives_a_value_over_time() {
     let mut app = test_app();
     let root = spawn(
