@@ -71,6 +71,7 @@ pub struct PfShapeGpuOwned;
 /// That covers most UI chrome. Anything it cannot express — arbitrary paths,
 /// polylines, lines, dash patterns, elliptical corners, non-uniform ellipses
 /// — falls through to the rasterizer untouched.
+#[cfg(feature = "native_shapes")]
 fn native_style(shape: &PfShape, px: UVec2) -> Option<(Option<Color>, Option<Color>, BorderRadius, f32)> {
     let size = Vec2::new(px.x as f32, px.y as f32);
     let solid = |brush: &v::PfBrush| match brush {
@@ -109,6 +110,7 @@ fn native_style(shape: &PfShape, px: UVec2) -> Option<(Option<Color>, Option<Col
 }
 
 /// Applies [`native_style`] and marks what it handled.
+#[cfg(feature = "native_shapes")]
 pub(crate) fn style_native_shapes(
     mut shapes: Query<
         (Entity, Ref<PfShape>, &ComputedNode, &mut bevy::ui::Node),

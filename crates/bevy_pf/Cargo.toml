@@ -16,6 +16,12 @@ hot_reload = ["bevy/file_watcher"]
 # rasterization. The CPU path stays as the fallback for anything the atlas
 # cannot fit, so enabling this is additive.
 vector_gpu = ["dep:bevy_pf_vector"]
+# Draw <Rectangle>/<Ellipse> with bevy_ui's own GPU node rendering
+# (border_radius + BackgroundColor + BorderColor) instead of rasterizing
+# them. Measured at PARITY in-game (127-147 fps vs a 137-159 baseline), not
+# a win, and not yet visually verified against the obsidian chrome -- so it
+# is opt-in until someone looks at it. See "WHY THE BENCHMARKS LIED".
+native_shapes = []
 
 [dependencies]
 bevy = { workspace = true }
