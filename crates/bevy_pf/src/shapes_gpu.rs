@@ -39,7 +39,7 @@ use bevy::ui::ComputedNode;
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy_pf_vector::{
     Brush, DashPattern, FillRule as VFillRule, GradientStop, HudTransform, LineCap, LineJoin,
-    PathCommand, PathStyle, StrokeStyle, VectorShape,
+    PathCommand, PathStyle, StrokeStyle, VectorPrimitive, VectorShape,
 };
 use bevy_pf_xaml::geometry::{FillRule, PathData, PathSegment};
 use bevy_pf_xaml::value as v;
@@ -112,8 +112,11 @@ pub struct PfShapeGpu {
     capacity: UVec2,
     /// Pixel size currently drawn.
     size: UVec2,
-    /// The `VectorShape` entity drawing into the slot.
+    /// The entity drawing into the slot.
     draw: Entity,
+    /// Second pass for a shape that has BOTH fill and stroke on the SDF
+    /// path, where each is its own instance.
+    draw_stroke: Option<Entity>,
 }
 
 /// Round a reservation up so small size changes reuse the same region.
@@ -550,6 +553,119 @@ pub fn shape_to_vector(shape: &PfShape, px: UVec2) -> Option<(Vec<PathCommand>, 
     ))
 }
 
+/// A rect/rounded-rect/ellipse reduces to a rounded box, which the engine
+/// draws as an SDF primitive: one quad, and `size` lives in the instance.
+///
+/// This matters because it is what MOST UI chrome is. Sending those through
+/// the tessellated path means every resize mints new geometry and
+/// re-tessellates; as an SDF primitive a resize is one instance write. Only
+/// genuinely arbitrary path data still needs tessellation, and that geometry
+/// is fixed per screen — the case the tessellate-once cache is good at.
+///
+/// Returns (size, corner_radius) in the node's pixel space.
+fn as_rounded_box(shape: &PfShape, px: UVec2) -> Option<(Vec2, f32)> {
+    let size = Vec2::new(px.x as f32, px.y as f32);
+    match &shape.geometry {
+        ShapeGeometry::Rectangle { radius_x, radius_y } => {
+            // The engine's SDF takes ONE radius; an elliptical corner would
+            // have to stay on the tessellated path.
+            if (radius_x - radius_y).abs() > 0.01 {
+                return None;
+            }
+            Some((size, *radius_x))
+        }
+        // An ellipse inscribed in the box is the rounded box whose radius is
+        // half the shortest side — exact only when the box is square, so a
+        // non-square ellipse stays tessellated.
+        ShapeGeometry::Ellipse => {
+            if (size.x - size.y).abs() > 0.01 {
+                return None;
+            }
+            Some((size, size.x * 0.5))
+        }
+        _ => None,
+    }
+}
+
+/// Solid colour of a brush, if it is one. Gradients keep the tessellated
+/// path, which already carries them per-instance.
+fn solid(brush: &v::PfBrush) -> Option<Color> {
+    match brush {
+        v::PfBrush::Solid(c) => Some(Color::srgba_u8(c.r, c.g, c.b, c.a)),
+        _ => None,
+    }
+}
+
+/// Spawn the draw entities for a shape into its atlas slot: either SDF
+/// primitives (fast path) or one tessellated `VectorShape`.
+fn spawn_draws(
+    commands: &mut Commands,
+    shape: &PfShape,
+    px: UVec2,
+    origin: UVec2,
+) -> (Entity, Option<Entity>) {
+    let centre = slot_center_world(origin, px).extend(0.0);
+    let transform = || HudTransform { translation: centre, ..default() };
+
+    if let Some((size, radius)) = as_rounded_box(shape, px) {
+        let fill = shape.fill.as_ref().and_then(solid);
+        let stroke = shape.stroke.as_ref().and_then(solid);
+        if fill.is_some() || stroke.is_some() {
+            let st = shape.stroke_thickness;
+            // Inset like the CPU backend: a stroke straddles the edge.
+            let inset = if stroke.is_some() { st * 0.5 } else { 0.0 };
+            let inner = (size - Vec2::splat(inset * 2.0)).max(Vec2::splat(0.1));
+            let inner_radius = (radius - inset).max(0.0);
+
+            let first = commands
+                .spawn((
+                    VectorPrimitive::Rect {
+                        size: inner,
+                        radius: inner_radius,
+                        thickness: if fill.is_some() { 0.0 } else { st.max(0.01) },
+                        color: fill.or(stroke).unwrap().to_linear(),
+                    },
+                    transform(),
+                    RenderLayers::layer(SHAPE_LAYER),
+                    Name::new("PfShapeSdf"),
+                ))
+                .id();
+            // Both fill and stroke: the stroke is a second instance over it.
+            let second = (fill.is_some() && stroke.is_some()).then(|| {
+                commands
+                    .spawn((
+                        VectorPrimitive::Rect {
+                            size: inner,
+                            radius: inner_radius,
+                            thickness: st.max(0.01),
+                            color: stroke.unwrap().to_linear(),
+                        },
+                        HudTransform {
+                            // Above the fill in the slot's local depth.
+                            translation: centre + Vec3::new(0.0, 0.0, 1.0e-4),
+                            ..default()
+                        },
+                        RenderLayers::layer(SHAPE_LAYER),
+                        Name::new("PfShapeSdfStroke"),
+                    ))
+                    .id()
+            });
+            return (first, second);
+        }
+    }
+
+    let (path, style) = shape_to_vector(shape, px).unwrap_or_else(|| (Vec::new(), PathStyle::fill(LinearRgba::NONE)));
+    let draw = commands
+        .spawn((
+            VectorShape { commands: path, style },
+            transform(),
+            RenderLayers::layer(SHAPE_LAYER),
+            Name::new("PfShapeDraw"),
+        ))
+        .id();
+    (draw, None)
+}
+
 /// Give every laid-out shape an atlas slot and a `VectorShape` drawing into
 /// it, and point its `ImageNode` at that slot.
 #[allow(clippy::type_complexity)]
@@ -582,7 +698,10 @@ fn sync_gpu_shapes(
         let Some((path, style)) = shape_to_vector(&shape, px) else {
             continue;
         };
-        let previous_draw = gpu.as_ref().map(|g| g.draw);
+        let previous_draw: Vec<Entity> = gpu
+            .as_ref()
+            .map(|g| [Some(g.draw), g.draw_stroke].into_iter().flatten().collect())
+            .unwrap_or_default();
 
         // Fast path: the shape still fits its reservation, so the slot, the
         // layout index and the draw entity all stand. A colour-only edit
@@ -590,8 +709,12 @@ fn sync_gpu_shapes(
         // no texture — the case this backend exists for.
         if let Some(mut gpu) = gpu
             && px.cmple(gpu.capacity).all()
+            && gpu.draw_stroke.is_none()
             && let Ok((mut vector, mut transform)) = draws.get_mut(gpu.draw)
         {
+            let Some((path, style)) = shape_to_vector(&shape, px) else {
+                continue;
+            };
             vector.commands = path;
             vector.style = style;
             dirty.0 = 2;
@@ -620,23 +743,10 @@ fn sync_gpu_shapes(
         let index = layout.add_texture(URect::from_corners(origin, origin + px));
 
         // A grown shape abandons its old reservation; the rebuild reclaims it.
-        if let Some(previous) = previous_draw {
+        for previous in previous_draw {
             commands.entity(previous).despawn();
         }
-        let draw = commands
-            .spawn((
-                VectorShape {
-                    commands: path,
-                    style,
-                },
-                HudTransform {
-                    translation: slot_center_world(origin, px).extend(0.0),
-                    ..default()
-                },
-                RenderLayers::layer(SHAPE_LAYER),
-                Name::new("PfShapeDraw"),
-            ))
-            .id();
+        let (draw, draw_stroke) = spawn_draws(&mut commands, &shape, px, origin);
 
         dirty.0 = 2;
         commands.entity(entity).insert((
@@ -654,6 +764,7 @@ fn sync_gpu_shapes(
                 capacity,
                 size: px,
                 draw,
+                draw_stroke,
             },
             PfShapeGpuOwned,
         ));
@@ -688,6 +799,9 @@ fn rebuild_atlas_if_full(
     }
     for (entity, gpu) in &slots {
         commands.entity(gpu.draw).despawn();
+        if let Some(stroke) = gpu.draw_stroke {
+            commands.entity(stroke).despawn();
+        }
         commands
             .entity(entity)
             .remove::<(PfShapeGpu, PfShapeGpuOwned, ImageNode)>();
