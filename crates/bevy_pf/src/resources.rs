@@ -1073,30 +1073,55 @@ fn parse_key_frames(
 /// strip a trailing value-accessor step when one is present.
 fn normalize_target_property(path: &str) -> String {
     let path = path.trim();
-    let last = |seg: &str| -> String {
-        seg.rsplit('.')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string()
+    let last_seg = |seg: &str| -> String {
+        seg.rsplit('.').next().unwrap_or_default().trim().to_string()
     };
-    // Multi-step: "(A.B).(C.D)" -- the animated property is the FIRST group;
-    // the rest only says how to reach the value inside it.
-    if path.starts_with('(') {
-        if let Some(end) = path.find(").") {
-            return last(&path[1..end]);
-        }
-        // A single parenthesized group is owner-qualified ("(UIElement.Opacity)"):
-        // the last segment is always the property, never an accessor.
-        return last(path.trim_start_matches('(').trim_end_matches(')'));
+
+    // The parenthesized steps, in order: "(A.B).(C.D)" -> ["A.B", "C.D"].
+    let mut groups: Vec<&str> = Vec::new();
+    let mut rest = path;
+    while let Some(open) = rest.find('(') {
+        let Some(close) = rest[open..].find(')') else { break };
+        groups.push(&rest[open + 1..open + close]);
+        rest = &rest[open + close + 1..];
     }
+
+    if groups.len() >= 2 {
+        // A multi-step path addresses a property chain, and which END names
+        // the animated value depends on what the chain walks INTO:
+        //
+        //   (Border.Background).(SolidColorBrush.Color)
+        //       -> Background: the brush IS the animated property and
+        //          ".Color" only says which part of it varies.
+        //   (UIElement.RenderTransform).(...)[0].(ScaleTransform.ScaleX)
+        //       -> ScaleX: transform fields are modelled as their own targets
+        //          here (see TransformField), so the last step is the
+        //          property and the chain to it is scaffolding.
+        //
+        // Getting this backwards silently breaks one or the other: a brush
+        // path collapsing to "Color" matches nothing, and a transform path
+        // collapsing to "RenderTransform" does the same.
+        let final_group = groups.last().expect("len >= 2");
+        let owner = final_group.split('.').next().unwrap_or_default().trim();
+        if owner.ends_with("Transform") {
+            return last_seg(final_group);
+        }
+        return last_seg(groups[0]);
+    }
+
+    if let Some(only) = groups.first() {
+        // Owner-qualified single step: "(UIElement.Opacity)" is Opacity. The
+        // last segment is the property even when named like an accessor.
+        return last_seg(only);
+    }
+
     // Unparenthesized. A trailing value accessor ("Background.Color") names a
     // field of the property before it; a bare "Owner.Prop" does not.
     let segments: Vec<&str> = path.split('.').collect();
     if segments.len() > 1 && matches!(segments[segments.len() - 1].trim(), "Color" | "Offset") {
         return segments[segments.len() - 2].trim().to_string();
     }
-    last(path)
+    last_seg(path)
 }
 
 /// `<VisualTransition From=.. To=.. GeneratedDuration=..>` with an
@@ -1652,11 +1677,26 @@ mod target_property_tests {
     /// silently collapse onto a real property. Either way it is unsupported,
     /// but it should not resolve to something writable by accident.
     #[test]
-    fn transform_chain_does_not_alias_a_writable_property() {
-        let got =
-            normalize_target_property("(FrameworkElement.LayoutTransform).(RotateTransform.Angle)");
-        assert_eq!(got, "LayoutTransform");
-        assert!(crate::provider::property_target_for(&got).is_none());
+    fn transform_chain_resolves_to_the_field() {
+        // Transform fields are their own animation targets (TransformField),
+        // so a transform chain resolves to its LAST step -- the opposite end
+        // from a brush chain. This test previously asserted "LayoutTransform",
+        // which looked reasonable in isolation and broke every transform
+        // animation in the suite.
+        assert_eq!(
+            normalize_target_property("(FrameworkElement.LayoutTransform).(RotateTransform.Angle)"),
+            "Angle"
+        );
+        assert_eq!(
+            normalize_target_property(
+                "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"
+            ),
+            "ScaleX"
+        );
+        assert_eq!(
+            normalize_target_property("(UIElement.RenderTransform).(TranslateTransform.X)"),
+            "X"
+        );
     }
 
     #[test]
