@@ -43,6 +43,10 @@ impl Plugin for PfUiPlugin {
         );
         app.init_resource::<crate::animation::PfRunningAnimations>();
         app.init_resource::<crate::caret::PfCaretBlink>();
+        // blink_carets reads this to gate its ancestor walk; the opacity path
+        // only creates it lazily, so an app that never fades anything must
+        // still find it or the system fails parameter validation.
+        app.init_resource::<crate::provider::PfOpacityCount>();
         if !app.world().contains_resource::<crate::binding::PfConverters>() {
             app.insert_resource(crate::binding::builtin_converters());
         }

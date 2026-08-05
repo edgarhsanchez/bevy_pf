@@ -65,7 +65,10 @@ pub struct PfCaretBase(pub Color);
 pub(crate) fn blink_carets(
     time: Res<Time>,
     blink: Res<PfCaretBlink>,
-    mut carets: Query<(&PfCaretBase, &mut TextCursorStyle)>,
+    opacity_count: Res<crate::provider::PfOpacityCount>,
+    ancestors: Query<&ChildOf>,
+    opacities: Query<&crate::provider::PfOpacity>,
+    mut carets: Query<(Entity, &PfCaretBase, &mut TextCursorStyle)>,
 ) {
     if carets.is_empty() {
         return;
@@ -81,9 +84,27 @@ pub(crate) fn blink_carets(
     } else {
         blink.min_alpha
     };
-    for (base, mut style) in &mut carets {
+    for (entity, base, mut style) in &mut carets {
+        // Compose with subtree opacity instead of clobbering it: the fade in
+        // provider.rs multiplies this same alpha once when opacity changes,
+        // and a per-frame write from the stored base alone would undo it on
+        // the very next frame (tests/scrolling.rs pins the interaction). The
+        // ancestor walk is gated on any opacity being active at all.
+        let mut opacity = 1.0;
+        if opacity_count.0 > 0 {
+            let mut cur = entity;
+            loop {
+                if let Ok(o) = opacities.get(cur) {
+                    opacity *= o.value;
+                }
+                match ancestors.get(cur) {
+                    Ok(p) => cur = p.parent(),
+                    Err(_) => break,
+                }
+            }
+        }
         let base_alpha = base.0.alpha();
-        let target = base.0.with_alpha(base_alpha * factor);
+        let target = base.0.with_alpha(base_alpha * factor * opacity);
         // Change detection: don't dirty every style every frame at rest.
         if style.color != target {
             style.color = target;
