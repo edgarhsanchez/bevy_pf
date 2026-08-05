@@ -603,3 +603,93 @@ fn focus_states_follow_input_focus() {
     let back = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
     assert!(back.red < 0.05, "Unfocused reverted, got {back:?}");
 }
+
+/// Does a VisualState storyboard actually DRIVE a value, or merely parse?
+///
+/// This exists because a ControlTemplate carrying VisualStateManager states
+/// was shipped to a game on the strength of "it parsed, it expanded, and it
+/// logged no warnings" -- none of which is evidence that anything moves. The
+/// buttons did not animate. Expansion is not execution, and this test is the
+/// difference: it asserts an INTERMEDIATE value partway through the ramp, so
+/// it fails both when nothing animates and when the value merely snaps.
+#[test]
+#[ignore = "KNOWN GAP: VisualState storyboards do not run. The template expands and PfVisualStates is inserted, but the MouseOver storyboard never drives the value (measured: 0.0 at the midpoint, i.e. it never started). go_to_state is implemented, so the break is between the CommonStates driver and it. Un-ignore when fixed -- do NOT author VSM in a product until then."]
+fn visual_state_storyboard_drives_a_value_over_time() {
+    let mut app = test_app();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel.Resources>
+               <ControlTemplate x:Key="AnimatedButton" TargetType="Button">
+                 <Border x:Name="Face" Background="#FF000000">
+                   <VisualStateManager.VisualStateGroups>
+                     <VisualStateGroup x:Name="CommonStates">
+                       <VisualState x:Name="Normal"/>
+                       <VisualState x:Name="MouseOver">
+                         <Storyboard>
+                           <ColorAnimation Storyboard.TargetName="Face"
+                                           Storyboard.TargetProperty="Background"
+                                           To="#FFFFFFFF" Duration="0:0:1"/>
+                         </Storyboard>
+                       </VisualState>
+                     </VisualStateGroup>
+                   </VisualStateManager.VisualStateGroups>
+                   <ContentPresenter/>
+                 </Border>
+               </ControlTemplate>
+             </StackPanel.Resources>
+             <Button x:Name="Btn" Content="Go"
+                     Template="{StaticResource AnimatedButton}"/>
+           </StackPanel>"##,
+    );
+    let btn = named(&app, root, "Btn");
+    app.update();
+
+    // The template root: the Border the storyboard targets by name.
+    let face = *app
+        .world()
+        .get::<bevy::prelude::Children>(btn)
+        .expect("templated button has a template root")
+        .first()
+        .expect("template root child");
+
+    let start = app
+        .world()
+        .get::<bevy::prelude::BackgroundColor>(face)
+        .expect("template root has a background")
+        .0
+        .to_srgba()
+        .red;
+    assert!(start < 0.1, "starts black, got {start}");
+
+    // Enter MouseOver: bevy_pf drives CommonStates from Interaction.
+    app.world_mut()
+        .entity_mut(btn)
+        .insert(bevy::ui::Interaction::Hovered);
+    advance(&mut app, 0.5);
+
+    let mid = app
+        .world()
+        .get::<bevy::prelude::BackgroundColor>(face)
+        .expect("background")
+        .0
+        .to_srgba()
+        .red;
+    assert!(
+        mid > 0.15 && mid < 0.85,
+        "half a second into a one-second ramp the colour should be PARTWAY \
+         between black and white; got {mid}. <=0.15 means the storyboard never \
+         ran, >=0.85 means it snapped instead of ramping."
+    );
+
+    advance(&mut app, 1.0);
+    let end = app
+        .world()
+        .get::<bevy::prelude::BackgroundColor>(face)
+        .expect("background")
+        .0
+        .to_srgba()
+        .red;
+    assert!(end > 0.9, "settles at the target, got {end}");
+}
