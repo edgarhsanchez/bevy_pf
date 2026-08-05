@@ -34,3 +34,15 @@ bevy_pf_vector = { path = "E:/github/bevy_pf_vector/bevy_pf_vector", optional = 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window"] }
 js-sys = "0.3"
+
+# These two drive the `vector_gpu` atlas backend directly, so they reference
+# `bevy_pf::shapes_gpu` -- a module that only exists with that feature on.
+# Without required-features, a plain `cargo test` builds them anyway and fails
+# to compile the package.
+[[example]]
+name = "shapes_gpu_check"
+required-features = ["vector_gpu"]
+
+[[example]]
+name = "shapes_backend_bench"
+required-features = ["vector_gpu"]
