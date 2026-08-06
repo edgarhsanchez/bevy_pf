@@ -46,6 +46,12 @@ jobs:
   # because nothing built them.
   framework:
     runs-on: ubuntu-latest
+    env:
+      # Debuginfo makes each bevy-linked test binary ~1 GB and the target
+      # dir ~28 GB — past what a runner's disk holds. Stripping it keeps
+      # the whole build under control; backtraces in CI lose line numbers,
+      # which is an acceptable trade.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
       - name: System libraries bevy links on Linux
@@ -73,4 +79,6 @@ jobs:
           cargo check -p bevy_pf --features vector_gpu
           cargo check -p bevy_pf --features native_shapes,vector_gpu
       - name: Test suite (default features)
-        run: cargo test -p bevy_pf
+        # --lib --tests: the examples are compile-checked by the Pages wasm
+        # build already; linking them natively here doubles the disk bill.
+        run: cargo test -p bevy_pf --lib --tests
