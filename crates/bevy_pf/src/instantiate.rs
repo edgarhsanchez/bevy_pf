@@ -3113,8 +3113,21 @@ impl<'w> Ctx<'w> {
                 self.node_mut(entity).align_self = convert::h_align_self(a);
             }
             ParentKind::Dock => self.stash_dock_alignment(entity, "HAlign", format!("{a:?}")),
+            // The document root sits in the Root wrapper's single grid
+            // cell. WPF: a non-Stretch alignment sizes the element to
+            // content on that axis instead of filling the window (the
+            // forced window constraint is the Stretch default).
+            ParentKind::None => {
+                if a != v::HorizontalAlignment::Stretch {
+                    let mut node = self.node_mut(entity);
+                    if node.width == Val::Percent(100.0) {
+                        node.width = Val::Auto;
+                    }
+                    node.justify_self = convert::h_justify_self(a);
+                }
+            }
             // Main-axis alignment in a horizontal stack: WPF ignores it.
-            ParentKind::FlexRow | ParentKind::Canvas | ParentKind::None => {}
+            ParentKind::FlexRow | ParentKind::Canvas => {}
         }
     }
 
@@ -3132,7 +3145,18 @@ impl<'w> Ctx<'w> {
                 self.node_mut(entity).align_self = convert::v_align_self(a);
             }
             ParentKind::Dock => self.stash_dock_alignment(entity, "VAlign", format!("{a:?}")),
-            ParentKind::FlexColumn | ParentKind::Canvas | ParentKind::None => {}
+            // Root grid cell: same non-Stretch -> size-to-content rule as
+            // the horizontal case above.
+            ParentKind::None => {
+                if a != v::VerticalAlignment::Stretch {
+                    let mut node = self.node_mut(entity);
+                    if node.height == Val::Percent(100.0) {
+                        node.height = Val::Auto;
+                    }
+                    node.align_self = convert::v_align_self(a);
+                }
+            }
+            ParentKind::FlexColumn | ParentKind::Canvas => {}
         }
     }
 
