@@ -59,7 +59,10 @@ pub mod toast;
 pub mod triggers;
 pub mod util;
 
-pub use bevy_pf_macros::{include_xaml, xaml};
+// The `Bindable` DERIVE and the `Bindable` TYPE share a name across
+// namespaces, exactly like bevy's `Reflect`: `#[derive(Bindable)]` resolves
+// the macro, `Bindable::new` the type.
+pub use bevy_pf_macros::{Bindable, include_xaml, xaml};
 pub use bevy_pf_xaml as xaml_ast;
 
 pub use asset::{XamlAsset, XamlView};
@@ -83,6 +86,7 @@ pub use triggers::PfTriggers;
 
 pub mod prelude {
     pub use crate::asset::{XamlAsset, XamlView};
+    pub use bevy_pf_macros::Bindable;
     pub use crate::behaviors::{clear_focus, find_editable_in, focus_control};
     pub use crate::binding::{
         Bindable, DataContext, DataContextScope, PfConverterAppExt, PfMultiValueConverter,

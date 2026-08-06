@@ -899,3 +899,97 @@ fn store_managed_properties_bind_through_the_precedence_store() {
     let opacity = app.world().get::<bevy_pf::provider::PfOpacity>(node).unwrap();
     assert_eq!(opacity.value, 1.0);
 }
+
+#[derive(Reflect, Default, bevy_pf::Bindable)]
+struct NotifyVm {
+    score: u32,
+    status: String,
+}
+
+#[test]
+fn named_updates_invalidate_only_overlapping_bindings() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // A pass-through converter that counts how often the `score` binding
+    // re-applies — the observable for selective invalidation.
+    struct Counting(Arc<AtomicUsize>);
+    impl bevy_pf::binding::PfValueConverter for Counting {
+        fn convert(
+            &self,
+            value: &bevy_pf::BoundValue,
+            _parameter: Option<&str>,
+        ) -> Option<bevy_pf::BoundValue> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Some(value.clone())
+        }
+    }
+
+    let mut app = test_app();
+    let count = Arc::new(AtomicUsize::new(0));
+    app.register_converter("Counting", Counting(count.clone()));
+
+    let vm = Bindable::new(NotifyVm::default());
+    let root = spawn_bound_scene(
+        &mut app,
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBlock x:Name="Score" Text="{Binding score, Converter=Counting}"/>
+             <TextBlock x:Name="Status" Text="{Binding status}"/>
+           </StackPanel>"#,
+        vm.clone(),
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+    let initial = count.load(Ordering::SeqCst);
+    assert!(initial >= 1);
+
+    // A named update to `status` must not re-apply the `score` binding.
+    vm.update_named::<NotifyVm>("status", |m| {
+        m.status = "ready".into();
+        true
+    });
+    app.update();
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let status = names.get("Status").unwrap();
+    assert_eq!(app.world().get::<Text>(status).unwrap().0, "ready");
+    assert_eq!(count.load(Ordering::SeqCst), initial);
+
+    // An unnamed (whole-model) update still re-applies everything.
+    vm.update(|m: &mut NotifyVm| m.score = 3);
+    app.update();
+    assert!(count.load(Ordering::SeqCst) > initial);
+}
+
+#[test]
+fn derived_setters_notify_selectively_and_skip_equal_values() {
+    let mut app = test_app();
+    let vm = Bindable::new(NotifyVm::default());
+    let root = spawn_bound_scene(
+        &mut app,
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBlock x:Name="Score" Text="{Binding score}"/>
+           </StackPanel>"#,
+        vm.clone(),
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+
+    // Generated setter: writes, notifies, propagates.
+    assert!(vm.set_score(42));
+    app.update();
+    let score = app.world().get::<XamlNames>(root).unwrap().get("Score").unwrap();
+    assert_eq!(app.world().get::<Text>(score).unwrap().0, "42");
+
+    // Equal value: no write, no version bump.
+    let v = vm.version();
+    assert!(!vm.set_score(42));
+    assert_eq!(vm.version(), v);
+
+    assert!(vm.set_status("live".into()));
+    assert_eq!(
+        vm.read_path("status"),
+        Some(bevy_pf::BoundValue::Str("live".into()))
+    );
+}

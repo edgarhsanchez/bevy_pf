@@ -33,6 +33,15 @@ The three P1 items are all **binding ergonomics**, not missing controls.
 
 ## P1 — what a migrant hits in the first hour
 
+**All three addressed 2026-08-06** (commits on the binding layer): 
+`DataContext="{Binding path}"` works as an attribute via lazily-resolved
+scope markers; bindings on any store-managed property (Margin, Padding,
+BorderThickness, CornerRadius, Opacity, ...) route through the precedence
+store's Local tier; and per-property change notification landed as
+`Bindable::update_named` + a `#[derive(Bindable)]` that generates
+equality-checked notifying setters. Original findings kept below for the
+record:
+
 - **BindingContext** (🟡 partial): Inherited DataContext works (including across popup logical-parent links), but only settable from Rust — no XAML DataContext= attribute, which migrants try in the first hour (DataContextChanged is accepted-and-ignored).
   - evidence: binding.rs:210-212 (DataContext component), :767-777 (find_context inheritance walk incl. PfLogicalParent); instantiate.rs:2789 (DataContextChanged ignored); grep confirms no DataContext= attribute arm in instantiate.rs
 - **Bindable target property coverage (any BindableProperty)** (🟡 partial): Bindings only land on a 15-property allowlist (Text, IsChecked, Value, Visibility, brushes, sizes...); anything else warns 'not supported yet' — migrants hit this immediately on less common properties.

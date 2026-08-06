@@ -3,9 +3,11 @@
 //! The WPF pattern maps onto Rust like this:
 //!
 //! - **View-model**: any `#[derive(Reflect)]` struct wrapped in a [`Bindable`]
-//!   (the `INotifyPropertyChanged` analog — mutations through
-//!   [`Bindable::update`] bump a version counter that drives change
-//!   propagation).
+//!   (the `INotifyPropertyChanged` analog). Mutations notify bindings: a
+//!   whole-model [`Bindable::update`] re-applies everything, a
+//!   [`Bindable::update_named`] (or a `#[derive(Bindable)]`-generated
+//!   equality-checked setter) re-applies only bindings whose path overlaps
+//!   the change — WPF's `OnPropertyChanged(name)`.
 //! - **`DataContext`**: a component holding a [`Bindable`]; children inherit
 //!   the nearest ancestor's context, like WPF.
 //! - **`{Binding Path=Score}`** in XAML records a [`PfBinding`] on the target
@@ -39,6 +41,31 @@ struct BindableInner {
     commands: std::sync::RwLock<
         bevy::platform::collections::HashMap<String, std::sync::Arc<CommandFn>>,
     >,
+    /// Change log: one `(version, path)` entry per mutation; `None` path
+    /// means "anything may have changed" (whole-model [`Bindable::update`]).
+    /// Capped at [`CHANGE_LOG_CAP`]; consumers whose last-seen version has
+    /// been truncated out fall back to everything-changed.
+    changes: std::sync::RwLock<std::collections::VecDeque<(u64, Option<Arc<str>>)>>,
+}
+
+/// Entries retained in the per-model change log. Old entries fall off; a
+/// binding that has not been applied for longer than this many mutations is
+/// conservatively re-applied.
+const CHANGE_LOG_CAP: usize = 64;
+
+/// Do two reflection paths (from the model root) read/write overlapping
+/// data? True when equal, or when one extends the other at a `.`/`[`
+/// boundary — `user` overlaps `user.name`, `score` does not overlap
+/// `scoreboard`. The empty path is the whole model and overlaps everything.
+fn paths_overlap(a: &str, b: &str) -> bool {
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    if short.is_empty() {
+        return true;
+    }
+    if !long.starts_with(short) {
+        return false;
+    }
+    long.len() == short.len() || matches!(long.as_bytes()[short.len()], b'.' | b'[')
 }
 
 /// A shared, change-tracked view-model. Clone freely; clones share state.
@@ -58,6 +85,7 @@ impl Bindable {
                 value: std::sync::RwLock::new(Box::new(value)),
                 version: AtomicU64::new(1),
                 commands: Default::default(),
+                changes: Default::default(),
             }),
             prefix: None,
         }
@@ -117,12 +145,89 @@ impl Bindable {
     /// Mutate the model through a typed closure, then notify bindings.
     /// `T` is always the ROOT model type, regardless of any prefix.
     /// Returns `None` if the model is not a `T`.
+    ///
+    /// The mutation is logged as "anything may have changed", so every
+    /// binding on the context re-applies. When the closure touches one
+    /// property, [`Self::update_named`] keeps the invalidation to bindings
+    /// that actually read it — WPF's `OnPropertyChanged(name)`.
     pub fn update<T: Reflect, R>(&self, f: impl FnOnce(&mut T) -> R) -> Option<R> {
         let mut guard = self.inner.value.write().unwrap();
         let target = guard.as_any_mut().downcast_mut::<T>()?;
         let result = f(target);
-        self.inner.version.fetch_add(1, Ordering::AcqRel);
+        self.log_change(None);
         Some(result)
+    }
+
+    /// Mutate one property and notify only the bindings that read it.
+    /// `path` is relative to this view's scope (like [`Self::read_path`]);
+    /// the closure still receives the ROOT model. The closure returns
+    /// whether it changed anything — `false` skips the notify entirely,
+    /// which is what makes equality-checked setters cheap.
+    pub fn update_named<T: Reflect>(
+        &self,
+        path: &str,
+        f: impl FnOnce(&mut T) -> bool,
+    ) -> Option<bool> {
+        let changed = {
+            let mut guard = self.inner.value.write().unwrap();
+            let target = guard.as_any_mut().downcast_mut::<T>()?;
+            f(target)
+        };
+        if changed {
+            self.log_change(Some(self.full_path(path).into()));
+        }
+        Some(changed)
+    }
+
+    /// Record a mutation done outside [`Self::update`]/[`Self::update_named`]
+    /// (e.g. through interior mutability): notify bindings reading `path`.
+    pub fn notify(&self, path: &str) {
+        self.log_change(Some(self.full_path(path).into()));
+    }
+
+    fn log_change(&self, path: Option<Arc<str>>) {
+        let version = self.inner.version.fetch_add(1, Ordering::AcqRel) + 1;
+        let mut log = self.inner.changes.write().unwrap();
+        if log.len() == CHANGE_LOG_CAP {
+            log.pop_front();
+        }
+        log.push_back((version, path));
+    }
+
+    /// Has anything a binding with these relative `paths` reads changed
+    /// since `seen`? Conservative: unnamed mutations, a truncated log, and
+    /// `seen == 0` (never applied) all answer yes.
+    pub(crate) fn changed_since<'a>(
+        &self,
+        seen: u64,
+        paths: impl Iterator<Item = &'a str> + Clone,
+    ) -> bool {
+        if seen == 0 || self.version() <= seen {
+            return seen == 0;
+        }
+        let log = self.inner.changes.read().unwrap();
+        // The log no longer reaches back to `seen`: assume changed.
+        match log.front() {
+            Some((oldest, _)) if *oldest <= seen + 1 => {}
+            _ => return true,
+        }
+        for (version, path) in log.iter() {
+            if *version <= seen {
+                continue;
+            }
+            match path {
+                None => return true,
+                Some(p) => {
+                    if paths
+                        .clone()
+                        .any(|rel| paths_overlap(p, &self.full_path(rel)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Read the model through a typed closure WITHOUT bumping the version.
@@ -186,7 +291,8 @@ impl Bindable {
         }
     }
 
-    /// Write a value at a reflection path (two-way bindings), then notify.
+    /// Write a value at a reflection path (two-way bindings), then notify
+    /// the bindings that read that path.
     pub fn write_path(&self, path: &str, value: &BoundValue) -> bool {
         let full = self.full_path(path);
         let mut guard = self.inner.value.write().unwrap();
@@ -196,7 +302,8 @@ impl Bindable {
         if !bound_to_reflect(target, value) {
             return false;
         }
-        self.inner.version.fetch_add(1, Ordering::AcqRel);
+        drop(guard);
+        self.log_change(Some(full.into()));
         true
     }
 }
@@ -816,6 +923,9 @@ pub(crate) fn apply_bindings(world: &mut World) {
 
         // Collect the updates to run for this entity.
         let mut updates: Vec<(usize, PfBinding)> = Vec::new();
+        // Bindings whose reads are untouched by the change log: no re-apply,
+        // just advance seen_version so the log scan stays in-window.
+        let mut fast_forward: Vec<usize> = Vec::new();
         {
             let Some(bindings) = world.get::<PfBindings>(entity) else {
                 continue;
@@ -832,7 +942,13 @@ pub(crate) fn apply_bindings(world: &mut World) {
                         }
                         if let Some(ctx) = &ctx
                             && b.seen_version != ctx.version() {
-                                updates.push((i, b.clone()));
+                                let reads = std::iter::once(b.path.as_str())
+                                    .chain(b.multi_paths.iter().map(String::as_str));
+                                if ctx.changed_since(b.seen_version, reads) {
+                                    updates.push((i, b.clone()));
+                                } else {
+                                    fast_forward.push(i);
+                                }
                             }
                     }
                     // Element sources have no version counter; re-evaluate
@@ -841,6 +957,14 @@ pub(crate) fn apply_bindings(world: &mut World) {
                     // Unresolved (never happens post-instantiation); skip.
                     PfBindingSource::Named(_) | PfBindingSource::Ancestor(_) => {}
                 }
+            }
+        }
+        if !fast_forward.is_empty()
+            && let Some(version) = ctx.as_ref().map(|c| c.version())
+            && let Some(mut bindings) = world.get_mut::<PfBindings>(entity)
+        {
+            for i in fast_forward {
+                bindings.0[i].seen_version = version;
             }
         }
 
