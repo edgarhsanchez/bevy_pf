@@ -139,6 +139,17 @@ pub(crate) fn sync_items_sources(world: &mut World) {
         if version == source.seen_version {
             continue;
         }
+        // A version bump alone is not a reason to regenerate: a busy model
+        // (per-frame scalar setters on the same context) would churn item
+        // entities every frame — visible as flicker, wasted layout, and
+        // clicks that never land because the pressed entity is gone by
+        // release. Only a change overlapping the items path rebuilds.
+        if !ctx.changed_since(source.seen_version, std::iter::once(source.path.as_str())) {
+            if let Some(mut s) = world.get_mut::<PfItemsSource>(entity) {
+                s.seen_version = version;
+            }
+            continue;
+        }
         if let Some(mut s) = world.get_mut::<PfItemsSource>(entity) {
             s.seen_version = version;
         }

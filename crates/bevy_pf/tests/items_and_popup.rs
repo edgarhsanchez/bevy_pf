@@ -627,3 +627,51 @@ fn generated_items_do_not_stretch_across_a_wrap_panel() {
     }
     assert_eq!(checked, 1, "expected exactly one generated container");
 }
+
+#[test]
+fn unrelated_named_updates_do_not_regenerate_items() {
+    // A busy model writes scalars every frame (HUD bars, clocks). Item
+    // generation keyed on the bare version bump would despawn/respawn every
+    // generated row each frame — flicker, wasted layout, and clicks that
+    // never land because the pressed entity is gone by release. Only a
+    // change overlapping the items path may rebuild.
+    let mut app = test_app();
+    let vm = Bindable::new(Roster {
+        names: vec!["Ada".into(), "Bob".into()],
+        ..Default::default()
+    });
+    let root = spawn(
+        &mut app,
+        r#"<ListBox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Name="L" ItemsSource="{Binding names}"/>"#,
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+    let list = named(&app, root, "L");
+    let before = children_of(&app, list);
+    assert_eq!(before.len(), 2);
+
+    // Ten frames of scalar writes on an unrelated path: the generated item
+    // ENTITIES must survive untouched.
+    for i in 0..10 {
+        vm.update_named("pick", |m: &mut Roster| {
+            m.pick = i as f64;
+            true
+        });
+        app.update();
+    }
+    assert_eq!(
+        children_of(&app, list),
+        before,
+        "unrelated writes regenerated the item entities"
+    );
+
+    // A targeted write to the list path still rebuilds.
+    vm.update_named("names", |m: &mut Roster| {
+        m.names.push("Cleo".into());
+        true
+    });
+    app.update();
+    assert_eq!(children_of(&app, list).len(), 3);
+}
