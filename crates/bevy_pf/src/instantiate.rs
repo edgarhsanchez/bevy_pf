@@ -7296,6 +7296,16 @@ impl<'w> Ctx<'w> {
         spec: crate::binding::BindingSpec,
     ) {
         use crate::binding::{BindingTarget, PfBinding, PfBindings};
+        // `DataContext="{Binding path}"` re-scopes the inherited context for
+        // this element and its descendants — not a scalar binding. Resolution
+        // is lazy (a marker consumed by `find_context`) because the model
+        // usually attaches from Rust after instantiation.
+        if property == "DataContext" {
+            self.world
+                .entity_mut(entity)
+                .insert(crate::binding::DataContextScope(spec.path));
+            return;
+        }
         // Content on a ContentControl is not a scalar binding: it selects a
         // DataTemplate (explicit ContentTemplate, else DataType-implicit)
         // and regenerates the subtree on model change.
@@ -7398,10 +7408,16 @@ impl<'w> Ctx<'w> {
                 (entity, BindingTarget::Fill, v::BindingMode::OneWay)
             }
             other => {
-                self.warn(format!(
-                    "binding on property `{other}` is not supported yet"
-                ));
-                return;
+                // Not one of the control-state targets: any store-managed
+                // property binds OneWay through the precedence store.
+                if let Some(target) = crate::provider::property_target_for(other) {
+                    (entity, BindingTarget::Store(target), v::BindingMode::OneWay)
+                } else {
+                    self.warn(format!(
+                        "binding on property `{other}` is not supported yet"
+                    ));
+                    return;
+                }
             }
         };
         let mode = match spec.mode {

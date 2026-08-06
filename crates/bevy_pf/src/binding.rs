@@ -211,6 +211,16 @@ impl std::fmt::Debug for Bindable {
 #[derive(Component, Clone, Debug)]
 pub struct DataContext(pub Bindable);
 
+/// A XAML-authored re-scope of the inherited context:
+/// `DataContext="{Binding path}"`. The element and its descendants see the
+/// nearest ancestor context narrowed to `path` (via [`Bindable::at`]).
+/// Stored as a marker and resolved lazily in [`find_context`] because the
+/// actual view-model usually attaches from Rust after instantiation. A real
+/// [`DataContext`] component on the same entity wins outright — it IS a
+/// context, not a modifier of one.
+#[derive(Component, Clone, Debug)]
+pub struct DataContextScope(pub String);
+
 // ---------------------------------------------------------------------------
 // Bound values
 // ---------------------------------------------------------------------------
@@ -349,6 +359,11 @@ pub enum BindingTarget {
     Stroke,
     /// A `Shape`'s `Fill`. The shape counterpart of [`Self::Background`].
     Fill,
+    /// Any other store-managed property (Margin, Padding, BorderThickness,
+    /// CornerRadius, Opacity, ...): the value lands in the property store's
+    /// `Local` tier, so styles, triggers, and animations keep their WPF
+    /// precedence around it. OneWay only — nothing writes these back.
+    Store(crate::provider::PropertyTarget),
 }
 
 /// Where a binding reads its value from.
@@ -765,9 +780,19 @@ pub fn read_element_value(world: &World, source: Entity, path: &str) -> Option<B
 /// popup content reparented under the overlay root still inherits from its
 /// logical owner.
 pub fn find_context(world: &World, mut entity: Entity) -> Option<Bindable> {
+    // `DataContextScope`s encountered on the way up narrow the context found
+    // above them, outermost first: ctx.at(outer_scope).at(inner_scope).
+    let mut scopes: Vec<&str> = Vec::new();
     loop {
         if let Some(ctx) = world.get::<DataContext>(entity) {
-            return Some(ctx.0.clone());
+            let mut ctx = ctx.0.clone();
+            for path in scopes.into_iter().rev() {
+                ctx = ctx.at(path);
+            }
+            return Some(ctx);
+        }
+        if let Some(scope) = world.get::<DataContextScope>(entity) {
+            scopes.push(scope.0.as_str());
         }
         entity = match world.get::<crate::components::PfLogicalParent>(entity) {
             Some(l) => l.0,
@@ -1069,6 +1094,27 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
                 BindingTarget::Stroke => shape.stroke = Some(brush),
                 _ => shape.fill = Some(brush),
             }
+        }
+        BindingTarget::Store(target) => {
+            use crate::resources::PfValue;
+            let pf = match value {
+                BoundValue::Str(s) => PfValue::String(s.clone()),
+                BoundValue::Num(n) => PfValue::Double(*n),
+                BoundValue::Bool(b) => PfValue::Bool(*b),
+                // A null source clears the Local tier: lower tiers (style,
+                // theme, default) become effective again.
+                BoundValue::Null => {
+                    crate::provider::store_and_apply(
+                        world,
+                        entity,
+                        target,
+                        crate::provider::ValueSource::Local,
+                        None,
+                    );
+                    return;
+                }
+            };
+            crate::provider::set_local(world, entity, target, pf);
         }
     }
 }

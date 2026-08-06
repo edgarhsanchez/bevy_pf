@@ -63,7 +63,7 @@ pub use bevy_pf_macros::{include_xaml, xaml};
 pub use bevy_pf_xaml as xaml_ast;
 
 pub use asset::{XamlAsset, XamlView};
-pub use binding::{Bindable, BoundValue, DataContext, PfBindings};
+pub use binding::{Bindable, BoundValue, DataContext, DataContextScope, PfBindings};
 pub use components::{ButtonVisual, PfAttachedProps, PfElementKind, PfName, XamlNames};
 pub use dynamic::{
     PfApplicationResources, PfDynamicResources, PfResources, merge_application_resources,
@@ -85,7 +85,8 @@ pub mod prelude {
     pub use crate::asset::{XamlAsset, XamlView};
     pub use crate::behaviors::{clear_focus, find_editable_in, focus_control};
     pub use crate::binding::{
-        Bindable, DataContext, PfConverterAppExt, PfMultiValueConverter, PfValueConverter,
+        Bindable, DataContext, DataContextScope, PfConverterAppExt, PfMultiValueConverter,
+        PfValueConverter,
     };
     pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
     pub use crate::events::{PfEventAppExt, PfPointerInfo};

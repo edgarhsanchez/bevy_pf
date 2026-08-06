@@ -760,3 +760,142 @@ fn shape_stroke_and_fill_bind_and_repaint_at_the_same_size() {
         "a same-size colour change must actually repaint"
     );
 }
+
+#[derive(Reflect, Default)]
+struct ProfileVm {
+    user: UserVm,
+    title: String,
+}
+
+#[derive(Reflect, Default)]
+struct UserVm {
+    name: String,
+    stats: StatsVm,
+}
+
+#[derive(Reflect, Default)]
+struct StatsVm {
+    wins: u32,
+}
+
+#[test]
+fn datacontext_attribute_rescopes_descendants() {
+    let mut app = test_app();
+    let vm = Bindable::new(ProfileVm {
+        user: UserVm {
+            name: "ada".into(),
+            ..Default::default()
+        },
+        title: "profile".into(),
+    });
+    let root = spawn_bound_scene(
+        &mut app,
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <TextBlock x:Name="Title" Text="{Binding title}"/>
+             <StackPanel DataContext="{Binding user}">
+               <TextBlock x:Name="Name" Text="{Binding name}"/>
+             </StackPanel>
+           </StackPanel>"#,
+        vm.clone(),
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let (title, name) = (names.get("Title").unwrap(), names.get("Name").unwrap());
+    // Sibling outside the scope still sees the root context.
+    assert_eq!(app.world().get::<Text>(title).unwrap().0, "profile");
+    // Descendant of the scoped panel resolves against `user`.
+    assert_eq!(app.world().get::<Text>(name).unwrap().0, "ada");
+
+    // Change propagation flows through the scoped path.
+    vm.update(|m: &mut ProfileVm| m.user.name = "grace".into());
+    app.update();
+    assert_eq!(app.world().get::<Text>(name).unwrap().0, "grace");
+}
+
+#[test]
+fn datacontext_scopes_nest_and_apply_on_the_same_element() {
+    let mut app = test_app();
+    let vm = Bindable::new(ProfileVm {
+        user: UserVm {
+            stats: StatsVm { wins: 7 },
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let root = spawn_bound_scene(
+        &mut app,
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <StackPanel DataContext="{Binding user}">
+               <StackPanel DataContext="{Binding stats}">
+                 <TextBlock x:Name="Wins" Text="{Binding wins}"/>
+               </StackPanel>
+               <TextBlock x:Name="SelfScoped" DataContext="{Binding stats}"
+                          Text="{Binding wins}"/>
+             </StackPanel>
+           </StackPanel>"#,
+        vm.clone(),
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+
+    let names = app.world().get::<XamlNames>(root).unwrap();
+    let wins = names.get("Wins").unwrap();
+    let self_scoped = names.get("SelfScoped").unwrap();
+    // Two nested scopes compose: root -> user -> stats.
+    assert_eq!(app.world().get::<Text>(wins).unwrap().0, "7");
+    // A scope on the binding's own element applies to that element too.
+    assert_eq!(app.world().get::<Text>(self_scoped).unwrap().0, "7");
+}
+
+#[derive(Reflect, Default)]
+struct StoreVm {
+    gap: String,
+    fade: f64,
+}
+
+#[test]
+fn store_managed_properties_bind_through_the_precedence_store() {
+    let mut app = test_app();
+    let vm = Bindable::new(StoreVm {
+        gap: "4".into(),
+        fade: 0.5,
+    });
+    let root = spawn_bound_scene(
+        &mut app,
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Border x:Name="Box" Margin="{Binding gap}" Opacity="{Binding fade}"/>
+           </StackPanel>"#,
+        vm.clone(),
+    );
+    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.update();
+
+    let node = app.world().get::<XamlNames>(root).unwrap().get("Box").unwrap();
+    let margin = app.world().get::<Node>(node).unwrap().margin;
+    assert_eq!(margin, UiRect::all(Val::Px(4.0)));
+    let opacity = app.world().get::<bevy_pf::provider::PfOpacity>(node).unwrap();
+    assert_eq!(opacity.value, 0.5);
+
+    vm.update(|m: &mut StoreVm| {
+        m.gap = "12,2,12,2".into();
+        m.fade = 1.0;
+    });
+    app.update();
+    let margin = app.world().get::<Node>(node).unwrap().margin;
+    assert_eq!(
+        margin,
+        UiRect {
+            left: Val::Px(12.0),
+            top: Val::Px(2.0),
+            right: Val::Px(12.0),
+            bottom: Val::Px(2.0),
+        }
+    );
+    let opacity = app.world().get::<bevy_pf::provider::PfOpacity>(node).unwrap();
+    assert_eq!(opacity.value, 1.0);
+}
