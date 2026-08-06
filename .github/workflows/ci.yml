@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/ci.yml"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # bevy_pf_xaml and bevy_pf_macros are the engine-free layer: XAML parsing
+  # and the object model with no game engine anywhere in their dependency
+  # trees, usable from any Rust program. Guard that property — it is a
+  # design commitment, not an accident — and run their tests. This job
+  # compiles no engine code, so it stays fast.
+  engine-free:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: bevy_pf_xaml and bevy_pf_macros stay engine-free
+        run: |
+          for crate in bevy_pf_xaml bevy_pf_macros; do
+            deps=$(cargo tree -p "$crate" -e normal --prefix none | grep -v "^$crate ")
+            if echo "$deps" | grep -Eq '^bevy([ _-])'; then
+              echo "::error::$crate must not depend on bevy:"
+              echo "$deps" | grep -E '^bevy([ _-])'
+              exit 1
+            fi
+          done
+      - run: cargo test -p bevy_pf_xaml -p bevy_pf_macros
+
+  # The full framework: every feature combination type-checks, and the test
+  # suite passes with default features. The vector_gpu combos are exactly
+  # the builds no other automation compiles — a machine-local path in the
+  # manifest and warnings in the feature code both shipped unnoticed
+  # because nothing built them.
+  framework:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries bevy links on Linux
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+        id: toolchain
+      # rust-cache handles ~/.cargo only; its target-dir pruning drops this
+      # workspace's artifacts (see pages.yml for the measured history), so
+      # the target dir is cached whole with plain actions/cache.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+      - uses: actions/cache@v4
+        with:
+          path: target
+          key: target-ci-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            target-ci-${{ steps.toolchain.outputs.cachekey }}-
+      - name: Type-check every feature combination
+        run: |
+          cargo check -p bevy_pf
+          cargo check -p bevy_pf --features native_shapes
+          cargo check -p bevy_pf --features vector_gpu
+          cargo check -p bevy_pf --features native_shapes,vector_gpu
+      - name: Test suite (default features)
+        run: cargo test -p bevy_pf
