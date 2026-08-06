@@ -3,6 +3,14 @@ name: Deploy site to GitHub Pages
 on:
   push:
     branches: [main]
+    # The site build is the full wasm compile; skip pushes that cannot
+    # change the site (benchmarks, docs, README).
+    paths:
+      - "crates/**"
+      - "site/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -16,18 +24,38 @@ concurrency:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [webgpu, webgl2]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        id: toolchain
         with:
           targets: wasm32-unknown-unknown
 
+      # rust-cache handles ~/.cargo only. Its target-dir pruning cannot see
+      # this layout (custom wasm-release profile under a cross target in a
+      # renamed target dir) and silently dropped the compiled artifacts:
+      # 603 MB saved out of a multi-GB build, ~10 min benefit on an ~85 min
+      # run. target-wasm is cached whole below instead; cargo's own
+      # fingerprinting decides what is stale.
       - uses: Swatinem/rust-cache@v2
         with:
-          # The wasm build uses its own target dir (see site/build-wasm.sh).
-          workspaces: ". -> target-wasm"
+          cache-targets: false
+
+      - name: Cache target-wasm (whole, unpruned)
+        uses: actions/cache@v4
+        with:
+          path: target-wasm
+          key: target-wasm-${{ matrix.backend }}-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('Cargo.lock') }}
+          # On a lockfile change, fall back to the newest cache for this
+          # backend+rustc and rebuild only what changed.
+          restore-keys: |
+            target-wasm-${{ matrix.backend }}-${{ steps.toolchain.outputs.cachekey }}-
 
       - name: Install wasm-bindgen-cli (must match Cargo.lock pin)
         uses: taiki-e/install-action@v2
@@ -39,14 +67,39 @@ jobs:
           curl -sL https://github.com/WebAssembly/binaryen/releases/download/version_130/binaryen-version_130-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/binaryen-version_130/bin" >> "$GITHUB_PATH"
 
-      - name: Build wasm bundles (WebGPU + WebGL2)
-        run: ./site/build-wasm.sh
+      - name: Build wasm bundles (${{ matrix.backend }})
+        run: ./site/build-wasm.sh ${{ matrix.backend }}
 
       - name: Validate wasm binaries (browsers must accept them)
         run: |
-          for f in site/wasm/*/*_bg.wasm; do
+          for f in site/wasm/${{ matrix.backend }}/*_bg.wasm; do
             node -e "const fs=require('fs'); if(!WebAssembly.validate(fs.readFileSync('$f'))) { console.error('INVALID: $f'); process.exit(1); } console.log('valid: $f');"
           done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-${{ matrix.backend }}
+          path: site/wasm/${{ matrix.backend }}
+          retention-days: 3
+
+  assemble:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm-webgpu
+          path: site/wasm/webgpu
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm-webgl2
+          path: site/wasm/webgl2
+
+      - name: Site assets + build stamp
+        run: ./site/build-wasm.sh assets
 
       - uses: actions/configure-pages@v5
 
@@ -55,7 +108,7 @@ jobs:
           path: site
 
   deploy:
-    needs: build
+    needs: assemble
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Build the two demos for the web, both backends, into site/wasm/.
+# Build the demos for the web into site/wasm/.
+# Usage: build-wasm.sh [webgpu|webgl2|assets|all]   (default: all)
+#   webgpu/webgl2 build one backend (CI builds them as parallel jobs),
+#   assets emits site/assets + the version stamp, all does everything.
 # Requires: rustup target add wasm32-unknown-unknown
 #           cargo install wasm-bindgen-cli --version 0.2.126 --locked
 set -euo pipefail
@@ -36,16 +39,28 @@ build_backend() {
   done
 }
 
-build_backend webgpu "--features bevy/webgpu"
-build_backend webgl2 ""
+emit_assets() {
+  # Assets the showcase fetches at runtime (bevy fetches relative to the page).
+  mkdir -p site/assets/ui
+  cp crates/bevy_pf/assets/ui/bench.png site/assets/ui/bench.png
 
-# Assets the showcase fetches at runtime (bevy fetches relative to the page).
-mkdir -p site/assets/ui
-cp crates/bevy_pf/assets/ui/bench.png site/assets/ui/bench.png
+  # Stamp the build so the loader cache-busts stale wasm after each deploy.
+  STAMP="$(git rev-parse --short HEAD 2>/dev/null || echo dev)-$(date +%s)"
+  echo "export const BUILD = '$STAMP';" > site/version.js
+  echo "assets + version.js ready (build $STAMP)"
+}
 
-# Stamp the build so the loader cache-busts stale wasm after each deploy.
-STAMP="$(git rev-parse --short HEAD 2>/dev/null || echo dev)-$(date +%s)"
-echo "export const BUILD = '$STAMP';" > site/version.js
-
-echo "site/wasm ready (build $STAMP):"
-du -sh site/wasm/*
+MODE="${1:-all}"
+case "$MODE" in
+  webgpu) build_backend webgpu "--features bevy/webgpu" ;;
+  webgl2) build_backend webgl2 "" ;;
+  assets) emit_assets ;;
+  all)
+    build_backend webgpu "--features bevy/webgpu"
+    build_backend webgl2 ""
+    emit_assets
+    echo "site/wasm ready:"
+    du -sh site/wasm/*
+    ;;
+  *) echo "usage: $0 [webgpu|webgl2|assets|all]" >&2; exit 1 ;;
+esac
