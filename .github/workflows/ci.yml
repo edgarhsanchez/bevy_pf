@@ -28,12 +28,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: bevy_pf_xaml and bevy_pf_macros stay engine-free
+        # Engine crates are `bevy` and `bevy_*`; the workspace's own
+        # `bevy_pf_*` crates share the prefix and must not trip the guard.
         run: |
           for crate in bevy_pf_xaml bevy_pf_macros; do
-            deps=$(cargo tree -p "$crate" -e normal --prefix none | grep -v "^$crate ")
-            if echo "$deps" | grep -Eq '^bevy([ _-])'; then
+            engine=$(cargo tree -p "$crate" -e normal --prefix none \
+              | grep -E '^bevy([ _-])' | grep -Ev '^bevy_pf([ _-])' || true)
+            if [ -n "$engine" ]; then
               echo "::error::$crate must not depend on bevy:"
-              echo "$deps" | grep -E '^bevy([ _-])'
+              echo "$engine"
               exit 1
             fi
           done
