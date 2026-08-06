@@ -3,8 +3,22 @@
 //!
 //! bevy_ui has no arbitrary vector path support, so shapes rasterize at their
 //! laid-out pixel size — crisp at any UI scale, re-rendered when the node is
-//! resized. A GPU path (vello) can replace the backend later without touching
-//! the XAML-facing API.
+//! resized.
+//!
+//! # The backend seam
+//!
+//! Shapes are retained data (`PfShape`); renderers are interchangeable
+//! consumers of it. Every backend follows the same contract, defined by
+//! [`PfShapeSystems`] and [`PfShapeClaim`]: in [`PfShapeSystems::Claim`]
+//! (PostUpdate, after layout) a backend looks at unclaimed shapes, takes the
+//! ones it can draw by inserting [`PfShapeClaim`], and turns them into
+//! something bevy_ui composites — node styling, an `ImageNode`, an atlas
+//! slot. Whatever nothing claims is rasterized here on the CPU in
+//! [`PfShapeSystems::Rasterize`], making tiny-skia the fallback of last
+//! resort rather than "the" renderer. Backends order themselves within
+//! `Claim`, cheapest first (bevy_ui native styling claims before the GPU
+//! atlas). A backend that abandons a shape must remove its claim so the
+//! shape falls back the next frame.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::Image;
@@ -53,10 +67,24 @@ pub struct PfShape {
     pub fill_rule: Option<FillRule>,
 }
 
-/// Marks a shape drawn by something other than the CPU rasterizer, so
-/// `rasterize_shapes` leaves it alone.
-#[derive(Component, Debug, Default, Clone, Copy)]
-pub struct PfShapeGpuOwned;
+/// Claims a shape for a backend other than the CPU rasterizer, which skips
+/// anything carrying it. See the module docs for the full backend contract.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PfShapeClaim {
+    /// Which backend took the shape. Diagnostic, not dispatch — routing is
+    /// the marker's presence plus system order inside [`PfShapeSystems::Claim`].
+    pub backend: &'static str,
+}
+
+/// PostUpdate stages of the shape pipeline, both after `UiSystems::Layout`
+/// so backends see final pixel sizes.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PfShapeSystems {
+    /// Backends claim the shapes they can draw (see [`PfShapeClaim`]).
+    Claim,
+    /// The CPU rasterizer draws everything left unclaimed.
+    Rasterize,
+}
 
 /// Style a shape with bevy_ui's OWN node rendering where the geometry allows
 /// it, instead of rasterizing anything.
@@ -114,7 +142,7 @@ fn native_style(shape: &PfShape, px: UVec2) -> Option<(Option<Color>, Option<Col
 pub(crate) fn style_native_shapes(
     mut shapes: Query<
         (Entity, Ref<PfShape>, &ComputedNode, &mut bevy::ui::Node),
-        Without<PfShapeGpuOwned>,
+        Without<PfShapeClaim>,
     >,
     mut commands: Commands,
 ) {
@@ -132,7 +160,7 @@ pub(crate) fn style_native_shapes(
             node.border_radius = radius;
         }
         let mut e = commands.entity(entity);
-        e.insert(PfShapeGpuOwned);
+        e.insert(PfShapeClaim { backend: "bevy_ui_native" });
         // Drop any texture a previous pass produced for this node.
         e.remove::<(ImageNode, PfShapeRendered)>();
         e.insert(BackgroundColor(fill.unwrap_or(Color::NONE)));
@@ -581,7 +609,7 @@ pub fn rasterize_shapes(
         &PfShape,
         &ComputedNode,
         Option<&PfShapeRendered>,
-    ), Without<PfShapeGpuOwned>>,
+    ), Without<PfShapeClaim>>,
     images: Option<ResMut<Assets<Image>>>,
     mut commands: Commands,
 ) {

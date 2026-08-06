@@ -138,22 +138,35 @@ impl Plugin for PfUiPlugin {
                 expander_sync,
             ),
         );
-        // After layout, so shapes see their final size (re-rasterizes only
-        // when the pixel size changes). The explicit ordering matters:
+        // The shape backend seam (see shapes.rs module docs): backends claim
+        // shapes in PfShapeSystems::Claim, the CPU rasterizer draws the
+        // remainder in PfShapeSystems::Rasterize. Both after layout so shapes
+        // see their final pixel size — the explicit ordering matters:
         // ui_layout_system also runs in PostUpdate and writes ComputedNode.
-        app.add_systems(
+        app.configure_sets(
             PostUpdate,
-            (crate::shapes::rasterize_shapes, viewbox_scale)
+            (
+                crate::shapes::PfShapeSystems::Claim,
+                crate::shapes::PfShapeSystems::Rasterize,
+            )
+                .chain()
                 .after(bevy::ui::UiSystems::Layout),
         );
-        // Native bevy_ui styling, when compiled in: runs BEFORE the
-        // rasterizer so whatever it claims never reaches it.
+        app.add_systems(
+            PostUpdate,
+            (
+                crate::shapes::rasterize_shapes
+                    .in_set(crate::shapes::PfShapeSystems::Rasterize),
+                viewbox_scale.after(bevy::ui::UiSystems::Layout),
+            ),
+        );
+        // Native bevy_ui styling, when compiled in: the cheapest backend, so
+        // it claims ahead of anything else in the set.
         #[cfg(feature = "native_shapes")]
         app.add_systems(
             PostUpdate,
             crate::shapes::style_native_shapes
-                .after(bevy::ui::UiSystems::Layout)
-                .before(crate::shapes::rasterize_shapes),
+                .in_set(crate::shapes::PfShapeSystems::Claim),
         );
         // GPU shape backend, when compiled in: claims what it can render and
         // leaves the rest to the CPU rasterizer above.

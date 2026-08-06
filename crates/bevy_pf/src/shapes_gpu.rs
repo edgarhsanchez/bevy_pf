@@ -44,7 +44,7 @@ use bevy_pf_vector::{
 use bevy_pf_xaml::geometry::{FillRule, PathData, PathSegment};
 use bevy_pf_xaml::value as v;
 
-use crate::shapes::{PfShape, PfShapeGpuOwned, PfShapeRendered, ShapeGeometry, arc_to_cubics};
+use crate::shapes::{PfShape, PfShapeClaim, PfShapeRendered, ShapeGeometry, arc_to_cubics};
 
 /// Render layer the shape atlas camera draws, kept clear of app content.
 const SHAPE_LAYER: usize = 24;
@@ -185,20 +185,20 @@ impl Plugin for PfShapeGpuPlugin {
         if !app.is_plugin_added::<bevy_pf_vector::PfVectorPlugin>() {
             app.add_plugins(bevy_pf_vector::PfVectorPlugin);
         }
-        // After layout, like the CPU rasterizer, so shapes see their final
-        // size; before it in the same set so the CPU path sees the
-        // `PfShapeGpuOwned` marker and skips anything this backend owns.
+        // Claim what the atlas can render (see shapes.rs module docs for the
+        // backend contract); unclaimed shapes fall through to the CPU
+        // rasterizer. When bevy_ui native styling is also compiled in, it
+        // claims first — a free bevy_ui node beats an atlas slot.
+        let claim = (sync_gpu_shapes, rebuild_atlas_if_full, gate_atlas_camera)
+            .chain()
+            .in_set(crate::shapes::PfShapeSystems::Claim);
+        #[cfg(feature = "native_shapes")]
+        let claim = claim.after(crate::shapes::style_native_shapes);
         app.init_resource::<PfAtlasFull>()
             .init_resource::<PfAtlasRebuilds>()
             .init_resource::<PfAtlasDirty>()
             .add_systems(Startup, setup_atlas)
-            .add_systems(
-                PostUpdate,
-                (sync_gpu_shapes, rebuild_atlas_if_full, gate_atlas_camera)
-                    .chain()
-                    .after(bevy::ui::UiSystems::Layout)
-                    .before(crate::shapes::rasterize_shapes),
-            );
+            .add_systems(PostUpdate, claim);
     }
 }
 
@@ -738,7 +738,7 @@ fn sync_gpu_shapes(
         if !resized && !shape.is_changed() {
             continue;
         }
-        let Some((path, style)) = shape_to_vector(&shape, px) else {
+        let Some((_path, _style)) = shape_to_vector(&shape, px) else {
             continue;
         };
         let previous_draw: Vec<Entity> = gpu
@@ -819,7 +819,7 @@ fn sync_gpu_shapes(
                 draw,
                 draw_stroke,
             },
-            PfShapeGpuOwned,
+            PfShapeClaim { backend: "vector_gpu" },
         ));
         // The CPU backend's cache marker is meaningless once this backend owns
         // the node; drop it so the two never fight over the `ImageNode`.
@@ -859,7 +859,7 @@ fn rebuild_atlas_if_full(
         }
         commands
             .entity(entity)
-            .remove::<(PfShapeGpu, PfShapeGpuOwned, ImageNode)>();
+            .remove::<(PfShapeGpu, PfShapeClaim, ImageNode)>();
     }
 }
 
