@@ -395,7 +395,11 @@ fn focus_visuals(
     {
         if outlined {
             if let Ok(mut e) = commands.get_entity(next) {
-                e.insert(bevy::ui::Outline {
+                // try_insert: the liveness check above is queue-time only —
+                // an exclusive system (e.g. items regeneration) can despawn
+                // the control before this command applies, and a plain
+                // insert would panic the app.
+                e.try_insert(bevy::ui::Outline {
                     width: Val::Px(2.0),
                     offset: Val::Px(1.0),
                     // Same themable ring as the border variant below.
