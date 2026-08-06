@@ -372,6 +372,11 @@ struct Pending {
     display_member: Option<String>,
     /// `IsIndeterminate` for ProgressBar.
     is_indeterminate: bool,
+    /// A `Foreground` set on THIS element (not inherited). WPF's
+    /// ProgressBar fills with its Foreground brush; the inherited value
+    /// must not repaint every bar under a colored container, so the fill
+    /// only follows an explicit per-element Foreground.
+    own_foreground: Option<v::PfColor>,
     /// Code-behind pointer events: (event name, handler name) pairs wired
     /// as observers dispatching through `PfEventHandlers` after spawn.
     event_handlers: Vec<(String, String)>,
@@ -2706,6 +2711,7 @@ impl<'w> Ctx<'w> {
                 let brush = value.to_brush()?;
                 if let v::PfBrush::Solid(c) = brush {
                     self.inherited.foreground = c;
+                    self.pending.own_foreground = Some(c);
                     self.store_set_only(
                         entity,
                         crate::provider::PropertyTarget::Foreground,
@@ -3562,6 +3568,12 @@ impl<'w> Ctx<'w> {
                     value,
                     indeterminate: self.pending.is_indeterminate,
                 };
+                // WPF fills the bar with the control's Foreground brush; the
+                // stock green stands in only when none was set on the element.
+                let fill_color = pending
+                    .own_foreground
+                    .map(crate::convert::color)
+                    .unwrap_or(Color::srgb_u8(0x06, 0xB0, 0x25));
                 let fill = self
                     .world
                     .spawn((
@@ -3569,7 +3581,7 @@ impl<'w> Ctx<'w> {
                             width: Val::Percent(progress.fraction() * 100.0),
                             ..Default::default()
                         },
-                        BackgroundColor(Color::srgb_u8(0x06, 0xB0, 0x25)),
+                        BackgroundColor(fill_color),
                     ))
                     .id();
                 self.world
