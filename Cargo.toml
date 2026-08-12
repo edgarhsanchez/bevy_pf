@@ -19,7 +19,7 @@ bevy_pf_xaml = { path = "crates/bevy_pf_xaml", version = "0.1.0" }
 bevy_pf_macros = { path = "crates/bevy_pf_macros", version = "0.1.0" }
 bevy_pf = { path = "crates/bevy_pf", version = "0.1.0" }
 
-bevy = { version = "0.19", default-features = true, features = ["bevy_ui_widgets", "system_clipboard"] }
+bevy = { version = "0.19", default-features = true, features = ["bevy_ui_widgets"] }
 roxmltree = "0.21"
 tiny-skia = "0.12"
 thiserror = "2.0"
