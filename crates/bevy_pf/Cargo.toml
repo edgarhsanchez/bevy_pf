@@ -9,6 +9,12 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
+# On by default so text inputs paste on desktop. Android consumers take
+# default-features = false and re-add what they need: arboard, the crate
+# behind bevy's system_clipboard, has no Android backend and fails to
+# COMPILE for that target.
+default = ["clipboard"]
+clipboard = ["bevy/system_clipboard"]
 # Watch asset files and re-instantiate XamlView trees on change.
 hot_reload = ["bevy/file_watcher"]
 # Render WPF shapes on the GPU with bevy_pf_vector (tessellate-once +
