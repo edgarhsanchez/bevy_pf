@@ -34,6 +34,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # To write the released version back to main once it has shipped.
+    permissions:
+      contents: write
     env:
       # A bevy-linked verify build with full debuginfo fills a runner's disk
       # (the CI workflow measured ~28 GB); the release path does not need
@@ -121,3 +124,32 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --workspace --allow-dirty
+
+      # The stamp above lives only inside this job, so without this main
+      # keeps reporting the version BEFORE the release — anyone reading the
+      # repository, or building from source, gets a version that was never
+      # published. Recorded only after a successful publish, so a failed
+      # release leaves no trace claiming otherwise.
+      #
+      # Committed as github-actions[bot] on purpose: attributing automation
+      # to a person hides what actually produced the change.
+      - name: Record the released version on main
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --depth=1 origin main
+          git checkout -B main FETCH_HEAD
+          python3 .github/scripts/set-version.py "$version"
+          # The lockfile is tracked and records each workspace member's own
+          # version — leaving it behind makes the next build dirty it.
+          cargo metadata --format-version 1 > /dev/null
+          if git diff --quiet; then
+            echo "main already records $version"
+            exit 0
+          fi
+          # [skip ci]: a version-only commit has nothing new to test, and the
+          # suite links bevy.
+          git commit -am "Release v$version [skip ci]"
+          git push origin main
