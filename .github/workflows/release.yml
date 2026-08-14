@@ -1,9 +1,18 @@
 name: Release
 
 # Publishing is irreversible: crates.io lets you yank a version but never
-# delete or replace one, and the name is claimed forever. So the trigger is
-# an explicit, deliberate act — a `v*` tag — never a push to main. Use the
-# manual run with `dry_run: true` to rehearse the whole thing safely.
+# delete or replace one, and a name is claimed forever. So the trigger is a
+# deliberate act — a semver tag — never a push to main. The tag is also the
+# SOURCE of the version: manifests are stamped from it at release time
+# rather than hand-edited and kept in sync by hope.
+#
+# Release order across the two repositories:
+#
+#   1. tag bevy_pf_vector  (its own repo, its own Release workflow)
+#   2. tag this repo       -> bevy_pf_xaml, bevy_pf_macros, bevy_pf
+#
+# Both tags can be pushed at once: this workflow WAITS for bevy_pf_vector to
+# reach crates.io rather than failing the race.
 on:
   push:
     tags: ["v*"]
@@ -13,6 +22,10 @@ on:
         description: "Package and verify only — do not publish"
         type: boolean
         default: true
+      version:
+        description: "Version to stamp (blank = use the manifest as-is)"
+        type: string
+        default: ""
 
 concurrency:
   group: release
@@ -36,26 +49,33 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
 
-      # The tag is the source of truth for what is being released, so a tag
-      # that disagrees with the manifest is a mistake worth stopping for —
-      # publishing the wrong version is not undoable. All three crates share
-      # the workspace version, so checking one checks the release.
-      - name: Tag must match the crate version
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Tag-driven semantic versioning: v1.4.0 publishes 1.4.0, and the
+      # sibling requirements move with it (see .github/scripts/set-version.py
+      # for why both have to). Prereleases work — v0.2.0-rc.1 is a valid tag
+      # and crates.io accepts it without becoming the default version.
+      - name: Version from the tag
+        id: version
         run: |
-          manifest=$(cargo metadata --no-deps --format-version 1 \
-            | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='bevy_pf'))")
-          tag="${GITHUB_REF_NAME#v}"
-          echo "tag=$tag manifest=$manifest"
-          [ "$tag" = "$manifest" ] || { echo "::error::tag v$tag does not match Cargo.toml $manifest"; exit 1; }
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ inputs.version }}"
+          fi
+          if [ -n "$version" ]; then
+            python3 .github/scripts/set-version.py "$version"
+            echo "stamped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no version given; using the manifest as-is (dry run)"
+            echo "stamped=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      # The vector_gpu feature resolves bevy_pf_vector FROM THE REGISTRY —
-      # cargo strips the git source when packaging — so that crate has to be
-      # on crates.io before this workspace can be packaged at all, feature
-      # off or not (optional deps are still resolved). Cargo's own message
-      # for this is "no matching package named `bevy_pf_vector` found",
-      # which is accurate and tells you nothing about what to do next.
-      - name: bevy_pf_vector must already be published
+      # bevy_pf_vector is published from its own repository, so a
+      # simultaneously-pushed pair of tags is a race this side should lose
+      # gracefully rather than fail. The probe is cargo's own resolver —
+      # --no-verify keeps it cheap, and --workspace lets the sibling crates
+      # resolve locally so the ONLY thing that can be missing is the
+      # cross-repo dependency.
+      - name: Wait for bevy_pf_vector on crates.io
         run: |
           req=$(cargo metadata --no-deps --format-version 1 | python3 -c "
           import json, sys
@@ -63,28 +83,36 @@ jobs:
           bp = next(p for p in pkgs if p['name'] == 'bevy_pf')
           print(next(d['req'] for d in bp['dependencies'] if d['name'] == 'bevy_pf_vector'))
           ")
-          code=$(curl -sS -o /tmp/vector.json -w "%{http_code}" \
-            -A "bevy_pf-release-workflow" https://crates.io/api/v1/crates/bevy_pf_vector)
-          if [ "$code" != "200" ]; then
-            echo "::error::bevy_pf requires bevy_pf_vector $req from crates.io, which has no published versions (HTTP $code). Release https://github.com/edgarhsanchez/bevy_pf_vector first — tag it and let its Release workflow publish — then re-run this."
-            exit 1
-          fi
-          echo "bevy_pf requires bevy_pf_vector $req; published versions:"
-          python3 -c "import json; print('  ' + ', '.join(v['num'] for v in json.load(open('/tmp/vector.json'))['versions']))"
+          echo "bevy_pf requires bevy_pf_vector $req"
+          for attempt in $(seq 1 60); do
+            if cargo package --workspace --no-verify --allow-dirty >/tmp/probe.log 2>&1; then
+              echo "resolved: bevy_pf_vector $req is on crates.io"
+              exit 0
+            fi
+            if ! grep -q 'no matching package named `bevy_pf_vector`' /tmp/probe.log; then
+              echo "::error::packaging failed for a reason other than the missing dependency"
+              cat /tmp/probe.log
+              exit 1
+            fi
+            echo "attempt $attempt/60: no bevy_pf_vector matching $req yet; waiting 30s"
+            sleep 30
+          done
+          echo "::error::bevy_pf_vector $req never appeared on crates.io. Release https://github.com/edgarhsanchez/bevy_pf_vector first (tag it), or correct the requirement in crates/bevy_pf/Cargo.toml if the two versions have diverged."
+          exit 1
 
+      # --allow-dirty: the manifests were just rewritten from the tag, so the
+      # checkout is intentionally dirty. The tag remains the record of what
+      # was released.
       - name: Package and verify
-        run: cargo package --workspace
+        run: cargo package --workspace --allow-dirty
 
-      # --workspace publishes bevy_pf_xaml, then bevy_pf_macros, then
-      # bevy_pf, waiting for each to reach the index before the next one
-      # needs it — the ordering is a real constraint, not a preference.
-      #
-      # Note the `vector_gpu` feature depends on bevy_pf_vector FROM THE
-      # REGISTRY, so that crate must already be published at the version
-      # this one asks for. It lives in its own repository with its own
-      # release workflow; release it first.
+      # --workspace resolves the order (bevy_pf_xaml, then bevy_pf_macros,
+      # then bevy_pf) and waits for each to reach the index before the next
+      # one needs it — that ordering is a hard constraint, not a preference:
+      # cargo strips `path` when packaging and resolves siblings from
+      # crates.io.
       - name: Publish to crates.io
         if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --workspace
+        run: cargo publish --workspace --allow-dirty
