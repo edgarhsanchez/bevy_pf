@@ -49,6 +49,29 @@ jobs:
           echo "tag=$tag manifest=$manifest"
           [ "$tag" = "$manifest" ] || { echo "::error::tag v$tag does not match Cargo.toml $manifest"; exit 1; }
 
+      # The vector_gpu feature resolves bevy_pf_vector FROM THE REGISTRY —
+      # cargo strips the git source when packaging — so that crate has to be
+      # on crates.io before this workspace can be packaged at all, feature
+      # off or not (optional deps are still resolved). Cargo's own message
+      # for this is "no matching package named `bevy_pf_vector` found",
+      # which is accurate and tells you nothing about what to do next.
+      - name: bevy_pf_vector must already be published
+        run: |
+          req=$(cargo metadata --no-deps --format-version 1 | python3 -c "
+          import json, sys
+          pkgs = json.load(sys.stdin)['packages']
+          bp = next(p for p in pkgs if p['name'] == 'bevy_pf')
+          print(next(d['req'] for d in bp['dependencies'] if d['name'] == 'bevy_pf_vector'))
+          ")
+          code=$(curl -sS -o /tmp/vector.json -w "%{http_code}" \
+            -A "bevy_pf-release-workflow" https://crates.io/api/v1/crates/bevy_pf_vector)
+          if [ "$code" != "200" ]; then
+            echo "::error::bevy_pf requires bevy_pf_vector $req from crates.io, which has no published versions (HTTP $code). Release https://github.com/edgarhsanchez/bevy_pf_vector first — tag it and let its Release workflow publish — then re-run this."
+            exit 1
+          fi
+          echo "bevy_pf requires bevy_pf_vector $req; published versions:"
+          python3 -c "import json; print('  ' + ', '.join(v['num'] for v in json.load(open('/tmp/vector.json'))['versions']))"
+
       - name: Package and verify
         run: cargo package --workspace
 
