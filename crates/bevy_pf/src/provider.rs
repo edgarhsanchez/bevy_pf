@@ -467,6 +467,31 @@ fn template_suppressed(world: &World, entity: Entity, target: PropertyTarget) ->
             .is_some()
 }
 
+/// Record whether a `Background` brush is currently assigned, and for the
+/// elements WPF hit-tests purely by their Background, keep pickability in
+/// step with it.
+///
+/// Only elements listed by [`crate::hit_test::background_governs_hit_testing`]
+/// are touched, and only through the marker this function owns — a control
+/// or an application that set its own `Pickable` is never overwritten.
+pub(crate) fn mark_background_assigned(world: &mut World, entity: Entity, assigned: bool) {
+    let governed = world
+        .get::<crate::components::PfElementKind>(entity)
+        .is_some_and(|k| crate::hit_test::background_governs_hit_testing(&k.0));
+    let mut e = world.entity_mut(entity);
+    if assigned {
+        e.insert(crate::hit_test::PfBackgroundSet);
+        if governed {
+            e.insert(bevy::picking::Pickable::default());
+        }
+    } else {
+        e.remove::<crate::hit_test::PfBackgroundSet>();
+        if governed {
+            e.insert(bevy::picking::Pickable::IGNORE);
+        }
+    }
+}
+
 /// Apply a concrete value to components (the single component-writer for
 /// store-managed properties).
 pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTarget, value: &PfValue) {
@@ -500,6 +525,9 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
     match target {
         PropertyTarget::Background => {
             let Some(brush) = as_brush() else { return };
+            // A brush was assigned — non-null, even if it paints nothing.
+            // For a Panel that is the whole of WPF's hit-test rule.
+            mark_background_assigned(world, entity, true);
             match convert::brush_to_background(&brush) {
                 Ok(bg) => {
                     if let Some(mut visual) =
@@ -691,6 +719,9 @@ fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
             }
         }
         PropertyTarget::Background => {
+            // Back to a null brush (`{x:Null}`, or a cleared tier): a Panel
+            // stops being hit-testable again, exactly as in WPF.
+            mark_background_assigned(world, entity, false);
             world
                 .entity_mut(entity)
                 .remove::<bevy::ui::BackgroundGradient>()

@@ -1279,6 +1279,19 @@ impl<'w> Ctx<'w> {
         let mut e = self.world.entity_mut(entity);
         e.insert((ui_node, PfElementKind(node.name.clone())));
 
+        // WPF: a `Panel` renders nothing but its Background, so with the
+        // default null Background a click passes straight through it. bevy
+        // has no such rule — every node blocks picks — which is why a bare
+        // layout Grid wrapped around a screen silently eats every click
+        // aimed at what is behind it. Panels therefore START opted out and
+        // are opted back IN by `provider::apply_value` the moment any
+        // Background brush is assigned, `Transparent` included: that is
+        // precisely what makes `Background="Transparent"` mean "invisible
+        // but clickable" here as it does in WPF.
+        if crate::hit_test::background_governs_hit_testing(&node.name) {
+            e.insert(bevy::picking::Pickable::IGNORE);
+        }
+
         match kind {
             ElemKind::Root if node.name == "Window" => {
                 let mut store = crate::provider::PfPropertyStore::default();
@@ -2938,6 +2951,16 @@ impl<'w> Ctx<'w> {
                         .entity_mut(entity)
                         .insert(bevy::ui::InteractionDisabled);
                 }
+            }
+            // WPF `UIElement.IsHitTestVisible`. The subtree reach is applied
+            // by `hit_test::propagate_hit_test_visibility`, which also lets
+            // the flag be flipped at runtime and lets generated children
+            // (ItemsControl rows) inherit it.
+            "IsHitTestVisible" => {
+                let visible = value.to_bool()?;
+                self.world
+                    .entity_mut(entity)
+                    .insert(crate::hit_test::PfHitTestVisible(visible));
             }
             "Tag" => {
                 let tag = value.to_text()?;

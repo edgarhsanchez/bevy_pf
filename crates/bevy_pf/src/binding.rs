@@ -1192,6 +1192,9 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
         }
         BindingTarget::Background => {
             if let Ok(color) = value.to_display().parse::<v::PfColor>() {
+                // A bound brush is as non-null as a literal one — WPF's
+                // Panel hit-test rule follows the property, not the parse.
+                crate::provider::mark_background_assigned(world, entity, true);
                 world
                     .entity_mut(entity)
                     .insert(BackgroundColor(convert::color(color)));

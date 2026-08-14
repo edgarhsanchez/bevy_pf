@@ -49,6 +49,28 @@ Behaviors confirmed to match WPF by reading the reference source.
 
 - **Edge trimming + interior collapse** for non-preserved element text, keeping the trailing space in `Hello <Bold>World</Bold>!` (`XamlText.cs` Paste 141-158, CollapseWhitespace 201-251).
 
+### Hit testing (`crates/bevy_pf/src/hit_test.rs`)
+
+- **`Panel` hit-tests only where it renders**, i.e. only where a `Background`
+  brush is assigned (`PF/Controls/Panel.cs` `HitTestCore` via
+  `UIElement.HitTestCore` → rendered content). A **null** Background is not
+  rendered and is therefore transparent to input, while `Transparent` is a
+  real brush that renders nothing visible but *is* hit — the distinction
+  behind the `Background="Transparent"` idiom. bevy has no such rule (every
+  node blocks picks), so panels are spawned `Pickable::IGNORE` and opted
+  back in by `provider::apply_value` when any Background brush lands, at any
+  precedence tier including a `Style` setter or a `{Binding}`.
+- **`UIElement.IsHitTestVisible="False"` excludes the element *and its
+  descendants*** — the WPF walk never enters the subtree, so a nested
+  `IsHitTestVisible="True"` cannot re-expose itself. bevy's `Pickable` is
+  per-entity and does not propagate, so `propagate_hit_test_visibility`
+  supplies the reach, tracking what it suppressed so an application's own
+  `Pickable` choices are never clobbered.
+- **Programmatic hit testing** (`PfHitTest`) is the analogue of
+  `VisualTreeHelper.HitTest` / `UIElement.InputHitTest`: topmost-first,
+  respecting `Visibility` (including WPF's rule that an explicitly `Visible`
+  descendant survives a hidden ancestor) and `IsHitTestVisible`.
+
 ---
 
 ## 2. Known deviations
@@ -106,6 +128,17 @@ Resource-system deviations recorded while landing MergedDictionaries/DynamicReso
 | Merged-dictionary isolation | Merged file resolves StaticResource against itself + app tier | Conformant (isolated stack) | Fixed per review |
 | Sibling/diamond re-merges of one file | Legal, merged again | Conformant (memoized; only true cycles rejected) | Fixed per review |
 | Local value vs style-setter `{DynamicResource}` on theme swap | Local wins forever | Conformant (style-tier entries dropped when a local value lands) | Fixed per review |
+
+### 2.3 Hit-testing deviations (H#)
+
+Recorded while landing the hit-testing conformance work (see §1 and
+`crates/bevy_pf/tests/hit_test.rs`):
+
+| # | Behavior | WPF source | Our behavior | Sev | Decision |
+|---|---|---|---|---|---|
+| H1 | A null-`Background` `Border` is hit on its **border ring** only — the interior falls through | `PF/Controls/Border.cs` renders border + background; `UIElement.HitTestCore` hits rendered geometry | `Border` stays fully hit-testable regardless of Background | EDGE | **Accepted deviation** — bevy picks rectangles, so "ring but not interior" is inexpressible. Panels (the common wrapper) carry the rule; a Border used as a wrapper is rarer and usually painted. |
+| H2 | Hit testing walks rendered geometry, so a `Path`/`Ellipse` is hit only on its fill/stroke | `UIElement.HitTestCore` → `PathGeometry.FillContains` | Shapes are hit across their whole node rect (they render into an `ImageNode`) | EDGE | **Accepted deviation** — per-pixel shape picking needs the rasterized alpha; revisit if a sample needs it. |
+| H3 | `HitTestResultBehavior`/`HitTestFilterCallback` let a caller continue past the topmost result or prune subtrees | `VisualTreeHelper.HitTest(Visual, filter, result, ...)` | `PfHitTest` returns the topmost match only; scoping is by subtree (`hit_in`) or filter | USE | Add an all-results form if a consumer needs it; the topmost-plus-scope pair covers light dismiss, drag surfaces and hotspots. |
 
 ---
 

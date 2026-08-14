@@ -102,6 +102,13 @@ impl Plugin for PfUiPlugin {
         app.init_resource::<PfFocusVisual>();
         app.add_systems(Update, (focus_visuals, keyboard_interaction));
         app.add_systems(Update, crate::triggers::evaluate_triggers);
+        // `IsHitTestVisible="False"` reaches the whole subtree, WPF-style.
+        // Gated so apps that never declare it pay nothing.
+        app.add_systems(
+            Update,
+            crate::hit_test::propagate_hit_test_visibility
+                .run_if(crate::hit_test::hit_test_visibility_is_stale),
+        );
         // Mouse-wheel / trackpad scrolling for every scrollable node
         // (ScrollViewer, ListBox, ComboBox dropdowns, ...).
         app.add_observer(scroll_on_wheel);

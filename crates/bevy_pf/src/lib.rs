@@ -41,6 +41,7 @@ pub mod dynamic;
 pub mod error;
 pub mod events;
 pub mod fonts;
+pub mod hit_test;
 pub mod icons;
 pub mod instantiate;
 pub mod items;
@@ -79,6 +80,7 @@ pub use instantiate::{
     set_application_resources,
 };
 pub use plugin::{PfCommandsExt, PfUiPlugin};
+pub use hit_test::{PfHitFilter, PfHitTest, PfHitTestVisible};
 pub use items::PfItemsSource;
 pub use overlay::{PfPlacement, PfPopup, PfToolTip};
 pub use provider::{PfPropertyStore, PropertyTarget, ValueSource};
@@ -96,6 +98,7 @@ pub mod prelude {
     pub use crate::events::{PfEventAppExt, PfPointerInfo};
     pub use crate::instantiate::PfElementAppExt;
     pub use crate::navigation::{PfNavigationAppExt, PfNavigated};
+    pub use crate::hit_test::{PfHitFilter, PfHitTest, PfHitTestVisible};
     pub use crate::query::PfQuery;
     pub use crate::components::PfControlTheme;
     pub use crate::plugin::{PfCommandsExt, PfFocusRingColor, PfUiPlugin};

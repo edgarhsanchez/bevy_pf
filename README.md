@@ -85,6 +85,20 @@ Working today:
   `bevy_pf::provider::set_local` to set store-managed properties at the same
   precedence tier as a XAML attribute. Attach observers
   (`On<Pointer<Click>>`) to found entities as usual.
+- **Input & hit testing** follows WPF's rules rather than bevy's defaults. A
+  `Panel` hit-tests only where it renders, so a null `Background` is
+  transparent to clicks and `Background="Transparent"` is the idiom for
+  "invisible but clickable" — a layout `Grid` wrapped around a screen no
+  longer silently eats every click aimed beneath it.
+  `IsHitTestVisible="False"` opts an element *and its descendants* out, the
+  way WPF's walk does. And `PfHitTest` (a `SystemParam`, the
+  `VisualTreeHelper.HitTest` / `UIElement.InputHitTest` analog) answers
+  "what is under this point?" from any system — for light dismiss, drag
+  surfaces, hotspot cursors — getting the traps right by construction:
+  `UiGlobalTransform` rather than the `GlobalTransform` bevy_ui no longer
+  writes for UI nodes, logical-pointer to physical-geometry conversion, and
+  `Visibility` (a closed panel keeps full layout geometry and must not
+  answer for it).
 - **Controls**: `Button`, `ToggleButton`, `CheckBox`, `RadioButton` (GroupName
   exclusivity), `TextBox` (native Bevy `EditableText`: typing, selection,
   clipboard, IME), `Slider`, `ProgressBar`, `Separator`,
