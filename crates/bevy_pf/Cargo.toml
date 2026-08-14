@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["bevy", "xaml", "wpf", "ui", "gui"]
+categories = ["game-development", "gui"]
 authors.workspace = true
 
 [features]
@@ -35,12 +38,11 @@ bevy_pf_xaml = { workspace = true }
 bevy_pf_macros = { workspace = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
-# Resolved from GitHub so every checkout (CI included) can load the
-# workspace manifest -- a machine-local path here breaks `cargo metadata`
-# on any other machine. For local engine development, override with a
-# [patch."https://github.com/edgarhsanchez/bevy_pf_vector"] entry in an
-# untracked .cargo/config.toml pointing at your clone.
-bevy_pf_vector = { git = "https://github.com/edgarhsanchez/bevy_pf_vector", optional = true }
+# From the registry: crates.io refuses to publish a crate carrying a bare
+# git dependency, feature-gated or not. For local engine development,
+# override with a [patch.crates-io] entry in an untracked
+# .cargo/config.toml pointing at your clone.
+bevy_pf_vector = { version = "0.1", git = "https://github.com/edgarhsanchez/bevy_pf_vector", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window"] }

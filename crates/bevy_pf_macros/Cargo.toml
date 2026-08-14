@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["xaml", "wpf", "macros", "ui", "bevy"]
+categories = ["gui", "development-tools::procedural-macro-helpers"]
 authors.workspace = true
 
 [lib]

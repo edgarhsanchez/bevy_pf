@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["xaml", "wpf", "parser", "ui", "markup"]
+categories = ["parser-implementations", "gui"]
 authors.workspace = true
 
 [dependencies]
