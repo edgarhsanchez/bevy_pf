@@ -84,7 +84,10 @@ jobs:
           print(next(d['req'] for d in bp['dependencies'] if d['name'] == 'bevy_pf_vector'))
           ")
           echo "bevy_pf requires bevy_pf_vector $req"
-          for attempt in $(seq 1 60); do
+          # A real release waits out the sibling repo's build; a manual dry
+          # run should say what is missing and stop, not idle for 30 minutes.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then attempts=60; else attempts=1; fi
+          for attempt in $(seq 1 $attempts); do
             if cargo package --workspace --no-verify --allow-dirty >/tmp/probe.log 2>&1; then
               echo "resolved: bevy_pf_vector $req is on crates.io"
               exit 0
@@ -94,8 +97,10 @@ jobs:
               cat /tmp/probe.log
               exit 1
             fi
-            echo "attempt $attempt/60: no bevy_pf_vector matching $req yet; waiting 30s"
-            sleep 30
+            echo "attempt $attempt/$attempts: no bevy_pf_vector matching $req yet"
+            # An `&&` here would abort the step under `bash -e` on the last
+            # iteration, swallowing the diagnosis below.
+            if [ "$attempt" -lt "$attempts" ]; then sleep 30; fi
           done
           echo "::error::bevy_pf_vector $req never appeared on crates.io. Release https://github.com/edgarhsanchez/bevy_pf_vector first (tag it), or correct the requirement in crates/bevy_pf/Cargo.toml if the two versions have diverged."
           exit 1
