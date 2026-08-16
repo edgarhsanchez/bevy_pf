@@ -368,6 +368,12 @@ struct Pending {
         std::sync::Arc<crate::resources::PfControlTemplate>,
         std::sync::Arc<ResourceScopes>,
     )>,
+    /// `HorizontalContentAlignment` / `VerticalContentAlignment`: where the
+    /// CONTENT sits inside the control, as distinct from where the control
+    /// sits inside its parent. Collected here and consumed by
+    /// `project_content`, which otherwise applies a per-kind default.
+    h_content_align: Option<JustifyItems>,
+    v_content_align: Option<AlignItems>,
     /// `DisplayMemberPath` for items controls.
     display_member: Option<String>,
     /// `IsIndeterminate` for ProgressBar.
@@ -3099,6 +3105,33 @@ impl<'w> Ctx<'w> {
                 node.row_gap = Val::Px(px);
                 node.column_gap = Val::Px(px);
             }
+            // Avalonia's per-axis spacing. `ItemSpacing` is WrapPanel's name
+            // for the gap between items along the flow direction, and its
+            // cross-axis partner is LineSpacing; both map to the same gaps.
+            "RowSpacing" | "LineSpacing" => {
+                let px = value.to_f32()?;
+                self.node_mut(entity).row_gap = Val::Px(px);
+            }
+            "ColumnSpacing" => {
+                let px = value.to_f32()?;
+                self.node_mut(entity).column_gap = Val::Px(px);
+            }
+            "ItemSpacing" => {
+                // The gap BETWEEN items, which runs along the flow: it is the
+                // column gap on a horizontal panel and the row gap on a
+                // vertical one. Read from the flex direction that
+                // `Orientation` has already written, so this depends on
+                // Orientation appearing first — which is how it is always
+                // written, and the horizontal default is right regardless.
+                let px = value.to_f32()?;
+                let mut n = self.node_mut(entity);
+                match n.flex_direction {
+                    FlexDirection::Column | FlexDirection::ColumnReverse => {
+                        n.row_gap = Val::Px(px)
+                    }
+                    _ => n.column_gap = Val::Px(px),
+                }
+            }
             "RowDefinitions" if kind == ElemKind::Grid => {
                 // .NET 10 / Avalonia shorthand: RowDefinitions="Auto,*,2*"
                 let tracks = parse_track_list(&value.to_text()?)?;
@@ -3215,6 +3248,65 @@ impl<'w> Ctx<'w> {
             "Password" | "PasswordChar" if kind == ElemKind::TextBox => {}
             // Consumed at build time (TabIndex insertion checks it directly).
             "IsTabStop" => {}
+            // Avalonia's compiled-binding metadata. `x:DataType` names the
+            // type a `{Binding}` is checked against and `x:CompileBindings`
+            // switches that checking on; both are consumed by Avalonia's XAML
+            // COMPILER and mean nothing at runtime, so warning about them
+            // would report a non-problem on nearly every Avalonia document.
+            // Bindings here resolve dynamically and need no declared type.
+            // (`DataTemplate DataType=` is a different path — it is a resource
+            // type, keyed in parse_resource_value, and is honoured there.)
+            "DataType" | "CompileBindings" => {}
+            // Where the CONTENT sits inside the control, not where the
+            // control sits inside its parent. Consumed by project_content,
+            // which otherwise picks a per-kind default.
+            //
+            // Applied at build time rather than through the property store,
+            // so a Style setter reaches it but a TRIGGER cannot flip it —
+            // that needs alignment PropertyTargets, still deferred.
+            "HorizontalContentAlignment" => {
+                let text = value.to_text()?;
+                self.pending.h_content_align = match text.trim() {
+                    "Left" | "Start" => Some(JustifyItems::Start),
+                    "Center" => Some(JustifyItems::Center),
+                    "Right" | "End" => Some(JustifyItems::End),
+                    "Stretch" => Some(JustifyItems::Stretch),
+                    other => {
+                        self.warn(format!("HorizontalContentAlignment `{other}` is not a value"));
+                        None
+                    }
+                };
+            }
+            "VerticalContentAlignment" => {
+                let text = value.to_text()?;
+                self.pending.v_content_align = match text.trim() {
+                    "Top" | "Start" => Some(AlignItems::Start),
+                    "Center" => Some(AlignItems::Center),
+                    "Bottom" | "End" => Some(AlignItems::End),
+                    "Stretch" => Some(AlignItems::Stretch),
+                    other => {
+                        self.warn(format!("VerticalContentAlignment `{other}` is not a value"));
+                        None
+                    }
+                };
+            }
+            // Avalonia's theme variant, which is this crate's app theme:
+            // Light / Dark, and `Default` meaning "follow the system".
+            "RequestedThemeVariant" => {
+                let variant = value.to_text()?;
+                let theme = match variant.trim() {
+                    "Light" => Some(crate::app_theme::AppTheme::Light),
+                    "Dark" => Some(crate::app_theme::AppTheme::Dark),
+                    "Default" => Some(crate::app_theme::AppTheme::Unspecified),
+                    _ => None,
+                };
+                match theme {
+                    Some(theme) => crate::app_theme::set_user_app_theme(self.world, theme),
+                    None => self.warn(format!(
+                        "RequestedThemeVariant `{variant}` is not one of Light, Dark or Default"
+                    )),
+                }
+            }
             "Value" if kind == ElemKind::RatingBar => {}
             "LowerValue" | "UpperValue" | "MinRange" if kind == ElemKind::RangeSlider => {}
             // Consumed by spawn_scroll_bar (Orientation hits the generic arm).
@@ -4750,18 +4842,22 @@ impl<'w> Ctx<'w> {
         host: Entity,
     ) -> Result<(), PfError> {
         let _ = entity;
-        // Approximated content alignment (WPF: TemplateBinding
-        // H/VContentAlignment with per-control defaults; alignment property
-        // targets do not exist yet): Button centers, the rest lead-align.
+        // Content alignment: what the control ASKED for, else the per-kind
+        // default (Button centers, the rest lead-align) that stands in for
+        // WPF's per-control HorizontalContentAlignment defaults.
         {
+            let (h, v) = (
+                self.pending.h_content_align,
+                self.pending.v_content_align,
+            );
             let mut n = self.node_mut(host);
-            if matches!(kind, ElemKind::Button | ElemKind::ToggleButton) {
-                n.justify_items = JustifyItems::Center;
-                n.align_items = AlignItems::Center;
+            let centered = matches!(kind, ElemKind::Button | ElemKind::ToggleButton);
+            n.justify_items = h.unwrap_or(if centered {
+                JustifyItems::Center
             } else {
-                n.justify_items = JustifyItems::Start;
-                n.align_items = AlignItems::Center;
-            }
+                JustifyItems::Start
+            });
+            n.align_items = v.unwrap_or(AlignItems::Center);
         }
         let has_content_binding = self.pending.bindings.iter().any(|(p, _)| p == "Content");
         if has_content_binding {
@@ -4788,6 +4884,19 @@ impl<'w> Ctx<'w> {
     ) -> Result<(), PfError> {
         let orientation = self.orientation_of(node);
         let parent = kind.as_parent(orientation);
+        // Explicit content alignment beats the per-kind default that the
+        // element's Node was spawned with (Button centres, most lead-align).
+        // Templated controls take the same override in `project_content`.
+        if self.pending.h_content_align.is_some() || self.pending.v_content_align.is_some() {
+            let (h, v) = (self.pending.h_content_align, self.pending.v_content_align);
+            let mut n = self.node_mut(entity);
+            if let Some(h) = h {
+                n.justify_items = h;
+            }
+            if let Some(v) = v {
+                n.align_items = v;
+            }
+        }
         let has_content_binding = self.pending.bindings.iter().any(|(p, _)| p == "Content");
         if has_content_binding {
             // Bound content: a text child that the binding system updates.
@@ -7845,7 +7954,12 @@ impl<'w> Ctx<'w> {
             "Value" if kind == ElemKind::ProgressBar => {
                 (entity, BindingTarget::ProgressValue, v::BindingMode::OneWay)
             }
-            "Visibility" => (entity, BindingTarget::Visibility, v::BindingMode::OneWay),
+            // Avalonia spells visibility as a bool. The Visibility target
+            // already accepts booleans as well as the WPF enum strings, so
+            // the two names share it.
+            "Visibility" | "IsVisible" => {
+                (entity, BindingTarget::Visibility, v::BindingMode::OneWay)
+            }
             "Width" => (entity, BindingTarget::Width, v::BindingMode::OneWay),
             "Height" => (entity, BindingTarget::Height, v::BindingMode::OneWay),
             "FontSize" => (entity, BindingTarget::FontSize, v::BindingMode::OneWay),

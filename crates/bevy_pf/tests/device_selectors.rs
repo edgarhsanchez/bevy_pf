@@ -289,3 +289,83 @@ fn selectors_and_theme_bindings_compose_in_one_document() {
     );
     assert_eq!(background(&app, root, "ByTheme"), Some("#0000FF".into()));
 }
+
+// ---------------------------------------------------------------------
+// Avalonia vocabulary that maps onto concepts bevy_pf already has.
+// ---------------------------------------------------------------------
+
+#[test]
+fn content_alignment_overrides_the_per_kind_default() {
+    // A Button centres its content and a Border lead-aligns it. Saying so
+    // explicitly must win over that default — this is the gap the
+    // ControlTemplate plan carried as "deferred" for the whole of phase 2.
+    let mut app = desktop();
+    let (root, warnings) = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <Button x:Name="Default" Content="a"/>
+     <Button x:Name="Lead" Content="b" HorizontalContentAlignment="Left"
+             VerticalContentAlignment="Top"/>
+   </StackPanel>"##,
+    );
+    app.update();
+    assert_eq!(warnings, Vec::<String>::new());
+
+    let node = |name: &str| {
+        let e = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+        let n = app.world().get::<Node>(e).unwrap();
+        (n.justify_items, n.align_items)
+    };
+    assert_eq!(
+        node("Default"),
+        (JustifyItems::Center, AlignItems::Center),
+        "a Button still centres by default"
+    );
+    assert_eq!(
+        node("Lead"),
+        (JustifyItems::Start, AlignItems::Start),
+        "explicit alignment must beat the per-kind default"
+    );
+}
+
+#[test]
+fn an_unknown_content_alignment_is_reported() {
+    let mut app = desktop();
+    let (_, warnings) = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <Button x:Name="B" Content="a" HorizontalContentAlignment="Middle"/>
+   </StackPanel>"##,
+    );
+    assert!(
+        warnings.iter().any(|w| w.contains("Middle")),
+        "got {warnings:?}"
+    );
+}
+
+#[test]
+fn per_axis_spacing_reaches_the_gaps() {
+    let mut app = desktop();
+    let (root, warnings) = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <Grid x:Name="G" RowSpacing="7" ColumnSpacing="3"/>
+     <WrapPanel x:Name="Across" Orientation="Horizontal" ItemSpacing="5"/>
+     <WrapPanel x:Name="Down" Orientation="Vertical" ItemSpacing="5"/>
+   </StackPanel>"##,
+    );
+    app.update();
+    assert_eq!(warnings, Vec::<String>::new());
+    let gaps = |name: &str| {
+        let e = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+        let n = app.world().get::<Node>(e).unwrap();
+        (n.row_gap, n.column_gap)
+    };
+    assert_eq!(gaps("G"), (Val::Px(7.0), Val::Px(3.0)));
+    // ItemSpacing separates items ALONG the flow, so it swaps with orientation.
+    assert_eq!(gaps("Across").1, Val::Px(5.0), "horizontal: column gap");
+    assert_eq!(gaps("Down").0, Val::Px(5.0), "vertical: row gap");
+}

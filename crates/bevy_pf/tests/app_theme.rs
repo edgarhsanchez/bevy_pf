@@ -405,3 +405,73 @@ fn a_property_outside_the_store_resolves_once_and_stays() {
         "Text is not store-managed, so it resolves once — this pins the LIMIT"
     );
 }
+
+// ---------------------------------------------------------------------
+// Avalonia's spelling of the same idea.
+// ---------------------------------------------------------------------
+
+#[test]
+fn requested_theme_variant_sets_the_app_theme() {
+    // Avalonia writes RequestedThemeVariant on Application/Window. Light and
+    // Dark are this crate's own, and `Default` is Avalonia's "follow the
+    // system" — which is exactly Unspecified.
+    for (variant, expected) in [
+        ("Light", AppTheme::Light),
+        ("Dark", AppTheme::Dark),
+        ("Default", AppTheme::Unspecified),
+    ] {
+        let mut app = test_app();
+        // Start from the opposite so a no-op would fail the assert.
+        set_user_app_theme(app.world_mut(), AppTheme::Dark);
+        let (_, warnings) = spawn(
+            &mut app,
+            &format!(
+                r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        RequestedThemeVariant="{variant}">
+             <Border x:Name="B"/>
+           </StackPanel>"##
+            ),
+        );
+        assert_eq!(warnings, Vec::<String>::new(), "{variant}");
+        assert_eq!(
+            app.world().resource::<PfAppTheme>().user(),
+            expected,
+            "RequestedThemeVariant={variant}"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_theme_variant_is_reported() {
+    let mut app = test_app();
+    let (_, warnings) = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                RequestedThemeVariant="Sepia">
+     <Border x:Name="B"/>
+   </StackPanel>"##,
+    );
+    assert!(
+        warnings.iter().any(|w| w.contains("Sepia")),
+        "got {warnings:?}"
+    );
+}
+
+#[test]
+fn compiled_binding_metadata_is_accepted_silently() {
+    // x:DataType and x:CompileBindings are consumed by Avalonia's XAML
+    // compiler and mean nothing at runtime. Warning about them would report
+    // a non-problem on nearly every Avalonia document.
+    let mut app = test_app();
+    let (_, warnings) = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                x:DataType="vm:MainWindowViewModel" x:CompileBindings="True">
+     <Border x:Name="B"/>
+   </StackPanel>"##,
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+}
