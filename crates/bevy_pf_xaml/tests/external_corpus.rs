@@ -1,5 +1,5 @@
 //! Optional sweep over external XAML corpora that cannot be redistributed
-//! (e.g. the NoesisGUI SDK's samples and themes, which are EULA-licensed).
+//! (e.g. SDK samples and themes under restrictive licences).
 //!
 //! Nothing from these directories is copied into the repository — the harness
 //! only *reads* local files as a compatibility oracle.

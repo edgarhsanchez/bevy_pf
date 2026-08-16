@@ -107,7 +107,7 @@ fn grid_definitions_and_placement() {
 
 #[test]
 fn grid_shorthand_definitions() {
-    // .NET 10 / Avalonia string shorthand.
+    // .NET 10 string shorthand.
     let (world, root) = spawn(&format!(
         r#"<Grid {PRES} RowDefinitions="Auto, *, Auto" ColumnDefinitions="*, 2*"/>"#
     ));
@@ -691,7 +691,7 @@ fn groupbox_and_expander() {
 }
 
 // ---------------------------------------------------------------------------
-// Features driven by the NoesisGUI compatibility sweep
+// Features driven by the XAML compatibility sweep
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -848,7 +848,7 @@ fn numeric_attributes_accept_wpf_length_units() {
 
 #[test]
 fn image_slice_selects_nine_patch_mode() {
-    // Slice="l,t,r,b" -> ImageNode nine-patch (Noesis NineSlice concept).
+    // Slice="l,t,r,b" -> ImageNode nine-patch.
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
     app.init_asset::<Image>();

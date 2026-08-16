@@ -130,7 +130,7 @@
    "bevy_pf_status": "partial",
    "priority": "P2",
    "rationale": "RenderTransform with a transform element or resource IS applied to elements today (inserts UiTransform), and Storyboards animate ScaleX/ScaleY/Rotation/TranslateX/TranslateY. Still missing: matrix-string syntax, RenderTransformOrigin (silently ignored), LayoutTransform, and Skew/Matrix transforms (parse to identity) \u2014 those are roadmap T1.5/T2.5.",
-   "evidence": "instantiate.rs:2940-2951 (RenderTransform -> UiTransform), :3076 (RenderTransformOrigin in ignore list); resources.rs:829-847 (Translate/Scale/Rotate/TransformGroup parse; Skew/Matrix -> identity); animation.rs:341-368 (TransformField storyboard targets); roadmap-from-noesis-analysis.md T1.5 + T2.5",
+   "evidence": "instantiate.rs:2940-2951 (RenderTransform -> UiTransform), :3076 (RenderTransformOrigin in ignore list); resources.rs:829-847 (Translate/Scale/Rotate/TransformGroup parse; Skew/Matrix -> identity); animation.rs:341-368 (TransformField storyboard targets); the WPF-conformance roadmap T1.5 + T2.5",
    "verdict": "corrected",
    "correction_note": "Status changed planned -> partial. The row said RenderTransform on elements was a roadmap item, but instantiate.rs:2940 already accepts transform elements/resources on any element and inserts a UiTransform, and animation.rs already animates its fields. Only the string form, RenderTransformOrigin, LayoutTransform, and Skew/Matrix remain roadmap items (T1.5/T2.5 confirmed present in the roadmap)."
   },
@@ -163,7 +163,7 @@
    "rationale": "Watermark/PlaceholderText is fully implemented: the attribute is parsed and a grey ghost-text overlay is spawned and toggled on empty at runtime, not just accepted.",
    "evidence": "instantiate.rs:2795 (parse), :3502-3547 (ghost overlay + PfWatermark insert); plugin.rs:642 (runtime toggle system)",
    "verdict": "corrected",
-   "correction_note": "Status upgraded partial -> supported, priority P2 -> none. The row assumed ghost-text rendering was pending roadmap work, but instantiate.rs:3502-3547 spawns the watermark overlay ('grey overlay while empty') and plugin.rs:642 toggles it at runtime. Roadmap Tier-1 item 6 covers only the noesis:Text.Placeholder attached-property spelling, not the Watermark/PlaceholderText path."
+   "correction_note": "Status upgraded partial -> supported, priority P2 -> none. The row assumed ghost-text rendering was pending roadmap work, but instantiate.rs:3502-3547 spawns the watermark overlay ('grey overlay while empty') and plugin.rs:642 toggles it at runtime. Roadmap Tier-1 item 6 covers only a vendor-prefixed Text.Placeholder attached-property spelling, not the Watermark/PlaceholderText path."
   },
   {
    "maui_concept": "Editor (multi-line text entry)",
@@ -611,7 +611,7 @@
    "rationale": "Source= is explicitly rejected today with a warning; listed as planned in the spec's binding section.",
    "evidence": "binding.rs:715-719 (no Source arm; catch-all marks it unsupported -> binding skipped); instantiate.rs:2496-2502 (element-syntax Source= blanked, commented 'unsupported source'); docs/wpf-xaml-spec.md:57-65 ('Binding engine (planned)': resolution order Source > ElementName > RelativeSource > DataContext)",
    "verdict": "confirmed",
-   "correction_note": "Verification detail: this item does NOT appear in docs/roadmap-from-noesis-analysis.md (its only 'Source=' is ResourceDictionary Source in T2.1). The 'planned' status rests on wpf-xaml-spec.md's 'Binding engine (planned)' section, which the row's own evidence correctly cites, so the status stands."
+   "correction_note": "Verification detail: this item does NOT appear in the WPF-conformance roadmap (its only 'Source=' is ResourceDictionary Source in T2.1). The 'planned' status rests on wpf-xaml-spec.md's 'Binding engine (planned)' section, which the row's own evidence correctly cites, so the status stands."
   },
   {
    "maui_concept": "Source={x:Reference element}",
@@ -650,7 +650,7 @@
    "bevy_pf_status": "partial",
    "priority": "P1",
    "rationale": "The MVVM pattern exists but is coarse-grained (whole-object version bump, no per-property notification, no derive macro); T2.2 plans #[bindable] and property-name granularity.",
-   "evidence": "binding.rs:35-64 (BindableInner version: AtomicU64, bump on update); docs/roadmap-from-noesis-analysis.md T2.2 (a) changed-name SmallVec, (b) #[bindable] derive",
+   "evidence": "binding.rs:35-64 (BindableInner version: AtomicU64, bump on update); the WPF-conformance roadmap T2.2 (a) changed-name SmallVec, (b) #[bindable] derive",
    "verdict": "confirmed"
   },
   {
@@ -660,7 +660,7 @@
    "bevy_pf_status": "planned",
    "priority": "P2",
    "rationale": "ItemsSource re-instantiates all items on any version bump today (despawn_children + full rebuild); granular add/remove/reset events are roadmap T2.2(d)/T2.3.",
-   "evidence": "docs/roadmap-from-noesis-analysis.md T2.2(d) ('ObservableList<T> emitting granular add/remove/reset events'), T2.3 ('diff the collection via 2.2(d) events'); items.rs:26-39 (PfItemsSource seen_version), :139-171 (version check then despawn_children + regenerate)",
+   "evidence": "the WPF-conformance roadmap T2.2(d) ('ObservableList<T> emitting granular add/remove/reset events'), T2.3 ('diff the collection via 2.2(d) events'); items.rs:26-39 (PfItemsSource seen_version), :139-171 (version check then despawn_children + regenerate)",
    "verdict": "confirmed"
   },
   {
@@ -670,7 +670,7 @@
    "bevy_pf_status": "partial",
    "priority": "P2",
    "rationale": "Command/CommandParameter bind and fire from Button family, MenuItem, Hyperlink and InvokeCommandAction (plus a PfCommandInvoked message for central handling), but CanExecute-driven auto-disable has no analog (grep: no can_execute anywhere); PfCommand with execute + can_execute + changed is planned (T2.2c).",
-   "evidence": "binding.rs:94-105 (on_command; doc names Button-family/MenuItems/Hyperlinks), :1513-1535 (invoke_command + PfCommandInvoked); instantiate.rs:1526-1539 (Command/CommandParameter binding arm), :2805-2812 (literal attrs); behaviors.rs PfAction::InvokeCommand; docs/roadmap-from-noesis-analysis.md T2.2(c)",
+   "evidence": "binding.rs:94-105 (on_command; doc names Button-family/MenuItems/Hyperlinks), :1513-1535 (invoke_command + PfCommandInvoked); instantiate.rs:1526-1539 (Command/CommandParameter binding arm), :2805-2812 (literal attrs); behaviors.rs PfAction::InvokeCommand; the WPF-conformance roadmap T2.2(c)",
    "verdict": "confirmed"
   },
   {
@@ -1073,7 +1073,7 @@
    "bevy_pf_status": "partial",
    "priority": "P2",
    "rationale": "No generated partial class; events wire through a Rust registry (named handlers dispatched via picking observers, silent when unregistered) and the two-callback XamlComponent/connect_event! contract is planned roadmap work. x:Class itself is nowhere handled in src (silently carried).",
-   "evidence": "events.rs:27-33 PfEventHandlers registry, :36-59 PfEventAppExt::on_ui_event, dispatch() silent-if-unregistered; roadmap-from-noesis-analysis.md:97 'Two-callback code-behind contract ... XamlComponent trait + connect_field!/connect_event! macros'; grep x:Class in src: no hits.",
+   "evidence": "events.rs:27-33 PfEventHandlers registry, :36-59 PfEventAppExt::on_ui_event, dispatch() silent-if-unregistered; the WPF-conformance roadmap:97 'Two-callback code-behind contract ... XamlComponent trait + connect_field!/connect_event! macros'; grep x:Class in src: no hits.",
    "verdict": "confirmed"
   },
   {
@@ -1144,7 +1144,7 @@
    "bevy_pf_status": "partial",
    "priority": "P2",
    "rationale": "Custom controls register by local type name in Rust rather than by CLR namespace (`<local:Gauge>` matches a registration for \"Gauge\"); unknown-and-unregistered elements are NOT rejected \u2014 they warn once and degrade to a plain container. Foreign-namespace graceful skip with a single warning class is roadmap Tier-1 item 6.",
-   "evidence": "instantiate.rs:714-718 spawn_element: 'element `{}` is not supported yet; treating as a plain container'; :2276 is_registered_element; :7699-7710 PfElements + PfElementAppExt::register_element keyed by local name; roadmap-from-noesis-analysis.md:25 Tier-1 item 6 'Foreign-namespace (noesis:, b:, d:-extension) graceful skip'.",
+   "evidence": "instantiate.rs:714-718 spawn_element: 'element `{}` is not supported yet; treating as a plain container'; :2276 is_registered_element; :7699-7710 PfElements + PfElementAppExt::register_element keyed by local name; the WPF-conformance roadmap:25 Tier-1 item 6 'Foreign-namespace (vendor:, b:, d:-extension) graceful skip'.",
    "verdict": "corrected",
    "correction_note": "Rationale claimed unregistered elements are 'rejected'; the code warns and spawns them as plain containers so children still render (fail-soft, per the roadmap's 'errors are non-fatal, always'). Status partial and priority stand; T1.6 citation verified as Tier-1 item 6."
   },
@@ -1227,7 +1227,7 @@
    "bevy_pf_status": "partial",
    "priority": "P3",
    "rationale": "Working XAML hot reload ships today: XamlView entities re-instantiate whenever the .xaml file changes, and merged ResourceDictionary edits propagate to every dependent view via registered load dependencies. What remains planned is the XamlPlayer-style standalone viewer; reload re-instantiates the tree (no state preservation) and is not IDE-integrated.",
-   "evidence": "asset.rs:1-6 'Runtime .xaml asset loading with hot reload ... re-instantiated whenever the file changes'; asset.rs:12-15 merged-dictionary prefetch registers load dependencies so 'editing a merged dictionary hot-reloads every view that uses it'; Cargo.toml:12-13 hot_reload = [\"bevy/file_watcher\"]; roadmap-from-noesis-analysis.md:94 'We already have hot_reload; a bevy_pf_player example binary is mostly plumbing'.",
+   "evidence": "asset.rs:1-6 'Runtime .xaml asset loading with hot reload ... re-instantiated whenever the file changes'; asset.rs:12-15 merged-dictionary prefetch registers load dependencies so 'editing a merged dictionary hot-reloads every view that uses it'; Cargo.toml:12-13 hot_reload = [\"bevy/file_watcher\"]; the WPF-conformance roadmap:94 'We already have hot_reload; a bevy_pf_player example binary is mostly plumbing'.",
    "verdict": "corrected",
    "correction_note": "Status planned -> partial: the roadmap item is only the viewer/tooling; the core hot-reload capability is implemented in asset.rs behind the hot_reload feature \u2014 the roadmap line cited even says so. Priority dropped P2 -> P3 since the migration-relevant capability already exists."
   },

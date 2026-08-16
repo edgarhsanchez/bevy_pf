@@ -18,7 +18,7 @@ that unmeasurable in a window on macOS, for any framework:
 1. **Windowed presents are locked to the display refresh.** Even
    `PresentMode::Immediate` pins at 60 Hz on this machine —
    `CAMetalLayer.displaySyncEnabled = false` is not honored for windowed
-   apps on current macOS. NoesisGUI's `--vsync 0` uses the same API, so it
+   apps on current macOS. The comparison renderer's `--vsync 0` uses the same API, so it
    is equally capped.
 2. **Occluded windows are throttled** by the compositor, which silently
    corrupts any unattended run (~300 FPS artifacts).
@@ -112,13 +112,13 @@ equivalent bevy_pf scenes measure identically within noise.
 
 ## Cross-framework comparison
 
-**NoesisGUI 3.2.13** (XamlPlayer, local SDK) rendered the *identical* XAML
+A **commercial native C++ XAML renderer** rendered the *identical* XAML
 files, dumped by `BENCH_DUMP_DIR`. macOS privacy permissions block reading
 its FPS overlay in this environment, so the automated comparison measures
 **process CPU at the same vsync-locked 60 Hz** via `ps` (40 scenes,
 both apps windowed, continuous rendering):
 
-| | NoesisGUI | bevy_pf (continuous) | bevy_pf (reactive) |
+| | native C++ renderer | bevy_pf (continuous) | bevy_pf (reactive) |
 |---|---|---|---|
 | Average CPU @ 60 Hz | **5.7 %** | 40.7 % | 9.2 % (button scene) |
 
@@ -126,7 +126,7 @@ both apps windowed, continuous rendering):
 throughput, not idle dispatch; the fixed cost at 60 Hz is thread-pool
 scheduling, which inlining cannot remove.)
 
-Honest reading: Noesis's single-threaded C++ core is roughly **7x more
+Honest reading: a single-threaded C++ core is roughly **7x more
 CPU-efficient per frame** at trivial UI loads. Bevy's cost is architectural —
 task-pool dispatch, render-world extraction, and thread churn are a fixed tax
 that buys the parallel scalability games need; it is not something bevy_pf
@@ -179,7 +179,7 @@ renders only on input like a native toolkit and cuts idle CPU to ~9 %.
 | dynamicresource | 3365 | 3417 | 2226 | pass | 978.5 | 11 |
 | composite_app_shell | 2816 | 2873 | 1909 | pass | 933.0 | 13 |
 
-| Scene | NoesisGUI CPU % @60Hz | bevy_pf CPU % @60Hz |
+| Scene | native C++ renderer CPU % @60Hz | bevy_pf CPU % @60Hz |
 |---|---|---|
 | textblock | 4.8 | 39.3 |
 | label | 5.9 | 43.9 |
@@ -234,8 +234,8 @@ directly comparable to our Tracy frame spans.
 
 **WPF** does not run on macOS (no supported runtime), so no numbers can be
 produced on this machine. Architecturally WPF retains its visual tree and
-composes on a dedicated render thread (DirectX), also event-driven like
-Noesis; on Windows hardware a WPF window is likewise refresh-locked by DWM
+composes on a dedicated render thread (DirectX), also event-driven; on
+Windows hardware a WPF window is likewise refresh-locked by DWM
 composition.
 
 ## Reproduction

@@ -27,7 +27,7 @@ pub enum ResolvedCondition {
     /// editable child is what actually takes focus, so testing the control
     /// alone would never fire.
     Focused(bool),
-    /// Avalonia `.class` — true while the element carries the class.
+    /// A style `.class` — true while the element carries the class.
     /// Classes can be added and removed at runtime, which is exactly why a
     /// class selector is an ACTIVATED one and lives in the trigger runtime
     /// rather than being decided once at instantiation.

@@ -17,10 +17,8 @@ instantiated in headless Bevy by `crates/bevy_pf/tests/`.
 | `wpf/` | `expenseithome.xaml` | microsoft/WPF-Samples `Getting Started/WalkthroughFirstWPFApp/csharp/ExpenseItHome.xaml` |
 | `wpf/` | `expenseit_styles.xaml` | microsoft/WPF-Samples `Getting Started/WalkthroughFirstWPFApp/csharp/Styles.xaml` |
 | `wpf/` | `expenseit_demo_mainwindow.xaml` | microsoft/WPF-Samples `Sample Applications/ExpenseIt/ExpenseItDemo/MainWindow.xaml` |
-| `avalonia/` | `simple_todo_mainwindow.axaml` | [AvaloniaUI/Avalonia.Samples](https://github.com/AvaloniaUI/Avalonia.Samples) `CompleteApps/SimpleToDoList/Views/MainWindow.axaml` |
 
 microsoft/WPF-Samples: Copyright (c) Microsoft Corporation, MIT license.
-AvaloniaUI/Avalonia.Samples: Copyright (c) AvaloniaUI, MIT license.
 
 `wpf-upstream/` holds verbatim files harvested from Microsoft's WPF
 reference implementation itself ([dotnet/wpf](https://github.com/dotnet/wpf),

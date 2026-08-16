@@ -18,13 +18,14 @@ pub const NS_XAML_WINUI: &str = "http://schemas.microsoft.com/winfx/2009/xaml";
 pub const NS_MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 /// Blend design-time namespace (`d:`); ignored.
 pub const NS_DESIGN: &str = "http://schemas.microsoft.com/expression/blend/2008";
-/// Avalonia's default namespace, accepted as an alias of the presentation namespace.
-pub const NS_AVALONIA: &str = "https://github.com/avaloniaui";
+/// An alternate default namespace, accepted as an alias of the presentation
+/// namespace so documents written against either one instantiate.
+pub const NS_PRESENTATION_ALT: &str = "https://github.com/avaloniaui";
 
 /// Which logical namespace an element or attribute belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum XamlNamespace {
-    /// The default presentation namespace (WPF/WinUI/Avalonia UI types).
+    /// The default presentation namespace (WPF / WinUI UI types).
     Default,
     /// The XAML language namespace (`x:` — `x:Name`, `x:Key`, `x:Double`, ...).
     Xaml,

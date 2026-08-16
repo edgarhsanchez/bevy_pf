@@ -1,8 +1,8 @@
-//! Avalonia style selectors: `<Style Selector="Button.danger:pointerover">`.
+//! Selector-based styling: `<Style Selector="Button.danger:pointerover">`.
 //!
 //! A third styling dialect beside WPF's `Style`/`TargetType` and MAUI's. It
 //! looks like CSS, but it deliberately is NOT CSS in the one place that
-//! matters most: **Avalonia computes no specificity**. Which style wins is
+//! matters most: **no specificity is computed**. Which style wins is
 //! decided by two things only —
 //!
 //! 1. a bucket: did the selector produce an *activator* (any class,
@@ -16,7 +16,7 @@
 //! does the rest.
 //!
 //! Selectors are built LEFT TO RIGHT, each fragment wrapping the one before
-//! it, exactly as Avalonia's own AST does. `Button > TextBlock` is therefore
+//! it. `Button > TextBlock` is therefore
 //! "a TextBlock whose parent is a Button", with the TextBlock outermost:
 //! matching starts at the element and walks back up the chain.
 
@@ -36,8 +36,8 @@ pub enum Sel {
     /// inheritance among element kinds, so this behaves as `OfType` until
     /// there is a hierarchy to consult.
     Is { prev: Box<Sel>, name: String },
-    /// `.danger`, and pseudo-classes such as `:pointerover`, which Avalonia
-    /// also models as classes whose name begins with `:`.
+    /// `.danger`, and pseudo-classes such as `:pointerover`, which are
+    /// modelled as classes whose name begins with `:`.
     Class { prev: Box<Sel>, name: String },
     /// `#PART_ContentPresenter`
     Name { prev: Box<Sel>, name: String },
@@ -70,7 +70,7 @@ pub enum Sel {
 impl Sel {
     /// Does this selector depend on state that can change while the app runs?
     ///
-    /// This is Avalonia's "has an activator", and it decides the bucket — not
+    /// This is the "has an activator" test, and it decides the bucket — not
     /// how specific the selector looks. A class, a pseudo-class or a property
     /// test makes membership dynamic; a type, a name or a structural
     /// relationship is fixed once the tree exists.
@@ -199,7 +199,7 @@ pub struct ElementInfo {
 }
 
 /// The style classes an element declares: `Classes="h1 accent"`, split on
-/// whitespace exactly as Avalonia's `Classes` collection is.
+/// whitespace, like any style-class list.
 pub fn classes_of(node: &bevy_pf_xaml::XamlNode) -> Vec<String> {
     match node.attribute("Classes") {
         Some(bevy_pf_xaml::XamlValue::Str(s)) => {
@@ -510,7 +510,7 @@ impl Parser<'_> {
                 })
             }
             // Every other pseudo-class is a class whose name starts with ':',
-            // which is how Avalonia itself models them.
+            // which is how the dialect models them.
             other => Ok(Sel::Class {
                 prev: Box::new(sel),
                 name: format!(":{other}"),
@@ -687,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    fn nth_child_accepts_avalonias_spellings() {
+    fn nth_child_accepts_every_spelling() {
         let cases = [
             ("Button:nth-child(1)", (0, 1, false)),
             ("Button:nth-child(2n)", (2, 0, false)),
@@ -897,7 +897,7 @@ mod match_tests {
 
 /// Compile one selector class into a runtime condition.
 ///
-/// Avalonia models pseudo-classes as classes whose name begins with `:`, and
+/// Pseudo-classes are modelled as classes whose name begins with `:`, and
 /// each of the built-in ones is a state bevy_pf's trigger runtime already
 /// tracks for WPF — which is why selector styling needs no new runtime at
 /// all. A `:pseudo` this crate does not know falls back to a plain class

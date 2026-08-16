@@ -1,5 +1,4 @@
-//! Storyboards: WPF's animation system, phase 2a of the Noesis-samples plan
-//! (docs/noesis-samples-gap-analysis.md).
+//! Storyboards: WPF's animation system.
 //!
 //! `DoubleAnimation` and `ColorAnimation` values write through the value
 //! provider store at the `Animation` tier — WPF semantics: an animated value

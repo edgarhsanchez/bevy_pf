@@ -291,7 +291,7 @@ fn selectors_and_theme_bindings_compose_in_one_document() {
 }
 
 // ---------------------------------------------------------------------
-// Avalonia vocabulary that maps onto concepts bevy_pf already has.
+// Dialect vocabulary that maps onto concepts bevy_pf already has.
 // ---------------------------------------------------------------------
 
 #[test]

@@ -4,14 +4,14 @@ Written 2026-08-06 from a measured audit of this codebase (dependency trees,
 a module-by-module coupling map, and the benchmark history in
 bevy_pf_vector's project log), plus a survey of the 2026 Rust
 graphics/UI ecosystem. This is the **portability track**; it composes with
-the WPF-conformance track in `roadmap-from-noesis-analysis.md` rather than
+the WPF-conformance track rather than
 competing with it — one decision below (the property store) serves both.
 
 ## The position
 
 bevy_pf's niche is real and unoccupied: nobody else does actual WPF-dialect
 XAML on Rust. Slint has its own DSL, Xilem is code-first, Dioxus is RSX over
-a webview, iced is Elm-style. The closest prior art is NoesisGUI — C++
+a webview. The closest prior art is a commercial native XAML renderer — C++
 XAML middleware embedded in engines — and the lesson from its architecture
 is exactly the one this document adopts: **the XAML runtime is a library
 with pluggable hosts and renderers, not a feature of one engine.**
@@ -30,7 +30,7 @@ Where the engine-independence boundary falls **today**:
 | `bevy_pf_xaml` — parser, AST, markup extensions, value types, path geometry, URIs | **Engine-free now.** Full dependency tree: roxmltree, memchr, thiserror (+ proc-macro build deps). 90+ unit tests, corpus tests. CI guards this (`.github/workflows/ci.yml`, `engine-free` job). |
 | `bevy_pf_macros` — compile-time XAML | **Engine-free now.** Guarded by the same CI job. |
 | `resources.rs` (1.8k lines) — ResourceDictionary/Style/Setter/Trigger/Storyboard parsing | **Already pure** — zero `bevy::` references. Movable to the engine-free layer with import rewrites once `PfStoryboard`/`PfEasing`/`PropertyTarget` move with it. |
-| `provider.rs` property store — WPF dependency-property precedence | **The keystone, already pure.** `PfPropertyStore`/`PropertyTarget` are an enum-keyed precedence map with unit tests and no ECS coupling. The Noesis roadmap's "load-bearing decision" (2.6) is built, and built portable. Needs a `store`/`apply` file split, nothing more. |
+| `provider.rs` property store — WPF dependency-property precedence | **The keystone, already pure.** `PfPropertyStore`/`PropertyTarget` are an enum-keyed precedence map with unit tests and no ECS coupling. The a commercial XAML renderer roadmap's "load-bearing decision" (2.6) is built, and built portable. Needs a `store`/`apply` file split, nothing more. |
 | `binding.rs` core — paths, formatting, converters | **Pure over `bevy_reflect`**, which is a standalone ECS-free crate. The element-source half (`ElementName=`, write-back systems) is World-walking and stays with the host. |
 | `shapes.rs` / `shapes_gpu.rs` geometry+raster cores | **Pure at the data boundary**: `rasterize_shape(&PfShape, w, h) -> pixels` and `shape_to_vector(&PfShape, size) -> (Vec<PathCommand>, PathStyle)`. `PfShape` needs only glam vectors. Everything around them is a thin Query/Assets shell. |
 | easing, icons, util, error | Pure now. |

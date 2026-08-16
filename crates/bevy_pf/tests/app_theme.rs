@@ -407,13 +407,13 @@ fn a_property_outside_the_store_resolves_once_and_stays() {
 }
 
 // ---------------------------------------------------------------------
-// Avalonia's spelling of the same idea.
+// Another dialect's spelling of the same idea.
 // ---------------------------------------------------------------------
 
 #[test]
 fn requested_theme_variant_sets_the_app_theme() {
-    // Avalonia writes RequestedThemeVariant on Application/Window. Light and
-    // Dark are this crate's own, and `Default` is Avalonia's "follow the
+    // RequestedThemeVariant is written on Application/Window. Light and
+    // Dark are this crate's own, and `Default` means "follow the
     // system" — which is exactly Unspecified.
     for (variant, expected) in [
         ("Light", AppTheme::Light),
@@ -461,9 +461,9 @@ fn an_unknown_theme_variant_is_reported() {
 
 #[test]
 fn compiled_binding_metadata_is_accepted_silently() {
-    // x:DataType and x:CompileBindings are consumed by Avalonia's XAML
+    // x:DataType and x:CompileBindings are consumed by a XAML
     // compiler and mean nothing at runtime. Warning about them would report
-    // a non-problem on nearly every Avalonia document.
+    // a non-problem on nearly every such document.
     let mut app = test_app();
     let (_, warnings) = spawn(
         &mut app,

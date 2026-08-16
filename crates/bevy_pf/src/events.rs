@@ -1,4 +1,4 @@
-//! The pointer-event surface (Noesis-plan increment 7): WPF code-behind
+//! The pointer-event surface: WPF code-behind
 //! event attributes (`MouseDown="OnPickUp"`) route to Rust handlers
 //! registered by name — the code-behind analog for drag/drop, hit
 //! feedback, and custom interaction.

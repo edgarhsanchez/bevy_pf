@@ -543,7 +543,7 @@ struct Ctx<'w> {
     merge_path: std::collections::HashSet<String>,
     /// Memoized merged dictionaries by resolved path, so diamonds load once.
     merged_cache: std::collections::HashMap<String, std::sync::Arc<ResourceDictionary>>,
-    /// Avalonia `Styles` collections in scope, in ATTACH order: application
+    /// `Styles` collections in scope, in ATTACH order: application
     /// first, then each ancestor's, then the element's own. Order is the
     /// whole precedence story inside a bucket — last attached wins — so this
     /// must never be reordered.
@@ -869,7 +869,7 @@ impl<'w> Ctx<'w> {
             }
         }
 
-        // Avalonia selector styles, after the WPF style and before local
+        // Selector styles, after the WPF style and before local
         // attributes, so the precedence order matches both dialects: style
         // tier below, local attribute above.
         self.apply_selector_styles(entity, kind, parent_kind);
@@ -1007,7 +1007,7 @@ impl<'w> Ctx<'w> {
                             self.sheets.push(std::sync::Arc::new(style))
                         }
                         // A <Style> in a Styles collection without a Selector
-                        // matches nothing in Avalonia — say so rather than
+                        // matches nothing — say so rather than
                         // silently keeping it.
                         Ok(_) => self.warn(format!(
                             "{}: a <Style> in a Styles collection needs a Selector",
@@ -1031,7 +1031,7 @@ impl<'w> Ctx<'w> {
     /// Phase 1 handles the NON-ACTIVATED bucket only — selectors built from
     /// types, names and structure, whose membership cannot change once the
     /// tree exists. They write at the same `Style` tier as a WPF style, in
-    /// attach order, which is exactly Avalonia's "last attached wins".
+    /// attach order, which is exactly "last attached wins".
     /// Activated selectors (classes, pseudo-classes, property tests) need the
     /// trigger runtime and land in the next phase.
     fn apply_selector_styles(&mut self, entity: Entity, kind: ElemKind, parent_kind: ParentKind) {
@@ -1066,10 +1066,10 @@ impl<'w> Ctx<'w> {
     /// or a property test, whose membership can change while the app runs.
     ///
     /// These become ordinary triggers. bevy_pf's condition set already covers
-    /// every Avalonia pseudo-class — `:pointerover` is `IsMouseOver`,
+    /// every pseudo-class — `:pointerover` is `IsMouseOver`,
     /// `:disabled` is `IsEnabled=false`, and so on — so no new runtime is
     /// needed: `evaluate_triggers` already clears the tier and re-applies
-    /// every active contributor in declaration order, which IS Avalonia's
+    /// every active contributor in declaration order, which IS the dialect's
     /// reevaluation rule. They write at `ImplicitReference`, a tier that was
     /// declared and never used, so no existing writer can be disturbed.
     fn attach_activated_styles(
@@ -3359,7 +3359,7 @@ impl<'w> Ctx<'w> {
                 node.row_gap = Val::Px(px);
                 node.column_gap = Val::Px(px);
             }
-            // Avalonia's per-axis spacing. `ItemSpacing` is WrapPanel's name
+            // Per-axis spacing. `ItemSpacing` is WrapPanel's name
             // for the gap between items along the flow direction, and its
             // cross-axis partner is LineSpacing; both map to the same gaps.
             "RowSpacing" | "LineSpacing" => {
@@ -3387,7 +3387,7 @@ impl<'w> Ctx<'w> {
                 }
             }
             "RowDefinitions" if kind == ElemKind::Grid => {
-                // .NET 10 / Avalonia shorthand: RowDefinitions="Auto,*,2*"
+                // .NET 10 shorthand: RowDefinitions="Auto,*,2*"
                 let tracks = parse_track_list(&value.to_text()?)?;
                 self.node_mut(entity).grid_template_rows = tracks;
             }
@@ -3502,16 +3502,16 @@ impl<'w> Ctx<'w> {
             "Password" | "PasswordChar" if kind == ElemKind::TextBox => {}
             // Consumed at build time (TabIndex insertion checks it directly).
             "IsTabStop" => {}
-            // Avalonia's compiled-binding metadata. `x:DataType` names the
+            // Compiled-binding metadata. `x:DataType` names the
             // type a `{Binding}` is checked against and `x:CompileBindings`
-            // switches that checking on; both are consumed by Avalonia's XAML
+            // switches that checking on; both are consumed by a XAML
             // COMPILER and mean nothing at runtime, so warning about them
-            // would report a non-problem on nearly every Avalonia document.
+            // would report a non-problem on nearly every such document.
             // Bindings here resolve dynamically and need no declared type.
             // (`DataTemplate DataType=` is a different path — it is a resource
             // type, keyed in parse_resource_value, and is honoured there.)
             "DataType" | "CompileBindings" => {}
-            // Avalonia style classes. Already read into the element stack for
+            // Style classes. Already read into the element stack for
             // selector matching; kept on the entity so a class can change at
             // runtime and re-match.
             "Classes" => {
@@ -3557,7 +3557,7 @@ impl<'w> Ctx<'w> {
                     }
                 };
             }
-            // Avalonia's theme variant, which is this crate's app theme:
+            // The theme variant, which is this crate's app theme:
             // Light / Dark, and `Default` meaning "follow the system".
             "RequestedThemeVariant" => {
                 let variant = value.to_text()?;
@@ -4169,7 +4169,7 @@ impl<'w> Ctx<'w> {
                         // Nine-slice: `Slice="24"` / `Slice="8,4,8,4"` (WPF
                         // Thickness order l,t,r,b) stretches the center and
                         // edges while corners keep their pixel size — the
-                        // Noesis NineSlice concept on bevy's texture slicer.
+                        // A nine-slice border mapped onto bevy's texture slicer.
                         if let Some(XamlValue::Str(slice)) = node.attribute("Slice") {
                             match slice.parse::<v::Thickness>() {
                                 Ok(t) => {
@@ -8216,7 +8216,7 @@ impl<'w> Ctx<'w> {
             "SelectedIndex" if matches!(kind, ElemKind::ListBox | ElemKind::ComboBox) => {
                 (entity, BindingTarget::SelectedIndex, v::BindingMode::TwoWay)
             }
-            // TwoWay like WPF/Avalonia: the item flows both ways. Both are
+            // TwoWay like WPF: the item flows both ways. Both are
             // resolved against the view model rather than through a scalar,
             // so an ElementName/RelativeSource source has nothing to compare
             // the collection against and is refused rather than half-working.
@@ -8250,7 +8250,7 @@ impl<'w> Ctx<'w> {
             "Value" if kind == ElemKind::ProgressBar => {
                 (entity, BindingTarget::ProgressValue, v::BindingMode::OneWay)
             }
-            // Avalonia spells visibility as a bool. The Visibility target
+            // Some dialects spell visibility as a bool. The Visibility target
             // already accepts booleans as well as the WPF enum strings, so
             // the two names share it.
             "Visibility" | "IsVisible" => {

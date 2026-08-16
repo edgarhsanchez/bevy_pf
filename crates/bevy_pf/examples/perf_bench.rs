@@ -13,7 +13,7 @@
 //! - `BENCH_LIST=1` — print every scene name and exit.
 //! - `BENCH_DUMP_DIR=<dir>` — write each scene's XAML to `<dir>/<name>.xaml`
 //!   so the *identical markup* can be fed to other XAML runtimes
-//!   (e.g. NoesisGUI's XamlPlayer) for apples-to-apples comparison.
+//!   for apples-to-apples comparison.
 //! - `BENCH_WARMUP_SECS` / `BENCH_MEASURE_SECS` — override 2.0 / 5.0.
 //!
 //! Add `--features bevy/trace_tracy` to stream the run to a Tracy capture

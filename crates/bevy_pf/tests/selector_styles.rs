@@ -1,8 +1,8 @@
-//! Avalonia selector styling, applied to a real element tree.
+//! Selector-based styling, applied to a real element tree.
 //!
 //! Phase 1 covers the NON-ACTIVATED bucket: selectors made of types, names
 //! and structure, whose membership is fixed once the tree exists. They write
-//! at the same tier as a WPF style, in attach order — Avalonia's "last
+//! at the same tier as a WPF style, in attach order — the dialect's "last
 //! attached wins", which is what `PfPropertyStore` already does.
 
 use bevy::asset::AssetPlugin;
@@ -139,9 +139,9 @@ fn comma_alternation_styles_both_types() {
 
 #[test]
 fn the_last_matching_style_wins() {
-    // Avalonia computes NO specificity: inside a bucket it is simply the
+    // NO specificity is computed: inside a bucket it is simply the
     // last style attached that wins. A CSS engine would let the more
-    // specific `Border#B` beat a later bare `Border`; Avalonia does not.
+    // specific `Border#B` beat a later bare `Border`; this does not.
     let mut app = test_app();
     let (root, warnings) = spawn(
         &mut app,
@@ -241,8 +241,8 @@ fn a_style_without_a_selector_is_reported() {
 // Phase 2: the ACTIVATED bucket — classes and pseudo-classes.
 //
 // These compile to ordinary triggers, because bevy_pf's condition set
-// already covers every Avalonia pseudo-class. They write at a higher tier
-// than a plain selector style, which is Avalonia's ordering.
+// already covers every pseudo-class. They write at a higher tier
+// than a plain selector style, which is the dialect's ordering.
 // ---------------------------------------------------------------------
 
 #[test]
@@ -278,7 +278,7 @@ fn one_of_several_classes_is_enough() {
 
 #[test]
 fn an_activated_style_outranks_a_plain_one() {
-    // Avalonia puts activated styles in a higher bucket than non-activated
+    // Activated styles sit in a higher bucket than non-activated
     // ones, regardless of declaration order — so the plain `Border` rule
     // declared LAST still loses to the class rule declared first.
     let mut app = test_app();

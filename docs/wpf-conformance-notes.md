@@ -114,7 +114,7 @@ Additional accepted deviations adopted while landing the §3 fixes (2026-07-09):
 | Behavior | WPF | Ours | Rationale |
 |---|---|---|---|
 | Bracket characters in barewords | Type-driven: `MarkupExtensionBracketCharacters` on the extension's ctor params declares pairs (Binding declares `[`/`]`; DRTs declare `(`/`)`, `$`/`^`) | Universal `[`...`]` and `(`...`)` grouping (quotes/`,`/`=` literal inside); custom pairs like `$`...`^` unsupported | We have no type registry at parse time; `[]`+`()` covers Binding indexers and parenthesized attached paths, the only shipping uses. The bracket-character DRT is skipped in sweeps. |
-| `,`/`=` inside literal braces of a `{}`-escaped value (`StringFormat={}{0:#,.##} K`) | Unverified against MeScanner (escape handling path) | Allowed — the escaped remainder is literal text | Required by real-world .NET numeric format strings (NoesisGUI Scoreboard sample); strict P7 still applies to non-escaped barewords. |
+| `,`/`=` inside literal braces of a `{}`-escaped value (`StringFormat={}{0:#,.##} K`) | Unverified against MeScanner (escape handling path) | Allowed — the escaped remainder is literal text | Required by real-world .NET numeric format strings (a commercial XAML renderer Scoreboard sample); strict P7 still applies to non-escaped barewords. |
 
 Resource-system deviations recorded while landing MergedDictionaries/DynamicResource
 (2026-07-09, adversarial review confirmed the rest were fixed — see
@@ -186,7 +186,7 @@ Concrete, cheap, each with the distinguishing input (→ unit test). Files:
 
 ## 4. Template-system decisions settled by WPF source
 
-These confirm or **correct** `docs/roadmap-from-noesis-analysis.md` (Tiers 2.6/2.7/3). Roadmap
+These confirm or **correct** the WPF-conformance roadmap (Tiers 2.6/2.7/3). Roadmap
 deltas are called out explicitly.
 
 ### 4.1 Value precedence: adopt `BaseValueSourceInternal` verbatim

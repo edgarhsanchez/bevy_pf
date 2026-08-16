@@ -237,7 +237,7 @@ frame; the rest is stock Bevy). Two shipping knobs:
 `bevy_pf::perf::tune_schedules_for_gui` (single-threaded schedule executors —
 sub-millisecond GUI frames are dominated by dispatch overhead) and
 `WinitSettings::desktop_app()` reactive rendering for native-toolkit idle CPU.
-Methodology, per-control tables, Tracy workflow, and the NoesisGUI/WPF
+Methodology, per-control tables, Tracy workflow, and the cross-framework
 comparison (including honest caveats): [docs/performance.md](docs/performance.md).
 Reproduce with `--example perf_bench`.
 
@@ -252,7 +252,7 @@ The corpus grows as features land.
 
 ### External (local-only) oracles
 
-Proprietary XAML corpora — e.g. the NoesisGUI SDK's 172 samples and themes —
+Proprietary XAML corpora — e.g. a commercial SDK's sample and theme set —
 can be swept locally without copying anything into the repo:
 
 ```sh
@@ -262,13 +262,14 @@ BEVY_PF_EXTERNAL_XAML_DIRS=/path/to/sdk \
   cargo test -p bevy_pf --test external_instantiate -- --ignored --nocapture
 ```
 
-The parse sweep asserts every file parses — NoesisGUI: 172/172; dotnet/wpf:
+The parse sweep asserts every file parses — a 172-file commercial SDK
+corpus: 172/172; dotnet/wpf:
 all 168 well-formed files (33 build-time preprocessor fragments are excluded
 as non-XML, one type-driven scanner DRT is skipped). The instantiation sweep
 prints a warning histogram that ranks missing features by real-world usage
 and asserts the warnings-never-errors invariant.
 
-Related docs: `docs/roadmap-from-noesis-analysis.md` (feature roadmap) and
+Related docs: `the WPF-conformance roadmap` (feature roadmap) and
 `docs/wpf-conformance-notes.md` (source-level conformance audit against
 dotnet/wpf: verified-conformant behaviors, known deviations, and the
 template-system design decisions settled by the reference implementation —

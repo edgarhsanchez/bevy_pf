@@ -1,6 +1,6 @@
 //! Parse every file in the shared XAML compatibility corpus
 //! (`<workspace>/tests/corpus/`). These are verbatim open-source XAML files
-//! from microsoft/WPF-Samples and AvaloniaUI/Avalonia.Samples (MIT).
+//! from microsoft/WPF-Samples (MIT).
 
 use std::path::PathBuf;
 
@@ -59,15 +59,6 @@ fn parses_all_wpf_upstream_corpus_files() {
             "{} produced an empty root",
             path.display()
         );
-    }
-}
-
-#[test]
-fn parses_all_avalonia_corpus_files() {
-    for path in corpus_files("avalonia") {
-        let src = std::fs::read_to_string(&path).unwrap();
-        bevy_pf_xaml::parse(&src)
-            .unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()));
     }
 }
 

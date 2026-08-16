@@ -305,7 +305,7 @@ pub struct PfViewbox {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PfLogicalParent(pub Entity);
 
-/// Avalonia style classes: `Classes="h1 accent"`, plus pseudo-classes the
+/// Style classes: `Classes="h1 accent"`, plus pseudo-classes the
 /// runtime maintains. Selector matching reads this, and it is mutable so a
 /// class can be added or removed while the app runs.
 #[derive(Component, Debug, Clone, Default)]

@@ -60,7 +60,7 @@ pub struct PfControlTemplate {
 #[derive(Debug, Clone, Default)]
 pub struct PfStyle {
     pub target_type: Option<String>,
-    /// Avalonia's `Selector="Button.danger"`. Present instead of
+    /// A style `Selector="Button.danger"`. Present instead of
     /// `target_type` when the style came from a `Styles` collection.
     pub selector: Option<Arc<crate::selector::Sel>>,
     pub setters: Vec<PfSetter>,
@@ -1079,7 +1079,7 @@ pub fn parse_style(
 ) -> Result<PfStyle, PfError> {
     let mut style = PfStyle::default();
 
-    // Avalonia's Selector=. A malformed one is an ERROR rather than a style
+    // Selector=. A malformed one is an ERROR rather than a style
     // that quietly matches nothing — the silent version is near-impossible
     // to diagnose from the running UI.
     if let Some(XamlValue::Str(src)) = node.attribute("Selector") {

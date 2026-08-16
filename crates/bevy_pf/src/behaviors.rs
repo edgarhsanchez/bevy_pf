@@ -1,5 +1,5 @@
 //! Interactivity behaviors — the Microsoft.Xaml.Behaviors surface
-//! (`<b:Interaction.Triggers>`), Noesis-plan increment 6.
+//! (`<b:Interaction.Triggers>`).
 //!
 //! Supported triggers: `EventTrigger EventName="Click|MouseEnter|MouseLeave
 //! |Loaded"`. Supported actions: `InvokeCommandAction`,

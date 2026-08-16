@@ -33,7 +33,7 @@ impl<'a, 'input> Ctx<'a, 'input> {
 
     fn resolve_ns(&self, uri: Option<&str>) -> NsKind {
         match uri {
-            None | Some("") | Some(NS_PRESENTATION) | Some(NS_AVALONIA) => {
+            None | Some("") | Some(NS_PRESENTATION) | Some(NS_PRESENTATION_ALT) => {
                 NsKind::Keep(XamlNamespace::Default)
             }
             Some(NS_XAML) | Some(NS_XAML_WINUI) => NsKind::Keep(XamlNamespace::Xaml),
@@ -537,10 +537,10 @@ mod tests {
     }
 
     #[test]
-    fn avalonia_namespace_accepted() {
+    fn alternate_presentation_namespace_accepted() {
         let doc = parse(
             r#"<UserControl xmlns="https://github.com/avaloniaui">
-                 <Button Content="Avalonia"/>
+                 <Button Content="Hello"/>
                </UserControl>"#,
         )
         .unwrap();

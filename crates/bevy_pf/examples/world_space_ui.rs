@@ -1,5 +1,5 @@
-//! World-space (diegetic) XAML UI — bevy_pf's take on NoesisGUI's
-//! WorldSpaceUI tutorial concept (github.com/Noesis/Tutorials, replicated
+//! World-space (diegetic) XAML UI — a XAML surface placed IN the 3D scene
+//! rather than over it (replicated
 //! from scratch: original XAML and scene, no assets copied).
 //!
 //! Three XAML panels live INSIDE a 3D world, each attached to a moving
