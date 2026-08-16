@@ -37,6 +37,17 @@ pub enum ResolvedCondition {
 pub enum TriggerValue {
     Static(StoredValue),
     Dynamic(ResourceKey),
+    /// `{TemplateBinding Prop}` / `{Binding Prop, RelativeSource={RelativeSource
+    /// TemplatedParent}}`: the property is read off the templated control when
+    /// the trigger activates, so ONE template can press-fill with whatever
+    /// accent that particular instance carries.
+    ///
+    /// Read at activation rather than at instantiation: the templated parent's
+    /// own value may come from a style, a trigger or a dynamic resource, none
+    /// of which need exist yet while the template is being built. It is not a
+    /// live link — a parent write while the trigger is already active lands on
+    /// the next activation, not immediately.
+    TemplatedParent(PropertyTarget),
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +217,18 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
                         match crate::dynamic::resolve_dynamic(world, entity, key) {
                             Some(v) => Some(v),
                             None => continue, // key absent; leave lower tiers
+                        }
+                    }
+                    // `entity` IS the templated control: ControlTemplate
+                    // triggers hang off it, and only its own template children
+                    // are reachable as `dest`.
+                    TriggerValue::TemplatedParent(src) => {
+                        match world.get::<PfPropertyStore>(entity).and_then(|s| s.effective(*src)) {
+                            // Already a StoredValue: a parent masked to
+                            // {x:Null} masks the target too, exactly as it
+                            // would if the value were forwarded live.
+                            Some((_, v)) => v.clone(),
+                            None => continue, // parent has no value; leave lower tiers
                         }
                     }
                 };

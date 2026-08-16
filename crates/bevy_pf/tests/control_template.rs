@@ -1632,3 +1632,171 @@ fn templated_scroll_bar_wires_track_thumb_and_line_buttons() {
         "nudge by SmallChange"
     );
 }
+
+// ---------------------------------------------------------------------
+// Trigger setters that read the templated parent.
+//
+// One ControlTemplate, many colourways: the pressed state fills with
+// whatever accent the instance's own style carries, so the shape and the
+// press behaviour live in one place instead of being copied per colour.
+// MAUI spells this {TemplateBinding Prop}; WPF requires {Binding Prop,
+// RelativeSource={RelativeSource TemplatedParent}} inside triggers and
+// rejects the former. Both mean the same thing here, so both are accepted.
+// ---------------------------------------------------------------------
+
+fn console_page(pressed_value: &str) -> String {
+    format!(
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <StackPanel.Resources>
+       <Style x:Key="Console" TargetType="Button">
+         <Setter Property="BorderBrush" Value="#00FFD4"/>
+         <Setter Property="Template">
+           <Setter.Value>
+             <ControlTemplate TargetType="Button">
+               <Border x:Name="frame" Background="#101010"><ContentPresenter/></Border>
+               <ControlTemplate.Triggers>
+                 <Trigger Property="IsPressed" Value="True">
+                   <Setter TargetName="frame" Property="Background" Value="{pressed_value}"/>
+                 </Trigger>
+               </ControlTemplate.Triggers>
+             </ControlTemplate>
+           </Setter.Value>
+         </Setter>
+       </Style>
+       <Style x:Key="ConsoleAmber" TargetType="Button" BasedOn="{{StaticResource Console}}">
+         <Setter Property="BorderBrush" Value="#FF8A50"/>
+       </Style>
+     </StackPanel.Resources>
+     <Button x:Name="Teal" Style="{{StaticResource Console}}" Content="A"/>
+     <Button x:Name="Amber" Style="{{StaticResource ConsoleAmber}}" Content="B"/>
+   </StackPanel>"##
+    )
+}
+
+/// Returns (resting colour, pressed colour), asserting the release reverts.
+fn press_and_read_frame(app: &mut App, root: Entity, name: &str) -> (String, String) {
+    let button = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+    let frame = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(button)
+        .unwrap()
+        .template_root;
+    app.update();
+    let rest = border_hex(app, frame);
+    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    app.update();
+    let pressed = border_hex(app, frame);
+    app.world_mut().entity_mut(button).insert(Interaction::None);
+    app.update();
+    assert_eq!(border_hex(app, frame), rest, "{name} must revert on release");
+    (rest, pressed)
+}
+
+#[test]
+fn template_binding_trigger_setter_fills_with_each_instance_accent() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(&mut app, &console_page("{TemplateBinding BorderBrush}"));
+    assert_eq!(warnings, Vec::<String>::new());
+
+    let (rest, pressed) = press_and_read_frame(&mut app, root, "Teal");
+    assert_eq!(rest, "#101010");
+    assert_eq!(pressed, "#00FFD4", "teal button presses to its own accent");
+
+    let (_, pressed) = press_and_read_frame(&mut app, root, "Amber");
+    assert_eq!(
+        pressed, "#FF8A50",
+        "the SAME template presses to the amber accent — one template, many colourways"
+    );
+}
+
+#[test]
+fn wpf_spelling_of_the_templated_parent_binding_works_too() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        &console_page("{Binding BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"),
+    );
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(press_and_read_frame(&mut app, root, "Amber").1, "#FF8A50");
+}
+
+#[test]
+fn templated_parent_setter_value_parses_the_same_either_way() {
+    for spelling in [
+        "{TemplateBinding Background}",
+        "{Binding Background, RelativeSource={RelativeSource TemplatedParent}}",
+        "{Binding Path=Background, RelativeSource={RelativeSource Mode=TemplatedParent}}",
+    ] {
+        let xaml = format!(
+            r##"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                       x:Key="S" TargetType="Button">
+              <Style.Triggers>
+                <Trigger Property="IsPressed" Value="True">
+                  <Setter Property="Foreground" Value="{spelling}"/>
+                </Trigger>
+              </Style.Triggers>
+            </Style>"##
+        );
+        let (value, warnings) = parse_value(&xaml);
+        assert_eq!(warnings, Vec::<String>::new(), "{spelling}");
+        let PfValue::Style(style) = value.expect("a style") else {
+            panic!("{spelling}: expected a Style");
+        };
+        assert!(
+            matches!(
+                &style.triggers[0].setters[0].value,
+                PfSetterValue::TemplatedParent(p) if p == "Background"
+            ),
+            "{spelling} did not parse to TemplatedParent(Background)"
+        );
+    }
+}
+
+#[test]
+fn a_plain_style_setter_cannot_read_a_templated_parent() {
+    // No template, no templated parent. WPF and MAUI both reject this, and
+    // silently painting nothing would be worse than saying so.
+    let mut app = test_app();
+    let (_, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <StackPanel.Resources>
+       <Style x:Key="S" TargetType="Button">
+         <Setter Property="Background" Value="{TemplateBinding BorderBrush}"/>
+       </Style>
+     </StackPanel.Resources>
+     <Button Style="{StaticResource S}" Content="A"/>
+   </StackPanel>"##,
+    );
+    assert!(
+        warnings.iter().any(|w| w.contains("ControlTemplate.Triggers")),
+        "expected a warning naming where it IS valid, got {warnings:?}"
+    );
+}
+
+#[test]
+fn other_binding_flavours_in_a_setter_are_still_reported() {
+    // A setter has no data context of its own, so a plain {Binding Path}
+    // cannot be honoured — that must stay a warning rather than quietly
+    // becoming a TemplatedParent read.
+    let mut app = test_app();
+    let (_, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <StackPanel.Resources>
+       <Style x:Key="S" TargetType="Button">
+         <Setter Property="Background" Value="{Binding SomeProperty}"/>
+       </Style>
+     </StackPanel.Resources>
+     <Button Style="{StaticResource S}" Content="A"/>
+   </StackPanel>"##,
+    );
+    assert!(
+        warnings.iter().any(|w| w.contains("TemplatedParent")),
+        "expected the warning to point at the one supported flavour, got {warnings:?}"
+    );
+}

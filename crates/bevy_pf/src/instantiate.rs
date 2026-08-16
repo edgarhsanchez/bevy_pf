@@ -1509,6 +1509,13 @@ impl<'w> Ctx<'w> {
                 &setter.property,
                 &Resolved::Value(value.clone()),
             ),
+            // A plain Style setter has no templated parent to read from; WPF
+            // and MAUI both reject this, so say where it IS valid rather than
+            // leaving a property mysteriously unset.
+            PfSetterValue::TemplatedParent(src) => Err(PfError::resource(format!(
+                "`{{TemplateBinding {src}}}` in a Setter.Value is only valid inside \
+                 ControlTemplate.Triggers, which has a templated parent to read"
+            ))),
         };
         if let Err(e) = result {
             self.warn(format!("setter `{}`: {e}", setter.property));
@@ -1770,6 +1777,30 @@ impl<'w> Ctx<'w> {
                     PfSetterValue::DynamicResource(key) => TriggerValue::Dynamic(key.clone()),
                     PfSetterValue::Null => TriggerValue::Static(None),
                     PfSetterValue::Value(v) => TriggerValue::Static(Some(v.clone())),
+                    // Deferred to activation rather than read here: at this
+                    // point the templated parent is still being built and its
+                    // own Background/BorderBrush may not be stored yet.
+                    PfSetterValue::TemplatedParent(src_property) => {
+                        if template_parts.is_none() {
+                            self.warn(format!(
+                                "trigger setter `{}` reads the templated parent outside a \
+                                 ControlTemplate; skipped",
+                                setter.property
+                            ));
+                            continue;
+                        }
+                        match crate::provider::property_target_for(src_property) {
+                            Some(src) => TriggerValue::TemplatedParent(src),
+                            None => {
+                                self.warn(format!(
+                                    "trigger setter `{}` reads `{src_property}` off the templated \
+                                     parent, which is outside the store-managed property set; skipped",
+                                    setter.property
+                                ));
+                                continue;
+                            }
+                        }
+                    }
                 };
                 // Tier + destination: style triggers own tier 7 on the
                 // root; ControlTemplate triggers own tier 6 on the root and

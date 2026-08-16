@@ -125,6 +125,17 @@ pub enum PfSetterValue {
     Null,
     /// A structured value from property-element syntax (e.g. a gradient brush).
     Value(PfValue),
+    /// The named property read off the TEMPLATED PARENT, from either
+    /// `Value="{TemplateBinding Prop}"` (MAUI's spelling) or
+    /// `Value="{Binding Prop, RelativeSource={RelativeSource TemplatedParent}}"`
+    /// (WPF's, which is what WPF requires inside `ControlTemplate.Triggers`
+    /// because it rejects its own `TemplateBinding` there).
+    ///
+    /// Both dialects mean the same thing, so both parse to this. It is only
+    /// meaningful inside a `ControlTemplate`: a Style setter that uses it has
+    /// no templated parent to read, and is reported rather than silently
+    /// painting nothing.
+    TemplatedParent(String),
 }
 
 pub type ResourceDictionary = HashMap<ResourceKey, PfValue>;
@@ -1589,6 +1600,34 @@ fn parse_setter(
             }
             XamlValue::Extension(ext) if ext.name == "x:Null" || ext.name == "Null" => {
                 PfSetterValue::Null
+            }
+            XamlValue::Extension(ext) if ext.name == "TemplateBinding" => {
+                let src = ext
+                    .first_positional_str()
+                    .ok_or_else(|| PfError::resource("TemplateBinding needs a source property"))?;
+                PfSetterValue::TemplatedParent(src.to_string())
+            }
+            // Only the TemplatedParent flavour of {Binding} means anything in
+            // a setter: a setter has no data context of its own, so the other
+            // flavours would need a live per-instance binding, not a value.
+            XamlValue::Extension(ext) if ext.name == "Binding" => {
+                let spec = crate::binding::parse_binding_extension(ext);
+                match spec.relative {
+                    Some(crate::binding::PfRelativeSource::TemplatedParent) if !spec.path.is_empty() => {
+                        PfSetterValue::TemplatedParent(spec.path)
+                    }
+                    Some(crate::binding::PfRelativeSource::TemplatedParent) => {
+                        return Err(PfError::resource(
+                            "a TemplatedParent setter binding needs a source property",
+                        ));
+                    }
+                    _ => {
+                        return Err(PfError::resource(
+                            "only `{Binding Prop, RelativeSource={RelativeSource TemplatedParent}}` \
+                             is supported as a setter value",
+                        ));
+                    }
+                }
             }
             XamlValue::Extension(ext) => {
                 return Err(PfError::resource(format!(
