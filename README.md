@@ -241,6 +241,40 @@ Methodology, per-control tables, Tracy workflow, and the cross-framework
 comparison (including honest caveats): [docs/performance.md](docs/performance.md).
 Reproduce with `--example perf_bench`.
 
+## Where the XAML lives
+
+Three ways to hand bevy_pf markup. Only the first involves a Rust string
+literal, and `r#"..."#` is plain Rust — nothing to do with this crate. XAML
+is full of `"` characters, so a normal Rust string would need every one of
+them escaped; a raw string lets you paste the markup verbatim.
+
+```rust
+// 1. Inline, for a snippet.
+commands.spawn_xaml(xaml!(r#"<Button Content="Go"/>"#));
+
+// 2. A separate .xaml file, validated at COMPILE time. No string literal.
+commands.spawn_xaml(include_xaml!("ui/main.xaml"));
+
+// 3. At runtime, from a String (a loaded file, a generated document).
+let scene = XamlScene::parse(std::fs::read_to_string("ui/main.xaml")?)?;
+```
+
+For anything past a snippet, prefer **2**: the markup lives in a file your
+editor will syntax-highlight, and the macro still fails the build if it does
+not parse.
+
+### The `r#` gotcha
+
+A raw string ends at the first `"#`, and XAML hex colours produce exactly
+that sequence — `Value="#FF0000"` closes the literal early and you get a
+cascade of confusing parse errors. Add hashes until the delimiter is unique:
+
+```rust
+r##"<Setter Property="Background" Value="#FF0000"/>"##
+```
+
+One more reason to keep real UI in `.xaml` files.
+
 ## Compatibility testing
 
 `tests/corpus/` contains verbatim open-source XAML from
