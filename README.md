@@ -5,6 +5,11 @@ in XAML — inline in Rust via the `xaml!` macro or in separate `.xaml` files �
 style it with resources, and use the familiar WPF control and panel set inside
 Bevy apps and games.
 
+> **Avalonia XAML runs here too.** The companion repo
+> [bevy_pf_avalonia](https://github.com/edgarhsanchez/bevy_pf_avalonia) loads the
+> official Avalonia sample suite **unmodified** and reports what is missing —
+> see [docs/avalonia-dialect.md](docs/avalonia-dialect.md) for the mapping.
+
 ```rust
 use bevy::prelude::*;
 use bevy_pf::prelude::*;

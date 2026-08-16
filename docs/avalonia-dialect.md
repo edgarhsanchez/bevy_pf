@@ -4,19 +4,23 @@ bevy_pf implements the WPF/MAUI XAML dialect. Avalonia is a third dialect on
 the same language, and this document records how much of it works, measured
 rather than estimated.
 
-Run the measurement yourself:
+Run the measurement yourself, in the companion repo
+[bevy_pf_avalonia][companion]:
 
 ```
-cargo run -p bevy_pf --example avalonia_conformance
-cargo run -p bevy_pf --example avalonia_conformance -- --verbose
+cargo run --bin conformance             # the report
+cargo run --bin conformance -- --verbose
+cargo run --example gallery             # see it render
 ```
 
-It loads the 69 `.axaml` files under `crates/bevy_pf/examples/avalonia_samples/`,
-vendored **byte for byte** from [AvaloniaUI/Avalonia.Samples][samples] (MIT).
-Nothing is edited to suit bevy_pf — a sample that would need a tweak to load
-is a gap here, not a problem with the sample.
+It loads 69 `.axaml` files vendored **byte for byte** from
+[AvaloniaUI/Avalonia.Samples][samples] (MIT). Nothing is edited to suit
+bevy_pf — a sample that would need a tweak to load is a gap here, not a
+problem with the sample. The suite lives in its own repo so this crate does
+not redistribute someone else's sample files.
 
 [samples]: https://github.com/AvaloniaUI/Avalonia.Samples
+[companion]: https://github.com/edgarhsanchez/bevy_pf_avalonia
 
 ## AXAML is not a different language
 
