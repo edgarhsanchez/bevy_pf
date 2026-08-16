@@ -30,6 +30,7 @@
 //! ```
 
 pub mod animation;
+pub mod app_theme;
 pub mod asset;
 pub mod behaviors;
 pub mod binding;
@@ -66,6 +67,7 @@ pub mod util;
 pub use bevy_pf_macros::{Bindable, include_xaml, xaml};
 pub use bevy_pf_xaml as xaml_ast;
 
+pub use app_theme::{AppTheme, PfAppTheme, PfAppThemeRefs, app_theme, set_user_app_theme};
 pub use asset::{XamlAsset, XamlView};
 pub use binding::{Bindable, BoundValue, DataContext, DataContextScope, PfBindings};
 pub use components::{ButtonVisual, PfAttachedProps, PfElementKind, PfName, XamlNames};
@@ -87,6 +89,7 @@ pub use provider::{PfPropertyStore, PropertyTarget, ValueSource};
 pub use triggers::PfTriggers;
 
 pub mod prelude {
+    pub use crate::app_theme::{AppTheme, PfAppTheme, set_user_app_theme};
     pub use crate::asset::{XamlAsset, XamlView};
     pub use bevy_pf_macros::Bindable;
     pub use crate::behaviors::{clear_focus, find_editable_in, focus_control};

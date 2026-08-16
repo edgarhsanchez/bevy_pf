@@ -1493,6 +1493,13 @@ impl<'w> Ctx<'w> {
             PfSetterValue::DynamicResource(_) => Err(PfError::resource(
                 "DynamicResource setters on attached properties are not supported yet",
             )),
+            PfSetterValue::AppTheme(raw) if setter.owner.is_none() => {
+                let property = setter.property.clone();
+                self.apply_app_theme_reference(entity, kind, parent_kind, &property, raw)
+            }
+            PfSetterValue::AppTheme(_) => Err(PfError::resource(
+                "AppThemeBinding setters on attached properties are not supported yet",
+            )),
             // {x:Null}: masks lower tiers in the store; the effective value
             // becomes "unset" and components clear accordingly.
             PfSetterValue::Null => {
@@ -1572,6 +1579,14 @@ impl<'w> Ctx<'w> {
             XamlValue::Extension(ext) if ext.name == "DynamicResource" && owner.is_none() => {
                 match static_resource_key(ext) {
                     Ok(key) => self.apply_dynamic_reference(entity, kind, parent_kind, name, key),
+                    Err(e) => Err(e),
+                }
+            }
+            XamlValue::Extension(ext) if ext.name == "AppThemeBinding" && owner.is_none() => {
+                match crate::resources::parse_app_theme_arms(ext) {
+                    Ok(raw) => {
+                        self.apply_app_theme_reference(entity, kind, parent_kind, name, &raw)
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -1777,6 +1792,45 @@ impl<'w> Ctx<'w> {
                     PfSetterValue::DynamicResource(key) => TriggerValue::Dynamic(key.clone()),
                     PfSetterValue::Null => TriggerValue::Static(None),
                     PfSetterValue::Value(v) => TriggerValue::Static(Some(v.clone())),
+                    // Converted now, picked at activation — and re-picked on a
+                    // theme change even while the trigger stays active.
+                    PfSetterValue::AppTheme(raw) => {
+                        use crate::app_theme::{ThemeArm, ThemeArms};
+                        use crate::resources::RawArm;
+                        let mut arms = ThemeArms::default();
+                        let mut failed = None;
+                        for (raw_arm, slot) in [
+                            (&raw.light, &mut arms.light),
+                            (&raw.dark, &mut arms.dark),
+                            (&raw.default, &mut arms.default),
+                        ] {
+                            let Some(raw_arm) = raw_arm else { continue };
+                            let converted = match raw_arm {
+                                RawArm::Text(s) => match self.literal_to_pf_value(target, s) {
+                                    Ok(v) => Ok(ThemeArm::Value(Some(v))),
+                                    Err(e) => Err(e.to_string()),
+                                },
+                                RawArm::Null => Ok(ThemeArm::Value(None)),
+                                RawArm::Static(k) => match self.scopes.lookup(k).cloned() {
+                                    Some(v) => Ok(ThemeArm::Value(Some(v))),
+                                    None => Err(format!("resource `{k:?}` not found")),
+                                },
+                                RawArm::Dynamic(k) => Ok(ThemeArm::Dynamic(k.clone())),
+                            };
+                            match converted {
+                                Ok(v) => *slot = Some(v),
+                                Err(e) => {
+                                    failed = Some(e);
+                                    break;
+                                }
+                            }
+                        }
+                        if let Some(e) = failed {
+                            self.warn(format!("trigger setter `{}`: {e}", setter.property));
+                            continue;
+                        }
+                        TriggerValue::AppTheme(arms)
+                    }
                     // Deferred to activation rather than read here: at this
                     // point the templated parent is still being built and its
                     // own Background/BorderBrush may not be stored yet.
@@ -2224,6 +2278,120 @@ impl<'w> Ctx<'w> {
         }
     }
 
+    /// `{AppThemeBinding Light=a, Dark=b}`: apply the arm for the current
+    /// theme and, on a store-managed property, record it so the refresh pass
+    /// re-picks when the theme changes.
+    ///
+    /// A property outside the store is applied ONCE, exactly as a
+    /// `{DynamicResource}` on such a property is — the ceiling is the store,
+    /// not this extension.
+    fn apply_app_theme_reference(
+        &mut self,
+        entity: Entity,
+        kind: ElemKind,
+        parent_kind: ParentKind,
+        name: &str,
+        raw: &crate::resources::RawThemeArms,
+    ) -> Result<(), PfError> {
+        use crate::app_theme::{ThemeArm, ThemeArms};
+        use crate::resources::RawArm;
+
+        let theme = crate::app_theme::app_theme(self.world);
+        let Some(target) = crate::provider::property_target_for(name) else {
+            // One-shot: resolve the picked arm and hand it to the normal
+            // property path. An absent arm clears nothing here, because
+            // there is no store entry to mask.
+            return match raw.pick(theme) {
+                Some(RawArm::Text(s)) => {
+                    self.apply_property(entity, kind, parent_kind, None, name, &Resolved::Str(s))
+                }
+                Some(RawArm::Static(k)) | Some(RawArm::Dynamic(k)) => {
+                    match self.scopes.lookup(k).cloned() {
+                        Some(v) => self.apply_property(
+                            entity,
+                            kind,
+                            parent_kind,
+                            None,
+                            name,
+                            &Resolved::Value(v),
+                        ),
+                        None => Err(PfError::resource(format!(
+                            "AppThemeBinding resource `{k:?}` for `{name}` not found"
+                        ))),
+                    }
+                }
+                Some(RawArm::Null) | None => {
+                    self.apply_property(entity, kind, parent_kind, None, name, &Resolved::Null)
+                }
+            };
+        };
+
+        if matches!(
+            target,
+            crate::provider::PropertyTarget::Foreground | crate::provider::PropertyTarget::FontSize
+        ) {
+            self.ensure_inherited_seed(entity, target);
+        }
+
+        // Convert every SUPPLIED arm up front, so a bad value is reported at
+        // instantiation rather than the first time that theme is selected.
+        let convert = |ctx: &Self, arm: &RawArm| -> Result<ThemeArm, PfError> {
+            match arm {
+                RawArm::Text(s) => Ok(ThemeArm::Value(Some(ctx.literal_to_pf_value(target, s)?))),
+                RawArm::Null => Ok(ThemeArm::Value(None)),
+                RawArm::Static(k) => match ctx.scopes.lookup(k).cloned() {
+                    Some(v) => Ok(ThemeArm::Value(Some(v))),
+                    None => Err(PfError::resource(format!(
+                        "AppThemeBinding resource `{k:?}` for `{name}` not found"
+                    ))),
+                },
+                RawArm::Dynamic(k) => Ok(ThemeArm::Dynamic(k.clone())),
+            }
+        };
+        let mut arms = ThemeArms::default();
+        for (raw_arm, slot) in [
+            (&raw.light, &mut arms.light),
+            (&raw.dark, &mut arms.dark),
+            (&raw.default, &mut arms.default),
+        ] {
+            if let Some(raw_arm) = raw_arm {
+                *slot = Some(convert(self, raw_arm)?);
+            }
+        }
+
+        let tier = self.tier;
+        let entry = crate::app_theme::AppThemeEntry {
+            arms: arms.clone(),
+            target,
+            tier,
+        };
+        {
+            let mut e = self.world.entity_mut(entity);
+            if let Some(mut refs) = e.get_mut::<crate::app_theme::PfAppThemeRefs>() {
+                // One entry per (target, tier), so a hot-reload rebuild does
+                // not stack duplicates.
+                refs.0.retain(|r| !(r.target == target && r.tier == tier));
+                refs.0.push(entry);
+            } else {
+                e.insert(crate::app_theme::PfAppThemeRefs(vec![entry]));
+            }
+        }
+
+        // The initial pick. `None` means no arm matched and there is no
+        // Default: MAUI writes null, which here masks the lower tiers.
+        let value = match arms.pick(theme) {
+            Some(ThemeArm::Value(v)) => v.clone(),
+            Some(ThemeArm::Dynamic(k)) => match self.scopes.lookup(k).cloned() {
+                Some(v) => Some(v),
+                // Late-resource rule, as {DynamicResource}: wait for the key.
+                None => return Ok(()),
+            },
+            None => None,
+        };
+        crate::provider::store_and_apply(self.world, entity, target, tier, value);
+        Ok(())
+    }
+
     /// Record a `{Binding}` for later target resolution.
     fn record_binding(&mut self, property: &str, ext: &MarkupExtension) {
         let spec = crate::binding::parse_binding_extension(ext);
@@ -2270,6 +2438,25 @@ impl<'w> Ctx<'w> {
                     ext.name
                 ));
                 Ok(None)
+            }
+            // Reached for attached properties and other one-shot sites: pick
+            // once at the current theme. The live path is
+            // `apply_app_theme_reference`, which the attribute handler takes.
+            "AppThemeBinding" => {
+                let raw = crate::resources::parse_app_theme_arms(ext)?;
+                match raw.pick(crate::app_theme::app_theme(self.world)) {
+                    Some(crate::resources::RawArm::Text(s)) => {
+                        Ok(Some(Resolved::Value(PfValue::String(s.clone()))))
+                    }
+                    Some(crate::resources::RawArm::Static(k))
+                    | Some(crate::resources::RawArm::Dynamic(k)) => match self.scopes.lookup(k) {
+                        Some(value) => Ok(Some(Resolved::Value(value.clone()))),
+                        None => Err(PfError::resource(format!(
+                            "AppThemeBinding resource `{k:?}` not found"
+                        ))),
+                    },
+                    Some(crate::resources::RawArm::Null) | None => Ok(Some(Resolved::Null)),
+                }
             }
             other => {
                 self.warn(format!(

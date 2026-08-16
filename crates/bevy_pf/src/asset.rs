@@ -209,6 +209,7 @@ pub(crate) fn apply_xaml_views(world: &mut World) {
         root_entity.despawn_children();
         root_entity.remove::<(
             crate::dynamic::PfDynamicResources,
+            crate::app_theme::PfAppThemeRefs,
             crate::dynamic::PfResources,
             crate::binding::PfBindings,
             crate::components::PfAttachedProps,

@@ -63,9 +63,20 @@ pub fn apply_theme(world: &mut World, slug: &str) -> Result<Vec<String>, PfError
     let source = theme_source(slug)
         .ok_or_else(|| PfError::instantiate(format!("unknown theme `{slug}`")))?;
     let doc = bevy_pf_xaml::parse(source)?;
-    Ok(crate::instantiate::set_application_resources(
-        world,
-        &doc,
-        &XamlEnv::default(),
-    ))
+    let warnings =
+        crate::instantiate::set_application_resources(world, &doc, &XamlEnv::default());
+    // Applying a theme is also a statement about light vs dark, so
+    // `{AppThemeBinding}` follows the built-in themes without the host
+    // having to say so twice. It lands on the USER theme, which means
+    // picking a built-in theme stops following the OS until the host
+    // resets it to `Unspecified`.
+    if let Some(info) = THEMES.iter().find(|t| t.slug == slug) {
+        let theme = if info.dark {
+            crate::app_theme::AppTheme::Dark
+        } else {
+            crate::app_theme::AppTheme::Light
+        };
+        crate::app_theme::set_user_app_theme(world, theme);
+    }
+    Ok(warnings)
 }

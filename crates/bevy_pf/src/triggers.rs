@@ -48,6 +48,9 @@ pub enum TriggerValue {
     /// live link — a parent write while the trigger is already active lands on
     /// the next activation, not immediately.
     TemplatedParent(PropertyTarget),
+    /// `{AppThemeBinding Light=a, Dark=b}`: picked when the trigger activates
+    /// AND re-picked on a theme change while it is already active.
+    AppTheme(crate::app_theme::ThemeArms),
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +75,12 @@ pub struct ResolvedTrigger {
     /// `Trigger.ExitActions` storyboards, begun on deactivation.
     pub exit_storyboards: Vec<std::sync::Arc<crate::animation::PfStoryboard>>,
 }
+
+/// The (app-resource revision, theme generation) the last pass ran at.
+/// A change in either re-applies active triggers whose setter VALUES may have
+/// moved even though no condition did.
+#[derive(Resource, Default, PartialEq, Eq)]
+pub(crate) struct LastTriggerGen(pub (u64, u64));
 
 /// The triggers attached to an entity, with their current activation state.
 #[derive(Component, Debug, Default, Clone)]
@@ -151,7 +160,28 @@ fn eval_condition(world: &World, entity: Entity, cond: &ResolvedCondition) -> bo
 /// re-apply affected properties. Style-trigger setters live only at tier 7
 /// and template-trigger setters only at tiers 6/10, so per-(entity, tier)
 /// clearing keeps merged style+template blocks from clobbering each other.
+///
+/// Activation is not the only reason to re-apply: a setter value can be a
+/// `{DynamicResource}` or an `{AppThemeBinding}`, whose RESULT changes without
+/// any condition changing. A theme flip or a dictionary merge therefore also
+/// forces a pass, or an already-active trigger would keep painting the value
+/// it picked when it fired.
 pub(crate) fn evaluate_triggers(world: &mut World) {
+    let generation = (
+        world
+            .get_resource::<crate::dynamic::PfApplicationResources>()
+            .map(|r| r.revision)
+            .unwrap_or(0),
+        world
+            .get_resource::<crate::app_theme::PfAppTheme>()
+            .map(|t| t.generation())
+            .unwrap_or(0),
+    );
+    let refreshed = world.get_resource::<LastTriggerGen>().map(|l| l.0) != Some(generation);
+    if refreshed {
+        world.insert_resource(LastTriggerGen(generation));
+    }
+
     let mut query = world.query_filtered::<Entity, With<PfTriggers>>();
     let entities: Vec<Entity> = query.iter(world).collect();
 
@@ -166,7 +196,7 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
             .iter()
             .map(|t| t.conditions.iter().all(|c| eval_condition(world, entity, c)))
             .collect();
-        if new_active == old_active {
+        if new_active == old_active && !refreshed {
             continue;
         }
 
@@ -229,6 +259,20 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
                             // would if the value were forwarded live.
                             Some((_, v)) => v.clone(),
                             None => continue, // parent has no value; leave lower tiers
+                        }
+                    }
+                    TriggerValue::AppTheme(arms) => {
+                        match arms.pick(crate::app_theme::app_theme(world)) {
+                            Some(crate::app_theme::ThemeArm::Value(v)) => v.clone(),
+                            Some(crate::app_theme::ThemeArm::Dynamic(key)) => {
+                                match crate::dynamic::resolve_dynamic(world, entity, key) {
+                                    Some(v) => Some(v),
+                                    None => continue, // key absent; leave lower tiers
+                                }
+                            }
+                            // No arm and no Default: MAUI writes null, which
+                            // here masks the tiers below.
+                            None => None,
                         }
                     }
                 };

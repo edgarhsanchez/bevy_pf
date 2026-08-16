@@ -67,6 +67,9 @@ impl Plugin for PfUiPlugin {
             .init_resource::<crate::asset::PendingXamlViews>()
             .init_resource::<crate::dynamic::PfApplicationResources>()
             .init_resource::<crate::dynamic::LastDynRevision>()
+            .init_resource::<crate::app_theme::PfAppTheme>()
+            .init_resource::<crate::app_theme::LastAppThemeGen>()
+            .init_resource::<crate::triggers::LastTriggerGen>()
             .add_systems(
                 Update,
                 (crate::asset::queue_xaml_views, crate::asset::apply_xaml_views).chain(),
@@ -76,6 +79,15 @@ impl Plugin for PfUiPlugin {
                 crate::dynamic::refresh_dynamic_resources
                     .after(crate::asset::apply_xaml_views),
             );
+        // Following the OS appearance needs a window to read it from; a
+        // headless app has none, and must set the theme itself.
+        if app.is_plugin_added::<bevy::window::WindowPlugin>() {
+            app.add_systems(
+                Update,
+                crate::app_theme::track_os_theme
+                    .before(crate::dynamic::refresh_dynamic_resources),
+            );
+        }
         // The headless widget plugins need input/focus infrastructure; only
         // add them defensively when input exists (with DefaultPlugins and the
         // `bevy_ui_widgets` feature they are already present anyway).

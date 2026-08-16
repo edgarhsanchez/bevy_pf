@@ -136,6 +136,10 @@ pub enum PfSetterValue {
     /// no templated parent to read, and is reported rather than silently
     /// painting nothing.
     TemplatedParent(String),
+    /// `Value="{AppThemeBinding Light=a, Dark=b}"` — re-picked whenever the
+    /// app theme changes. Kept in raw form because a setter is parsed with no
+    /// entity and no property target to convert against.
+    AppTheme(RawThemeArms),
 }
 
 pub type ResourceDictionary = HashMap<ResourceKey, PfValue>;
@@ -206,6 +210,97 @@ pub fn static_resource_key(ext: &bevy_pf_xaml::MarkupExtension) -> Result<Resour
         }
         _ => Err(PfError::resource(format!("unsupported {} key", ext.name))),
     }
+}
+
+/// One arm of an `{AppThemeBinding}` as written, before it is known which
+/// property it targets (a setter is parsed with no entity and no target).
+#[derive(Debug, Clone)]
+pub enum RawArm {
+    Text(String),
+    Static(ResourceKey),
+    Dynamic(ResourceKey),
+    /// `{x:Null}` — SUPPLIED, and therefore stops the fallback to `Default`.
+    Null,
+}
+
+/// The Light/Dark/Default arms as written. `None` means the arm is absent.
+#[derive(Debug, Clone, Default)]
+pub struct RawThemeArms {
+    pub light: Option<RawArm>,
+    pub dark: Option<RawArm>,
+    pub default: Option<RawArm>,
+}
+
+impl RawThemeArms {
+    /// The arm MAUI would pick: Dark under a dark theme, Light otherwise
+    /// (`Unspecified` included), each falling back to `Default` and no
+    /// further.
+    pub fn pick(&self, theme: crate::app_theme::AppTheme) -> Option<&RawArm> {
+        match theme {
+            crate::app_theme::AppTheme::Dark => self.dark.as_ref().or(self.default.as_ref()),
+            _ => self.light.as_ref().or(self.default.as_ref()),
+        }
+    }
+}
+
+/// Parse `{AppThemeBinding Light=a, Dark=b, Default=c}`.
+///
+/// `Default` is the extension's ContentProperty in MAUI, so a lone positional
+/// argument sets it: `{AppThemeBinding Green}` is `Default=Green`.
+///
+/// MAUI rejects an extension in which no arm holds a NON-NULL value
+/// (`AppThemeBindingExtension.cs`: the guard tests the values, not which keys
+/// were written), so `{AppThemeBinding}` and `{AppThemeBinding Light={x:Null}}`
+/// are both errors. MAUI throws there; bevy_pf has no throw idiom, so this is
+/// an `Err` that the caller surfaces as a warning and skips.
+pub fn parse_app_theme_arms(
+    ext: &bevy_pf_xaml::MarkupExtension,
+) -> Result<RawThemeArms, PfError> {
+    fn arm(value: &MarkupValue) -> Result<RawArm, PfError> {
+        match value {
+            MarkupValue::Str(s) => Ok(RawArm::Text(s.clone())),
+            MarkupValue::Extension(inner) => match inner.name.as_str() {
+                "StaticResource" => Ok(RawArm::Static(static_resource_key(inner)?)),
+                "DynamicResource" => Ok(RawArm::Dynamic(static_resource_key(inner)?)),
+                "x:Null" | "Null" => Ok(RawArm::Null),
+                other => Err(PfError::resource(format!(
+                    "AppThemeBinding arm `{{{other}}}` is not supported"
+                ))),
+            },
+        }
+    }
+
+    let mut arms = RawThemeArms::default();
+    for (key, value) in &ext.named {
+        match key.as_str() {
+            "Light" => arms.light = Some(arm(value)?),
+            "Dark" => arms.dark = Some(arm(value)?),
+            "Default" => arms.default = Some(arm(value)?),
+            other => {
+                return Err(PfError::resource(format!(
+                    "AppThemeBinding has no `{other}` argument"
+                )));
+            }
+        }
+    }
+    if let Some(positional) = ext.positional.first() {
+        if arms.default.is_some() {
+            return Err(PfError::resource(
+                "AppThemeBinding got Default both positionally and by name",
+            ));
+        }
+        arms.default = Some(arm(positional)?);
+    }
+
+    let holds_a_value = [&arms.light, &arms.dark, &arms.default]
+        .into_iter()
+        .any(|a| matches!(a, Some(a) if !matches!(a, RawArm::Null)));
+    if !holds_a_value {
+        return Err(PfError::resource(
+            "AppThemeBinding requires a non-null value for at least one theme or Default",
+        ));
+    }
+    Ok(arms)
 }
 
 /// Parse the contents of a `Resources` property element into a dictionary.
@@ -1600,6 +1695,9 @@ fn parse_setter(
             }
             XamlValue::Extension(ext) if ext.name == "x:Null" || ext.name == "Null" => {
                 PfSetterValue::Null
+            }
+            XamlValue::Extension(ext) if ext.name == "AppThemeBinding" => {
+                PfSetterValue::AppTheme(parse_app_theme_arms(ext)?)
             }
             XamlValue::Extension(ext) if ext.name == "TemplateBinding" => {
                 let src = ext

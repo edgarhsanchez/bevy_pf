@@ -72,35 +72,73 @@ pub fn resolve_dynamic(world: &World, entity: Entity, key: &ResourceKey) -> Opti
 
 /// Re-resolve all `{DynamicResource}` references when the application
 /// dictionary changes (theme swap, late merges).
+/// Also re-picks every `{AppThemeBinding}` — the two share a pass because
+/// either signal can matter to either kind of reference: a theme flip changes
+/// which arm an AppThemeBinding picks, and a dictionary merge changes what the
+/// key inside a `{DynamicResource}` arm resolves to.
 pub(crate) fn refresh_dynamic_resources(world: &mut World) {
     let revision = world
         .get_resource::<PfApplicationResources>()
         .map(|r| r.revision)
         .unwrap_or(0);
-    if world
+    let theme_gen = world
+        .get_resource::<crate::app_theme::PfAppTheme>()
+        .map(|t| t.generation())
+        .unwrap_or(0);
+    let rev_changed = world
         .get_resource::<LastDynRevision>()
-        .is_some_and(|l| l.0 == revision)
-    {
+        .is_none_or(|l| l.0 != revision);
+    let theme_changed = world
+        .get_resource::<crate::app_theme::LastAppThemeGen>()
+        .is_none_or(|l| l.0 != theme_gen);
+    if !rev_changed && !theme_changed {
         return;
     }
     world.insert_resource(LastDynRevision(revision));
+    world.insert_resource(crate::app_theme::LastAppThemeGen(theme_gen));
 
-    let mut query = world.query::<(Entity, &PfDynamicResources)>();
-    let targets: Vec<(Entity, Vec<DynEntry>)> = query
-        .iter(world)
-        .map(|(e, d)| (e, d.0.clone()))
-        .collect();
-    for (entity, entries) in targets {
-        for entry in entries {
-            if let Some(value) = resolve_dynamic(world, entity, &entry.key) {
-                crate::provider::store_and_apply(
-                    world,
-                    entity,
-                    entry.target,
-                    entry.tier,
-                    Some(value),
-                );
+    // A theme change alone cannot move a plain {DynamicResource}.
+    if rev_changed {
+        let mut query = world.query::<(Entity, &PfDynamicResources)>();
+        let targets: Vec<(Entity, Vec<DynEntry>)> = query
+            .iter(world)
+            .map(|(e, d)| (e, d.0.clone()))
+            .collect();
+        for (entity, entries) in targets {
+            for entry in entries {
+                if let Some(value) = resolve_dynamic(world, entity, &entry.key) {
+                    crate::provider::store_and_apply(
+                        world,
+                        entity,
+                        entry.target,
+                        entry.tier,
+                        Some(value),
+                    );
+                }
             }
+        }
+    }
+
+    let theme = crate::app_theme::app_theme(world);
+    let mut query = world.query::<(Entity, &crate::app_theme::PfAppThemeRefs)>();
+    let themed: Vec<(Entity, Vec<crate::app_theme::AppThemeEntry>)> = query
+        .iter(world)
+        .map(|(e, r)| (e, r.0.clone()))
+        .collect();
+    for (entity, entries) in themed {
+        for entry in entries {
+            let value = match entry.arms.pick(theme) {
+                Some(crate::app_theme::ThemeArm::Value(v)) => v.clone(),
+                Some(crate::app_theme::ThemeArm::Dynamic(key)) => {
+                    match resolve_dynamic(world, entity, key) {
+                        Some(v) => Some(v),
+                        None => continue, // key absent; leave what is there
+                    }
+                }
+                // No arm matched and no Default: MAUI writes null.
+                None => None,
+            };
+            crate::provider::store_and_apply(world, entity, entry.target, entry.tier, value);
         }
     }
 }
