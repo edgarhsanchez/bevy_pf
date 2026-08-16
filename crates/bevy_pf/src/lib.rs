@@ -54,6 +54,7 @@ pub mod plugin;
 pub mod query;
 pub mod provider;
 pub mod resources;
+pub mod selector;
 pub mod shapes;
 #[cfg(feature = "vector_gpu")]
 pub mod shapes_gpu;

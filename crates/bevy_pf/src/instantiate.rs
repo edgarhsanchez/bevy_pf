@@ -543,6 +543,16 @@ struct Ctx<'w> {
     merge_path: std::collections::HashSet<String>,
     /// Memoized merged dictionaries by resolved path, so diamonds load once.
     merged_cache: std::collections::HashMap<String, std::sync::Arc<ResourceDictionary>>,
+    /// Avalonia `Styles` collections in scope, in ATTACH order: application
+    /// first, then each ancestor's, then the element's own. Order is the
+    /// whole precedence story inside a bucket — last attached wins — so this
+    /// must never be reordered.
+    sheets: Vec<std::sync::Arc<crate::resources::PfStyle>>,
+    /// The element chain being built, root first, for selector matching.
+    element_stack: Vec<crate::selector::ElementInfo>,
+    /// Position of the element about to be spawned among its siblings, for
+    /// `:nth-child`. Set by the child loop; (0, 1) for a lone root.
+    child_pos: (usize, usize),
     warnings: Vec<String>,
 }
 
@@ -566,6 +576,9 @@ impl<'w> Ctx<'w> {
             base_stack: vec![env.base_dir.clone()],
             merge_path: std::collections::HashSet::new(),
             merged_cache: std::collections::HashMap::new(),
+            sheets: Vec::new(),
+            element_stack: Vec::new(),
+            child_pos: (0, 1),
             warnings: Vec::new(),
         }
     }
@@ -732,6 +745,24 @@ impl<'w> Ctx<'w> {
         let saved_inherited = self.inherited.clone();
         let saved_pending = std::mem::take(&mut self.pending);
 
+        // The element chain the selector matcher walks. Pushed before any
+        // style is applied and popped with the other scoped state below.
+        let (child_index, sibling_count) = std::mem::replace(&mut self.child_pos, (0, 1));
+        self.element_stack.push(crate::selector::ElementInfo {
+            type_name: node.name.clone(),
+            name: node.x_name.clone(),
+            classes: crate::selector::classes_of(node),
+            child_index,
+            sibling_count,
+        });
+        // `<X.Styles>` applies to this element and its subtree, so it joins
+        // the sheet stack for exactly that span.
+        let sheets_before = self.sheets.len();
+        if let Some(styles) = node.property_element("Styles") {
+            let styles = styles.clone();
+            self.collect_sheets(&styles);
+        }
+
         // Spawn the entity with per-kind defaults.
         let entity = match reuse {
             Some(e) => e,
@@ -838,6 +869,11 @@ impl<'w> Ctx<'w> {
             }
         }
 
+        // Avalonia selector styles, after the WPF style and before local
+        // attributes, so the precedence order matches both dialects: style
+        // tier below, local attribute above.
+        self.apply_selector_styles(entity, kind, parent_kind);
+
         // Local attribute values (highest precedence).
         for attr in &node.attributes {
             let (owner, name, value) = (attr.owner.clone(), attr.name.clone(), attr.value.clone());
@@ -848,7 +884,8 @@ impl<'w> Ctx<'w> {
         for pe in &node.property_elements {
             if matches!(
                 pe.name.as_str(),
-                "Resources" | "RowDefinitions" | "ColumnDefinitions"
+                // `Styles` is consumed above, onto the selector sheet stack.
+                "Resources" | "RowDefinitions" | "ColumnDefinitions" | "Styles"
             ) {
                 continue;
             }
@@ -948,10 +985,227 @@ impl<'w> Ctx<'w> {
 
         self.inherited = saved_inherited;
         self.pending = saved_pending;
+        self.element_stack.pop();
+        self.sheets.truncate(sheets_before);
         if pushed_scope {
             self.scopes.pop();
         }
         Ok(entity)
+    }
+
+    /// Gather `<Style Selector=...>` entries from a `Styles` collection onto
+    /// the sheet stack, in document order.
+    fn collect_sheets(&mut self, styles: &crate::xaml_ast::XamlPropertyElement) {
+        for child in styles.elements() {
+            match child.name.as_str() {
+                "Style" => {
+                    let mut warnings = Vec::new();
+                    let scopes = self.scopes.clone();
+                    let empty = ResourceDictionary::new();
+                    match crate::resources::parse_style(child, &scopes, &empty, &mut warnings) {
+                        Ok(style) if style.selector.is_some() => {
+                            self.sheets.push(std::sync::Arc::new(style))
+                        }
+                        // A <Style> in a Styles collection without a Selector
+                        // matches nothing in Avalonia — say so rather than
+                        // silently keeping it.
+                        Ok(_) => self.warn(format!(
+                            "{}: a <Style> in a Styles collection needs a Selector",
+                            child.pos
+                        )),
+                        Err(e) => self.warn(format!("{}: {e}", child.pos)),
+                    }
+                    self.warnings.extend(warnings);
+                }
+                // StyleInclude / FluentTheme and friends land in later phases.
+                other => self.warn(format!(
+                    "{}: `{other}` in a Styles collection is not supported yet",
+                    child.pos
+                )),
+            }
+        }
+    }
+
+    /// Apply every selector style whose selector matches this element.
+    ///
+    /// Phase 1 handles the NON-ACTIVATED bucket only — selectors built from
+    /// types, names and structure, whose membership cannot change once the
+    /// tree exists. They write at the same `Style` tier as a WPF style, in
+    /// attach order, which is exactly Avalonia's "last attached wins".
+    /// Activated selectors (classes, pseudo-classes, property tests) need the
+    /// trigger runtime and land in the next phase.
+    fn apply_selector_styles(&mut self, entity: Entity, kind: ElemKind, parent_kind: ParentKind) {
+        if self.sheets.is_empty() {
+            return;
+        }
+        let stack = std::mem::take(&mut self.element_stack);
+        let matched: Vec<std::sync::Arc<crate::resources::PfStyle>> = self
+            .sheets
+            .iter()
+            .filter(|style| {
+                style.selector.as_ref().is_some_and(|sel| {
+                    !sel.has_activator() && crate::selector::matches(sel, &stack)
+                })
+            })
+            .cloned()
+            .collect();
+        self.element_stack = stack;
+
+        let saved_tier = self.tier;
+        self.tier = crate::provider::ValueSource::Style;
+        for style in matched {
+            for setter in &style.setters {
+                self.apply_setter_inner(entity, kind, parent_kind, setter);
+            }
+        }
+        self.tier = saved_tier;
+        self.attach_activated_styles(entity, kind, parent_kind);
+    }
+
+    /// Attach the ACTIVATED bucket: selectors carrying a class, a pseudo-class
+    /// or a property test, whose membership can change while the app runs.
+    ///
+    /// These become ordinary triggers. bevy_pf's condition set already covers
+    /// every Avalonia pseudo-class — `:pointerover` is `IsMouseOver`,
+    /// `:disabled` is `IsEnabled=false`, and so on — so no new runtime is
+    /// needed: `evaluate_triggers` already clears the tier and re-applies
+    /// every active contributor in declaration order, which IS Avalonia's
+    /// reevaluation rule. They write at `ImplicitReference`, a tier that was
+    /// declared and never used, so no existing writer can be disturbed.
+    fn attach_activated_styles(
+        &mut self,
+        entity: Entity,
+        kind: ElemKind,
+        parent_kind: ParentKind,
+    ) {
+        let _ = (kind, parent_kind);
+        if self.sheets.is_empty() {
+            return;
+        }
+        let stack = std::mem::take(&mut self.element_stack);
+        let candidates: Vec<std::sync::Arc<crate::resources::PfStyle>> = self
+            .sheets
+            .iter()
+            .filter(|style| {
+                style.selector.as_ref().is_some_and(|sel| {
+                    sel.has_activator() && crate::selector::matches_static(sel, &stack)
+                })
+            })
+            .cloned()
+            .collect();
+        self.element_stack = stack;
+        if candidates.is_empty() {
+            return;
+        }
+
+        let mut resolved = Vec::new();
+        for style in candidates {
+            let Some(sel) = style.selector.as_ref() else {
+                continue;
+            };
+            let mut classes = Vec::new();
+            sel.classes(&mut classes);
+            let conditions: Vec<crate::triggers::ResolvedCondition> = classes
+                .iter()
+                .map(|c| crate::selector::pseudo_class_condition(c))
+                .collect();
+            let mut setters = Vec::new();
+            for setter in &style.setters {
+                if setter.owner.is_some() {
+                    continue;
+                }
+                let Some(target) = crate::provider::property_target_for(&setter.property) else {
+                    self.warn(format!(
+                        "selector setter `{}` is not dynamically writable yet; skipped",
+                        setter.property
+                    ));
+                    continue;
+                };
+                let value = match &setter.value {
+                    crate::resources::PfSetterValue::Literal(text) => {
+                        match self.literal_to_pf_value(target, text) {
+                            Ok(v) => crate::triggers::TriggerValue::Static(Some(v)),
+                            Err(e) => {
+                                self.warn(format!("selector setter `{}`: {e}", setter.property));
+                                continue;
+                            }
+                        }
+                    }
+                    crate::resources::PfSetterValue::Resource(key) => {
+                        match self.scopes.lookup(key).cloned() {
+                            Some(v) => crate::triggers::TriggerValue::Static(Some(v)),
+                            None => {
+                                self.warn(format!(
+                                    "selector setter resource for `{}` not found",
+                                    setter.property
+                                ));
+                                continue;
+                            }
+                        }
+                    }
+                    crate::resources::PfSetterValue::DynamicResource(key) => {
+                        crate::triggers::TriggerValue::Dynamic(key.clone())
+                    }
+                    crate::resources::PfSetterValue::Null => {
+                        crate::triggers::TriggerValue::Static(None)
+                    }
+                    crate::resources::PfSetterValue::Value(v) => {
+                        crate::triggers::TriggerValue::Static(Some(v.clone()))
+                    }
+                    other => {
+                        self.warn(format!(
+                            "selector setter `{}`: {other:?} is not supported yet",
+                            setter.property
+                        ));
+                        continue;
+                    }
+                };
+                if matches!(
+                    target,
+                    crate::provider::PropertyTarget::Foreground
+                        | crate::provider::PropertyTarget::FontSize
+                ) {
+                    self.ensure_inherited_seed(entity, target);
+                }
+                setters.push(crate::triggers::ResolvedTriggerSetter {
+                    target,
+                    value,
+                    dest: None,
+                    tier: crate::provider::ValueSource::ImplicitReference,
+                });
+            }
+            if !setters.is_empty() {
+                resolved.push(crate::triggers::ResolvedTrigger {
+                    conditions,
+                    setters,
+                    enter_storyboards: Vec::new(),
+                    exit_storyboards: Vec::new(),
+                });
+            }
+        }
+        if resolved.is_empty() {
+            return;
+        }
+        // Merge, never replace: a WPF Style.Triggers block may already be
+        // here, and the two live at different tiers without colliding.
+        let mut e = self.world.entity_mut(entity);
+        if let Some(mut existing) = e.get_mut::<crate::triggers::PfTriggers>() {
+            let total = existing.triggers.len() + resolved.len();
+            existing.triggers.extend(resolved);
+            existing.active.resize(total, false);
+        } else {
+            let active = vec![false; resolved.len()];
+            e.insert(crate::triggers::PfTriggers {
+                triggers: resolved,
+                active,
+            });
+        }
+        // Pseudo-class conditions read Interaction, which only exists on
+        // elements that opted into picking. Without it :pointerover and
+        // :pressed would silently never fire.
+        if !self.world.entity(entity).contains::<Interaction>() {
+            self.world.entity_mut(entity).insert(Interaction::default());
+        }
     }
 
     fn insert_defaults(&mut self, entity: Entity, kind: ElemKind, node: &XamlNode) {
@@ -3257,6 +3511,19 @@ impl<'w> Ctx<'w> {
             // (`DataTemplate DataType=` is a different path — it is a resource
             // type, keyed in parse_resource_value, and is honoured there.)
             "DataType" | "CompileBindings" => {}
+            // Avalonia style classes. Already read into the element stack for
+            // selector matching; kept on the entity so a class can change at
+            // runtime and re-match.
+            "Classes" => {
+                let classes: Vec<String> = value
+                    .to_text()?
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect();
+                self.world
+                    .entity_mut(entity)
+                    .insert(crate::components::PfClasses(classes));
+            }
             // Where the CONTENT sits inside the control, not where the
             // control sits inside its parent. Consumed by project_content,
             // which otherwise picks a per-kind default.

@@ -305,6 +305,18 @@ pub struct PfViewbox {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PfLogicalParent(pub Entity);
 
+/// Avalonia style classes: `Classes="h1 accent"`, plus pseudo-classes the
+/// runtime maintains. Selector matching reads this, and it is mutable so a
+/// class can be added or removed while the app runs.
+#[derive(Component, Debug, Clone, Default)]
+pub struct PfClasses(pub Vec<String>);
+
+impl PfClasses {
+    pub fn has(&self, name: &str) -> bool {
+        self.0.iter().any(|c| c == name)
+    }
+}
+
 /// `SelectedValuePath`: the member of each item that `SelectedValue` binds.
 /// Empty means the item itself, which is WPF's default.
 #[derive(Component, Debug, Clone)]

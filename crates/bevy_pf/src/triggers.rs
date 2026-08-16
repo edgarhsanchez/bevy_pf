@@ -27,6 +27,11 @@ pub enum ResolvedCondition {
     /// editable child is what actually takes focus, so testing the control
     /// alone would never fire.
     Focused(bool),
+    /// Avalonia `.class` — true while the element carries the class.
+    /// Classes can be added and removed at runtime, which is exactly why a
+    /// class selector is an ACTIVATED one and lives in the trigger runtime
+    /// rather than being decided once at instantiation.
+    HasClass(String),
     /// DataTrigger: `DataContext` path compared (string form) to a value.
     Data { path: String, expected: String },
 }
@@ -141,6 +146,9 @@ fn eval_condition(world: &World, entity: Entity, cond: &ResolvedCondition) -> bo
                 .is_some_and(|s| s == entity);
             selected == *expected
         }
+        ResolvedCondition::HasClass(name) => world
+            .get::<crate::components::PfClasses>(entity)
+            .is_some_and(|c| c.has(name)),
         ResolvedCondition::Data { path, expected } => {
             let Some(ctx) = find_context(world, entity) else {
                 return false;
