@@ -298,10 +298,21 @@ impl<'a> Parser<'a> {
                 // it (`MeScanner.cs:462-471`). Quoted values are not trimmed.
                 self.chars.next(); // opening quote
                 let mut s = String::new();
+                // Whether the FIRST character was written by an escape. It
+                // decides whether a leading `{` opens a nested extension or
+                // is just a brace: unescaping loses that distinction, and
+                // without it `StringFormat='\{0\} %'` — a literal format
+                // string — is misread as the extension `{0} %`.
+                let mut opens_escaped = false;
                 loop {
                     match self.chars.next() {
                         Some((_, '\\')) => match self.chars.next() {
-                            Some((_, c)) => s.push(c),
+                            Some((_, c)) => {
+                                if s.is_empty() {
+                                    opens_escaped = true;
+                                }
+                                s.push(c);
+                            }
                             None => {
                                 return Err(err(self.input, "dangling escape in quoted string"));
                             }
@@ -313,7 +324,7 @@ impl<'a> Parser<'a> {
                 }
                 // A quoted value that is itself an extension is re-parsed as
                 // one (`MePullParser.cs:350-359`); `{}`-escaped stays literal.
-                if s.starts_with('{') && !s.starts_with("{}") {
+                if !opens_escaped && s.starts_with('{') && !s.starts_with("{}") {
                     let nested = parse_extension(&s)?;
                     return Ok(Token {
                         text: String::new(),
@@ -724,4 +735,32 @@ mod tests {
         };
         assert_eq!(rs.positional, vec![s("Self")]);
     }
+
+    /// An escaped brace opens a literal, not a nested extension.
+    ///
+    /// `StringFormat='\\{0\\} %'` is a format string. Unescaping turns it
+    /// into `{0} %`, which LOOKS like an extension — so the parser has to
+    /// remember that the brace was escaped, or the whole document fails with
+    /// "invalid markup extension `{0} %`".
+    #[test]
+    fn escaped_leading_brace_stays_a_literal() {
+        let e = parse_extension(r"{Binding Progress, StringFormat='\{0\} %'}").unwrap();
+        assert_eq!(e.name, "Binding");
+        assert_eq!(
+            e.arg("StringFormat").and_then(MarkupValue::as_str),
+            Some("{0} %")
+        );
+
+        // An UNescaped leading brace must still nest.
+        let e = parse_extension("{Binding Converter={StaticResource C}}").unwrap();
+        assert!(matches!(e.arg("Converter"), Some(MarkupValue::Extension(_))));
+
+        // And `{}` escaping still works.
+        let e = parse_extension("{Binding Age, StringFormat='{}{0} years'}").unwrap();
+        assert_eq!(
+            e.arg("StringFormat").and_then(MarkupValue::as_str),
+            Some("{0} years")
+        );
+    }
+
 }
