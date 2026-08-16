@@ -883,3 +883,28 @@ fn image_slice_selects_nine_patch_mode() {
     let node = app.world().get::<bevy::ui::widget::ImageNode>(plain).unwrap();
     assert!(matches!(node.image_mode, bevy::ui::widget::NodeImageMode::Auto));
 }
+
+/// `{x:Null}` as an ATTRIBUTE clears a store-managed property instead of
+/// warning.
+///
+/// The setter form (`<Setter Property="Background" Value="{x:Null}"/>`) has
+/// always masked the tiers below. The attribute form went to the per-property
+/// converters instead, so `Background="{x:Null}"` — valid in both WPF and
+/// MAUI — reported "expected a brush value" and painted nothing.
+#[test]
+fn x_null_attributes_clear_rather_than_warn() {
+    let mut world = World::new();
+    let doc = bevy_pf_xaml::parse(&format!(
+        r#"<StackPanel {PRES} {X}>
+             <Border x:Name="B" Background="{{x:Null}}" BorderBrush="{{x:Null}}"/>
+           </StackPanel>"#
+    ))
+    .expect("parses");
+    let root = world.spawn_empty().id();
+    let result = instantiate_document(&mut world, root, &doc).expect("instantiates");
+    assert_eq!(
+        result.warnings,
+        Vec::<String>::new(),
+        "{{x:Null}} on a brush attribute must not warn"
+    );
+}

@@ -1500,6 +1500,52 @@ impl<'w> Ctx<'w> {
             PfSetterValue::AppTheme(_) => Err(PfError::resource(
                 "AppThemeBinding setters on attached properties are not supported yet",
             )),
+            // Static for the life of the process: pick now and apply as if
+            // the picked arm had been written directly.
+            PfSetterValue::Selector(selector, arms) => {
+                let device = crate::device::device(self.world);
+                let property = setter.property.clone();
+                match arms.pick(&device, *selector).cloned() {
+                    Some(crate::resources::RawArm::Text(s)) => self.apply_property(
+                        entity,
+                        kind,
+                        parent_kind,
+                        setter.owner.as_deref(),
+                        &property,
+                        &Resolved::Str(&s),
+                    ),
+                    Some(crate::resources::RawArm::Static(k)) => {
+                        match self.scopes.lookup(&k).cloned() {
+                            Some(v) => self.apply_property(
+                                entity,
+                                kind,
+                                parent_kind,
+                                setter.owner.as_deref(),
+                                &property,
+                                &Resolved::Value(v),
+                            ),
+                            None => Err(PfError::resource(format!(
+                                "{} resource `{k:?}` not found",
+                                selector.extension_name()
+                            ))),
+                        }
+                    }
+                    Some(crate::resources::RawArm::Dynamic(k)) if setter.owner.is_none() => {
+                        self.apply_dynamic_reference(entity, kind, parent_kind, &property, k)
+                    }
+                    Some(crate::resources::RawArm::Dynamic(_)) => Err(PfError::resource(
+                        "DynamicResource setters on attached properties are not supported yet",
+                    )),
+                    Some(crate::resources::RawArm::Null) | None => {
+                        if let Some(target) = crate::provider::property_target_for(&property) {
+                            crate::provider::store_and_apply(
+                                self.world, entity, target, self.tier, None,
+                            );
+                        }
+                        Ok(())
+                    }
+                }
+            }
             // {x:Null}: masks lower tiers in the store; the effective value
             // becomes "unset" and components clear accordingly.
             PfSetterValue::Null => {
@@ -1579,6 +1625,81 @@ impl<'w> Ctx<'w> {
             XamlValue::Extension(ext) if ext.name == "DynamicResource" && owner.is_none() => {
                 match static_resource_key(ext) {
                     Ok(key) => self.apply_dynamic_reference(entity, kind, parent_kind, name, key),
+                    Err(e) => Err(e),
+                }
+            }
+            // `{x:Null}` on a store-managed property MASKS the tiers below,
+            // exactly as the setter form has always done. Left to
+            // `resolve_extension` it reaches the per-property converters
+            // instead, and `Background="{x:Null}"` — valid in both WPF and
+            // MAUI — warns "expected a brush value" and paints nothing.
+            XamlValue::Extension(ext)
+                if (ext.name == "x:Null" || ext.name == "Null")
+                    && owner.is_none()
+                    && crate::provider::property_target_for(name).is_some() =>
+            {
+                let target = crate::provider::property_target_for(name).expect("just checked");
+                crate::provider::store_and_apply(self.world, entity, target, self.tier, None);
+                Ok(())
+            }
+            // Handled here rather than left to `resolve_extension` so that a
+            // {DynamicResource} arm stays LIVE: picking the arm is static,
+            // but what the picked key resolves to is not.
+            XamlValue::Extension(ext)
+                if (ext.name == "OnPlatform" || ext.name == "OnIdiom") && owner.is_none() =>
+            {
+                let selector = if ext.name == "OnPlatform" {
+                    crate::device::SelectorKind::Platform
+                } else {
+                    crate::device::SelectorKind::Idiom
+                };
+                match crate::resources::parse_selector_arms(ext, selector) {
+                    Ok(arms) => {
+                        let device = crate::device::device(self.world);
+                        match arms.pick(&device, selector).cloned() {
+                            Some(crate::resources::RawArm::Dynamic(key)) => {
+                                self.apply_dynamic_reference(entity, kind, parent_kind, name, key)
+                            }
+                            Some(crate::resources::RawArm::Text(s)) => self.apply_property(
+                                entity,
+                                kind,
+                                parent_kind,
+                                None,
+                                name,
+                                &Resolved::Str(&s),
+                            ),
+                            Some(crate::resources::RawArm::Static(k)) => {
+                                match self.scopes.lookup(&k).cloned() {
+                                    Some(v) => self.apply_property(
+                                        entity,
+                                        kind,
+                                        parent_kind,
+                                        None,
+                                        name,
+                                        &Resolved::Value(v),
+                                    ),
+                                    None => Err(PfError::resource(format!(
+                                        "{} resource `{k:?}` not found",
+                                        selector.extension_name()
+                                    ))),
+                                }
+                            }
+                            // Nothing matched and there is no Default. On a
+                            // store-managed property that MASKS the lower
+                            // tiers, which is the crate's {x:Null}; elsewhere
+                            // there is no entry to mask, so leave it alone.
+                            Some(crate::resources::RawArm::Null) | None => {
+                                if let Some(target) =
+                                    crate::provider::property_target_for(name)
+                                {
+                                    crate::provider::store_and_apply(
+                                        self.world, entity, target, self.tier, None,
+                                    );
+                                }
+                                Ok(())
+                            }
+                        }
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -1792,6 +1913,42 @@ impl<'w> Ctx<'w> {
                     PfSetterValue::DynamicResource(key) => TriggerValue::Dynamic(key.clone()),
                     PfSetterValue::Null => TriggerValue::Static(None),
                     PfSetterValue::Value(v) => TriggerValue::Static(Some(v.clone())),
+                    // Picked once: neither the platform nor the idiom moves.
+                    PfSetterValue::Selector(selector, arms) => {
+                        let device = crate::device::device(self.world);
+                        match arms.pick(&device, *selector) {
+                            Some(crate::resources::RawArm::Text(s)) => {
+                                match self.literal_to_pf_value(target, s) {
+                                    Ok(v) => TriggerValue::Static(Some(v)),
+                                    Err(e) => {
+                                        self.warn(format!(
+                                            "trigger setter `{}`: {e}",
+                                            setter.property
+                                        ));
+                                        continue;
+                                    }
+                                }
+                            }
+                            Some(crate::resources::RawArm::Static(k)) => {
+                                match self.scopes.lookup(k).cloned() {
+                                    Some(v) => TriggerValue::Static(Some(v)),
+                                    None => {
+                                        self.warn(format!(
+                                            "trigger setter `{}`: resource `{k:?}` not found",
+                                            setter.property
+                                        ));
+                                        continue;
+                                    }
+                                }
+                            }
+                            Some(crate::resources::RawArm::Dynamic(k)) => {
+                                TriggerValue::Dynamic(k.clone())
+                            }
+                            Some(crate::resources::RawArm::Null) | None => {
+                                TriggerValue::Static(None)
+                            }
+                        }
+                    }
                     // Converted now, picked at activation — and re-picked on a
                     // theme change even while the trigger stays active.
                     PfSetterValue::AppTheme(raw) => {
@@ -2438,6 +2595,31 @@ impl<'w> Ctx<'w> {
                     ext.name
                 ));
                 Ok(None)
+            }
+            // Neither the platform nor the idiom changes while the app runs,
+            // so these resolve here and need no recorded reference.
+            "OnPlatform" | "OnIdiom" => {
+                let kind = if ext.name == "OnPlatform" {
+                    crate::device::SelectorKind::Platform
+                } else {
+                    crate::device::SelectorKind::Idiom
+                };
+                let arms = crate::resources::parse_selector_arms(ext, kind)?;
+                let device = crate::device::device(self.world);
+                match arms.pick(&device, kind) {
+                    Some(crate::resources::RawArm::Text(s)) => {
+                        Ok(Some(Resolved::Value(PfValue::String(s.clone()))))
+                    }
+                    Some(crate::resources::RawArm::Static(k))
+                    | Some(crate::resources::RawArm::Dynamic(k)) => match self.scopes.lookup(k) {
+                        Some(value) => Ok(Some(Resolved::Value(value.clone()))),
+                        None => Err(PfError::resource(format!(
+                            "{} resource `{k:?}` not found",
+                            kind.extension_name()
+                        ))),
+                    },
+                    Some(crate::resources::RawArm::Null) | None => Ok(Some(Resolved::Null)),
+                }
             }
             // Reached for attached properties and other one-shot sites: pick
             // once at the current theme. The live path is

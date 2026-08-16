@@ -68,6 +68,7 @@ impl Plugin for PfUiPlugin {
             .init_resource::<crate::dynamic::PfApplicationResources>()
             .init_resource::<crate::dynamic::LastDynRevision>()
             .init_resource::<crate::app_theme::PfAppTheme>()
+            .init_resource::<crate::device::PfDevice>()
             .init_resource::<crate::app_theme::LastAppThemeGen>()
             .init_resource::<crate::triggers::LastTriggerGen>()
             .add_systems(

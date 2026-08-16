@@ -37,6 +37,7 @@ pub mod binding;
 pub mod caret;
 pub mod components;
 pub mod convert;
+pub mod device;
 pub mod dialog;
 pub mod dynamic;
 pub mod error;
@@ -68,6 +69,7 @@ pub use bevy_pf_macros::{Bindable, include_xaml, xaml};
 pub use bevy_pf_xaml as xaml_ast;
 
 pub use app_theme::{AppTheme, PfAppTheme, PfAppThemeRefs, app_theme, set_user_app_theme};
+pub use device::{DeviceIdiom, DevicePlatform, PfDevice};
 pub use asset::{XamlAsset, XamlView};
 pub use binding::{Bindable, BoundValue, DataContext, DataContextScope, PfBindings};
 pub use components::{ButtonVisual, PfAttachedProps, PfElementKind, PfName, XamlNames};
@@ -90,6 +92,7 @@ pub use triggers::PfTriggers;
 
 pub mod prelude {
     pub use crate::app_theme::{AppTheme, PfAppTheme, set_user_app_theme};
+    pub use crate::device::{DeviceIdiom, DevicePlatform, PfDevice};
     pub use crate::asset::{XamlAsset, XamlView};
     pub use bevy_pf_macros::Bindable;
     pub use crate::behaviors::{clear_focus, find_editable_in, focus_control};

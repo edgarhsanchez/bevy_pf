@@ -140,6 +140,9 @@ pub enum PfSetterValue {
     /// app theme changes. Kept in raw form because a setter is parsed with no
     /// entity and no property target to convert against.
     AppTheme(RawThemeArms),
+    /// `Value="{OnPlatform ...}"` / `Value="{OnIdiom ...}"` — resolved once
+    /// when the setter is applied, because neither can change at runtime.
+    Selector(crate::device::SelectorKind, RawSelectorArms),
 }
 
 pub type ResourceDictionary = HashMap<ResourceKey, PfValue>;
@@ -243,6 +246,107 @@ impl RawThemeArms {
     }
 }
 
+/// The arms of an `{OnPlatform}` / `{OnIdiom}`: named arms in source order,
+/// plus the `Default` that MAUI makes the ContentProperty.
+#[derive(Debug, Clone, Default)]
+pub struct RawSelectorArms {
+    pub arms: Vec<(String, RawArm)>,
+    pub default: Option<RawArm>,
+}
+
+impl RawSelectorArms {
+    /// The arm describing this device, else `Default`.
+    ///
+    /// Source order decides only among arms that BOTH match, which happens
+    /// for the one alias pair (`macOS` / `MacCatalyst`); the caller orders
+    /// the names so `macOS` is offered first.
+    pub fn pick(&self, device: &crate::device::PfDevice, kind: crate::device::SelectorKind)
+    -> Option<&RawArm> {
+        self.arms
+            .iter()
+            .find(|(name, _)| device.matches(kind, name))
+            .map(|(_, arm)| arm)
+            .or(self.default.as_ref())
+    }
+}
+
+/// Parse `{OnPlatform Android=a, iOS=b, Default=c}` or the `{OnIdiom}` twin.
+///
+/// Arm names are validated against the selector's own set, so a typo is
+/// reported with the alternatives instead of quietly resolving to `Default`
+/// on every platform — the failure mode that makes these extensions hard to
+/// debug. MAUI rejects an extension in which nothing at all is written; this
+/// mirrors that, as a warning rather than a throw.
+pub fn parse_selector_arms(
+    ext: &bevy_pf_xaml::MarkupExtension,
+    kind: crate::device::SelectorKind,
+) -> Result<RawSelectorArms, PfError> {
+    let mut arms = RawSelectorArms::default();
+    for (key, value) in &ext.named {
+        if key == "Default" {
+            arms.default = Some(theme_arm(value, kind.extension_name())?);
+            continue;
+        }
+        // Converter/ConverterParameter exist on MAUI's extensions; bevy_pf
+        // has no per-value converter here, so say so rather than ignore it.
+        if !kind.arm_names().contains(&key.as_str()) {
+            return Err(PfError::resource(format!(
+                "{} has no `{key}` argument; expected one of {} or Default",
+                kind.extension_name(),
+                kind.arm_names().join(", ")
+            )));
+        }
+        arms.arms
+            .push((key.clone(), theme_arm(value, kind.extension_name())?));
+    }
+    if let Some(positional) = ext.positional.first() {
+        if arms.default.is_some() {
+            return Err(PfError::resource(format!(
+                "{} got Default both positionally and by name",
+                kind.extension_name()
+            )));
+        }
+        arms.default = Some(theme_arm(positional, kind.extension_name())?);
+    }
+
+    let holds_a_value = arms
+        .arms
+        .iter()
+        .map(|(_, a)| a)
+        .chain(arms.default.iter())
+        .any(|a| !matches!(a, RawArm::Null));
+    if !holds_a_value {
+        // MAUI's own wording.
+        return Err(PfError::resource(format!(
+            "{} requires a value to be specified for at least one {} or Default",
+            kind.extension_name(),
+            match kind {
+                crate::device::SelectorKind::Platform => "platform",
+                crate::device::SelectorKind::Idiom => "idiom",
+            }
+        )));
+    }
+    // Order the arms so the one alias pair resolves the way the docs say.
+    arms.arms
+        .sort_by_key(|(name, _)| usize::from(name == "MacCatalyst"));
+    Ok(arms)
+}
+
+/// One arm of a selector-style extension.
+fn theme_arm(value: &MarkupValue, owner: &str) -> Result<RawArm, PfError> {
+    match value {
+        MarkupValue::Str(s) => Ok(RawArm::Text(s.clone())),
+        MarkupValue::Extension(inner) => match inner.name.as_str() {
+            "StaticResource" => Ok(RawArm::Static(static_resource_key(inner)?)),
+            "DynamicResource" => Ok(RawArm::Dynamic(static_resource_key(inner)?)),
+            "x:Null" | "Null" => Ok(RawArm::Null),
+            other => Err(PfError::resource(format!(
+                "{owner} arm `{{{other}}}` is not supported"
+            ))),
+        },
+    }
+}
+
 /// Parse `{AppThemeBinding Light=a, Dark=b, Default=c}`.
 ///
 /// `Default` is the extension's ContentProperty in MAUI, so a lone positional
@@ -256,19 +360,7 @@ impl RawThemeArms {
 pub fn parse_app_theme_arms(
     ext: &bevy_pf_xaml::MarkupExtension,
 ) -> Result<RawThemeArms, PfError> {
-    fn arm(value: &MarkupValue) -> Result<RawArm, PfError> {
-        match value {
-            MarkupValue::Str(s) => Ok(RawArm::Text(s.clone())),
-            MarkupValue::Extension(inner) => match inner.name.as_str() {
-                "StaticResource" => Ok(RawArm::Static(static_resource_key(inner)?)),
-                "DynamicResource" => Ok(RawArm::Dynamic(static_resource_key(inner)?)),
-                "x:Null" | "Null" => Ok(RawArm::Null),
-                other => Err(PfError::resource(format!(
-                    "AppThemeBinding arm `{{{other}}}` is not supported"
-                ))),
-            },
-        }
-    }
+    let arm = |value: &MarkupValue| theme_arm(value, "AppThemeBinding");
 
     let mut arms = RawThemeArms::default();
     for (key, value) in &ext.named {
@@ -1698,6 +1790,16 @@ fn parse_setter(
             }
             XamlValue::Extension(ext) if ext.name == "AppThemeBinding" => {
                 PfSetterValue::AppTheme(parse_app_theme_arms(ext)?)
+            }
+            XamlValue::Extension(ext)
+                if ext.name == "OnPlatform" || ext.name == "OnIdiom" =>
+            {
+                let kind = if ext.name == "OnPlatform" {
+                    crate::device::SelectorKind::Platform
+                } else {
+                    crate::device::SelectorKind::Idiom
+                };
+                PfSetterValue::Selector(kind, parse_selector_arms(ext, kind)?)
             }
             XamlValue::Extension(ext) if ext.name == "TemplateBinding" => {
                 let src = ext
