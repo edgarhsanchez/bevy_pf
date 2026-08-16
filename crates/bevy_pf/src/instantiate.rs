@@ -3368,6 +3368,14 @@ impl<'w> Ctx<'w> {
             "DisplayMemberPath" => {
                 self.pending.display_member = Some(value.to_text()?);
             }
+            // Which member of an item `SelectedValue` binds. Empty (the WPF
+            // default) means the item itself.
+            "SelectedValuePath" => {
+                let path = value.to_text()?;
+                self.world
+                    .entity_mut(entity)
+                    .insert(crate::components::PfSelectedValuePath(path));
+            }
             "ItemContainerStyle" => match value {
                 Resolved::Value(PfValue::Style(s)) => {
                     self.pending.item_container_style = Some(s.clone());
@@ -7940,6 +7948,27 @@ impl<'w> Ctx<'w> {
             ),
             "SelectedIndex" if matches!(kind, ElemKind::ListBox | ElemKind::ComboBox) => {
                 (entity, BindingTarget::SelectedIndex, v::BindingMode::TwoWay)
+            }
+            // TwoWay like WPF/Avalonia: the item flows both ways. Both are
+            // resolved against the view model rather than through a scalar,
+            // so an ElementName/RelativeSource source has nothing to compare
+            // the collection against and is refused rather than half-working.
+            "SelectedItem" | "SelectedValue"
+                if matches!(kind, ElemKind::ListBox | ElemKind::ComboBox) =>
+            {
+                if spec.element_name.is_some() || spec.relative.is_some() {
+                    self.warn(format!(
+                        "{property} only binds to the DataContext, not to an element or \
+                         RelativeSource; binding skipped"
+                    ));
+                    return;
+                }
+                let target = if property == "SelectedItem" {
+                    BindingTarget::SelectedItem
+                } else {
+                    BindingTarget::SelectedValue
+                };
+                (entity, target, v::BindingMode::TwoWay)
             }
             "Text" => (entity, BindingTarget::Text, v::BindingMode::OneWay),
             "Content" | "Header" => (

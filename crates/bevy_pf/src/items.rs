@@ -113,7 +113,7 @@ pub(crate) fn sync_content_sources(world: &mut World) {
 
 /// The entity that actually receives generated item containers: the
 /// `ItemsPanel` panel when one was declared, else `host` itself.
-pub(crate) fn items_container(world: &World, host: Entity) -> Entity {
+pub fn items_container(world: &World, host: Entity) -> Entity {
     world
         .get::<crate::components::PfItemsPanel>(host)
         .map(|p| p.panel)
@@ -179,6 +179,19 @@ pub(crate) fn sync_items_sources(world: &mut World) {
             // ListBox/ItemsControl: an ItemsPanel redirects generation.
             _ => items_container(world, entity),
         };
+        // The rebuild despawns every row, so a ListBox's `selected` entity is
+        // about to dangle. Remember WHERE the selection was; a SelectedItem
+        // binding will re-locate the item by value on the next apply, and
+        // this keeps the position meanwhile so the row it prefers is the one
+        // the user actually had.
+        let previous_selection = world
+            .get::<crate::components::PfListBox>(entity)
+            .and_then(|l| l.selected)
+            .and_then(|sel| {
+                world
+                    .get::<Children>(container)
+                    .and_then(|c| c.iter().position(|child| child == sel))
+            });
         world.entity_mut(container).despawn_children();
 
         let mut items = Vec::with_capacity(len);
@@ -381,6 +394,20 @@ pub(crate) fn sync_items_sources(world: &mut World) {
         }
 
         world.entity_mut(container).add_children(&items);
+
+        // Re-point the selection at the row in the same position, or clear it
+        // when the list shrank past it. Without this the ListBox holds a
+        // despawned entity and reports "something is selected" forever.
+        if let Some(mut list) = world.get_mut::<crate::components::PfListBox>(entity)
+            && list.selected.is_some()
+        {
+            list.selected = previous_selection.and_then(|i| items.get(i).copied());
+        }
+        if let Some(mut combo) = world.get_mut::<crate::components::PfComboBox>(entity)
+            && combo.selected.is_some_and(|i| i >= items.len())
+        {
+            combo.selected = None;
+        }
     }
 }
 

@@ -291,6 +291,165 @@ impl Bindable {
         }
     }
 
+    /// Which element of `list_path` is the item at `value_path`?
+    ///
+    /// This is what makes `SelectedItem` real. The bound item never leaves
+    /// the model — both paths resolve against the SAME view model under one
+    /// read guard, so the question "which row is this?" is answered where
+    /// the objects actually live, by comparing them, rather than by
+    /// comparing rendered text or trusting an index.
+    ///
+    /// `preferred` is tried before the scan. That is WPF's `CoerceSelectedItem`
+    /// fast path, and it is what makes DUPLICATES behave: clicking the second
+    /// of two equal rows keeps the second selected instead of snapping to the
+    /// first.
+    pub fn selection_match(
+        &self,
+        list_path: &str,
+        value_path: &str,
+        preferred: Option<usize>,
+    ) -> SelectionMatch {
+        use bevy::reflect::ReflectRef;
+        let guard = self.inner.value.read().unwrap();
+        let resolve = |full: String| -> Option<&dyn PartialReflect> {
+            if full.is_empty() {
+                Some(guard.as_partial_reflect())
+            } else {
+                guard.reflect_path(full.as_str()).ok()
+            }
+        };
+
+        let Some(mut value) = resolve(self.full_path(value_path)) else {
+            return SelectionMatch::NotFound;
+        };
+        // Option<T>: None IS a selection — "nothing" — not a failure.
+        if let ReflectRef::Enum(e) = value.reflect_ref()
+            && e.reflect_type_path().starts_with("core::option::Option")
+        {
+            match e.field_at(0) {
+                Some(inner) => value = inner,
+                None => return SelectionMatch::Null,
+            }
+        }
+
+        let Some(list) = resolve(self.full_path(list_path)) else {
+            return SelectionMatch::NotFound;
+        };
+        let items: Vec<&dyn PartialReflect> = match list.reflect_ref() {
+            ReflectRef::List(l) => (0..l.len()).filter_map(|i| l.get(i)).collect(),
+            ReflectRef::Array(a) => (0..a.len()).filter_map(|i| a.get(i)).collect(),
+            _ => return SelectionMatch::NotFound,
+        };
+        let len = items.len();
+        if len == 0 {
+            // Nothing to match against YET. Clearing here would discard a
+            // selection set before the collection arrived.
+            return SelectionMatch::Pending;
+        }
+
+        let mut undecidable = false;
+        let mut compare = |i: usize| -> bool {
+            match items.get(i).and_then(|item| items_equal(*item, value)) {
+                Some(hit) => hit,
+                None => {
+                    undecidable = true;
+                    false
+                }
+            }
+        };
+        if let Some(p) = preferred
+            && p < len
+            && compare(p)
+        {
+            return SelectionMatch::Index(p);
+        }
+        for i in 0..len {
+            if compare(i) {
+                return SelectionMatch::Index(i);
+            }
+        }
+        if undecidable {
+            warn!(
+                "SelectedItem: `{}` items do not support reflected equality, so the \
+                 selection cannot be located; give the type #[derive(PartialEq)] or \
+                 bind SelectedValue with a SelectedValuePath instead",
+                list.reflect_type_path()
+            );
+        }
+        SelectionMatch::NotFound
+    }
+
+    /// Copy the value at `src_path` into `dest_path` — the write half of
+    /// `SelectedItem`, which moves an OBJECT rather than a scalar.
+    ///
+    /// The element is snapshotted with `to_dynamic()` first: that ends the
+    /// shared borrow so the destination can be taken mutably from the same
+    /// guard, and it preserves the represented type so the type gate in
+    /// [`items_equal`] still recognises it afterwards.
+    pub fn set_from(&self, dest_path: &str, src_path: &str) -> bool {
+        use bevy::reflect::ReflectRef;
+        use bevy::reflect::enums::{DynamicEnum, DynamicVariant};
+        let dest_full = self.full_path(dest_path);
+        let src_full = self.full_path(src_path);
+        let mut guard = self.inner.value.write().unwrap();
+
+        let Ok(source) = guard.reflect_path(src_full.as_str()) else {
+            return false;
+        };
+        let snapshot = source.to_dynamic();
+
+        let Ok(target) = guard.reflect_path_mut(dest_full.as_str()) else {
+            return false;
+        };
+        // An Option destination takes Some(item), not the bare item.
+        let wraps_option = matches!(
+            target.reflect_ref(),
+            ReflectRef::Enum(e) if e.reflect_type_path().starts_with("core::option::Option")
+        );
+        let applied = if wraps_option {
+            let mut tuple = bevy::reflect::tuple::DynamicTuple::default();
+            tuple.insert_boxed(snapshot);
+            target
+                .try_apply(&DynamicEnum::new("Some", DynamicVariant::Tuple(tuple)))
+                .is_ok()
+        } else {
+            target.try_apply(snapshot.as_ref()).is_ok()
+        };
+        if !applied {
+            return false;
+        }
+        drop(guard);
+        self.log_change(Some(dest_full.into()));
+        true
+    }
+
+    /// Clear an `Option` destination — "nothing is selected".
+    pub fn set_null(&self, dest_path: &str) -> bool {
+        use bevy::reflect::ReflectRef;
+        use bevy::reflect::enums::{DynamicEnum, DynamicVariant};
+        let full = self.full_path(dest_path);
+        let mut guard = self.inner.value.write().unwrap();
+        let Ok(target) = guard.reflect_path_mut(full.as_str()) else {
+            return false;
+        };
+        if !matches!(
+            target.reflect_ref(),
+            ReflectRef::Enum(e) if e.reflect_type_path().starts_with("core::option::Option")
+        ) {
+            warn!("SelectedItem: `{full}` is not an Option, so it cannot be cleared");
+            return false;
+        }
+        if target
+            .try_apply(&DynamicEnum::new("None", DynamicVariant::Unit))
+            .is_err()
+        {
+            return false;
+        }
+        drop(guard);
+        self.log_change(Some(full.into()));
+        true
+    }
+
     /// Write a value at a reflection path (two-way bindings), then notify
     /// the bindings that read that path.
     pub fn write_path(&self, path: &str, value: &BoundValue) -> bool {
@@ -378,6 +537,40 @@ impl BoundValue {
     }
 }
 
+/// The result of locating a bound item inside an items collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionMatch {
+    /// The item is element `n` of the collection.
+    Index(usize),
+    /// The bound property is `None` — an explicit "nothing selected".
+    Null,
+    /// A value that is not in the collection. WPF clears the selection.
+    NotFound,
+    /// The collection is not there yet (empty, or items not generated).
+    /// Distinct from `NotFound`: the caller must RETRY rather than clear,
+    /// or a selection set before the list arrives is silently discarded.
+    Pending,
+}
+
+/// Are these two reflected values the same item?
+///
+/// Structural equality, gated on the represented type. The gate is not
+/// optional: bevy's `struct_partial_eq` compares field NAMES and values
+/// only, so without it a `Player { name }` would equal an `Enemy { name }`.
+/// WPF's own comparison is likewise type-paranoid.
+///
+/// `None` means "cannot say" — a type whose `reflect_partial_eq` is the
+/// trait default. It is never coerced to `true`, because a false positive
+/// here silently selects the wrong row.
+fn items_equal(a: &dyn PartialReflect, b: &dyn PartialReflect) -> Option<bool> {
+    if let (Some(ta), Some(tb)) = (a.get_represented_type_info(), b.get_represented_type_info())
+        && ta.type_id() != tb.type_id()
+    {
+        return Some(false);
+    }
+    a.reflect_partial_eq(b)
+}
+
 fn reflect_to_bound(value: &dyn PartialReflect) -> BoundValue {
     // Option<T>: None is a null source value; Some unwraps to the inner.
     if let bevy::reflect::ReflectRef::Enum(e) = value.reflect_ref()
@@ -446,6 +639,20 @@ pub enum BindingTarget {
     SliderValue,
     /// ListBox/ComboBox `SelectedIndex` (TwoWay: selection writes back).
     SelectedIndex,
+    /// ListBox/ComboBox `SelectedItem` — the ITEM, not its position.
+    ///
+    /// Located by comparing the bound value against the collection's
+    /// elements inside the view model (see [`Bindable::selection_match`]):
+    /// structural equality, gated on the represented type, first match wins,
+    /// with the currently-selected row preferred so duplicates behave. A
+    /// value that is not in the collection CLEARS the selection, as WPF
+    /// does; `None` clears it too, and an empty collection is retried rather
+    /// than treated as "not there".
+    SelectedItem,
+    /// ListBox/ComboBox `SelectedValue` — a KEY read out of each item via
+    /// `SelectedValuePath`, for models that identify rows by id rather than
+    /// by value.
+    SelectedValue,
     /// ProgressBar value.
     ProgressValue,
     /// `Visibility` (accepts "Visible/Hidden/Collapsed" strings or booleans).
@@ -942,8 +1149,21 @@ pub(crate) fn apply_bindings(world: &mut World) {
                         }
                         if let Some(ctx) = &ctx
                             && b.seen_version != ctx.version() {
+                                // A selection binding also depends on the
+                                // COLLECTION: after a rebuild the item must
+                                // be re-located, or the selection is left
+                                // pointing at a despawned row. This is WPF's
+                                // OnItemsChanged -> CoerceValue(SelectedItem).
+                                let items_path = matches!(
+                                    b.target,
+                                    BindingTarget::SelectedItem | BindingTarget::SelectedValue
+                                )
+                                .then(|| world.get::<crate::items::PfItemsSource>(entity))
+                                .flatten()
+                                .map(|s| s.path.as_str());
                                 let reads = std::iter::once(b.path.as_str())
-                                    .chain(b.multi_paths.iter().map(String::as_str));
+                                    .chain(b.multi_paths.iter().map(String::as_str))
+                                    .chain(items_path);
                                 if ctx.changed_since(b.seen_version, reads) {
                                     updates.push((i, b.clone()));
                                 } else {
@@ -1019,6 +1239,50 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 }
                 continue;
             }
+            // SelectedItem is resolved BEFORE any value read: the bound item
+            // is an object, and reading it as a scalar would fall through to
+            // reflect_to_bound's Debug representation — the very "compare the
+            // rendered text" mistake this target exists to avoid.
+            if binding.target == BindingTarget::SelectedItem
+                && matches!(binding.source, PfBindingSource::DataContext)
+            {
+                let ctx = ctx.as_ref().expect("checked above");
+                let Some(items) = world
+                    .get::<crate::items::PfItemsSource>(entity)
+                    .map(|s| s.path.clone())
+                else {
+                    warn!("SelectedItem needs an ItemsSource on the same control");
+                    continue;
+                };
+                // Prefer the row already selected, so that among equal items
+                // the user's actual pick is kept rather than the first match.
+                let preferred = if let Some(combo) = world.get::<crate::components::PfComboBox>(entity)
+                {
+                    combo.selected
+                } else {
+                    let selected = world
+                        .get::<crate::components::PfListBox>(entity)
+                        .and_then(|l| l.selected);
+                    selected.and_then(|sel| {
+                        let container = crate::items::items_container(world, entity);
+                        world
+                            .get::<Children>(container)
+                            .and_then(|c| c.iter().position(|child| child == sel))
+                    })
+                };
+
+                let outcome = ctx.selection_match(&items, &binding.path, preferred);
+                let settled = apply_selection(world, entity, outcome, preferred);
+                if settled {
+                    let version = ctx.version();
+                    if let Some(mut bindings) = world.get_mut::<PfBindings>(entity) {
+                        bindings.0[index].seen_version = version;
+                    }
+                }
+                // Not settled (collection not generated yet): leave
+                // seen_version alone so the next frame retries.
+                continue;
+            }
             let (value, mark_version) = match &binding.source {
                 PfBindingSource::DataContext => {
                     let ctx = ctx.as_ref().expect("checked above");
@@ -1086,9 +1350,109 @@ pub(crate) fn apply_bindings(world: &mut World) {
     }
 }
 
+/// Drive the control's selection from a resolved [`SelectionMatch`].
+///
+/// Returns whether the outcome is SETTLED — i.e. whether the binding may
+/// record that it has seen this model version. `Pending` (and an index whose
+/// row has not been generated yet) are not settled, so the binding retries
+/// next frame instead of losing a selection made before the list arrived.
+fn apply_selection(
+    world: &mut World,
+    entity: Entity,
+    outcome: SelectionMatch,
+    preferred: Option<usize>,
+) -> bool {
+    let is_combo = world.get::<crate::components::PfComboBox>(entity).is_some();
+    match outcome {
+        SelectionMatch::Pending => false,
+        SelectionMatch::Index(i) => {
+            if Some(i) == preferred {
+                return true; // already there; do not churn the UI
+            }
+            if is_combo {
+                crate::instantiate::select_combo_index(world, entity, i);
+                world
+                    .get::<crate::components::PfComboBox>(entity)
+                    .and_then(|c| c.selected)
+                    == Some(i)
+            } else {
+                let container = crate::items::items_container(world, entity);
+                let child = world.get::<Children>(container).and_then(|c| c.iter().nth(i));
+                let Some(child) = child else {
+                    return false; // rows not generated yet — retry
+                };
+                if let Some(mut list) = world.get_mut::<crate::components::PfListBox>(entity) {
+                    list.selected = Some(child);
+                }
+                true
+            }
+        }
+        // WPF clears the selection for a value that is not in the list, and
+        // `None` means "nothing selected" outright. Both land here.
+        SelectionMatch::Null | SelectionMatch::NotFound => {
+            if is_combo {
+                if let Some(state) = world.get::<crate::components::PfComboBox>(entity).cloned() {
+                    if let Some(mut t) = world.get_mut::<bevy::ui::widget::Text>(state.text) {
+                        t.0.clear();
+                    }
+                    if let Some(mut c) = world.get_mut::<crate::components::PfComboBox>(entity) {
+                        c.selected = None;
+                    }
+                }
+            } else if let Some(mut list) = world.get_mut::<crate::components::PfListBox>(entity) {
+                list.selected = None;
+            }
+            true
+        }
+    }
+}
+
+/// `SelectedValue`: locate the row whose `SelectedValuePath` member equals
+/// the bound key. Unlike `SelectedItem` this compares SCALARS, which is the
+/// whole point — it is the escape hatch for models that identify rows by id
+/// rather than by value.
+fn apply_selected_value(world: &mut World, entity: Entity, value: &BoundValue) {
+    let Some(ctx) = find_context(world, entity) else {
+        return;
+    };
+    let Some(items) = world
+        .get::<crate::items::PfItemsSource>(entity)
+        .map(|s| s.path.clone())
+    else {
+        warn!("SelectedValue needs an ItemsSource on the same control");
+        return;
+    };
+    let key = world
+        .get::<crate::components::PfSelectedValuePath>(entity)
+        .map(|p| p.0.clone())
+        .unwrap_or_default();
+    let Some(len) = ctx.list_len(&items) else {
+        return;
+    };
+    if len == 0 {
+        return; // not generated yet; retried on the next version bump
+    }
+    let outcome = (0..len)
+        .find(|i| {
+            let path = if key.is_empty() {
+                format!("{items}[{i}]")
+            } else {
+                format!("{items}[{i}].{key}")
+            };
+            ctx.read_path(&path).is_some_and(|v| &v == value)
+        })
+        .map_or(SelectionMatch::NotFound, SelectionMatch::Index);
+    apply_selection(world, entity, outcome, None);
+}
+
 fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, value: &BoundValue) {
     use bevy::ui::widget::Text;
     match binding.target {
+        // Never routed here: SelectedItem is resolved against the model in
+        // `apply_bindings` before any value is read, precisely so an object
+        // never arrives as a scalar.
+        BindingTarget::SelectedItem => {}
+        BindingTarget::SelectedValue => apply_selected_value(world, entity, value),
         BindingTarget::Text => {
             let text = binding.format(value);
             if let Some(mut t) = world.get_mut::<Text>(entity)
@@ -1495,6 +1859,7 @@ type ChangedList<'w, 's> = Query<
         &'static crate::components::PfListBox,
         Option<&'static crate::components::PfItemsPanel>,
         &'static PfBindings,
+        Option<&'static crate::items::PfItemsSource>,
         Ref<'static, crate::components::PfListBox>,
     ),
     Changed<crate::components::PfListBox>,
@@ -1506,6 +1871,7 @@ type ChangedCombo<'w, 's> = Query<
         Entity,
         &'static crate::components::PfComboBox,
         &'static PfBindings,
+        Option<&'static crate::items::PfItemsSource>,
         Ref<'static, crate::components::PfComboBox>,
     ),
     Changed<crate::components::PfComboBox>,
@@ -1519,24 +1885,56 @@ pub(crate) fn selection_write_back(
     contexts: Query<&DataContext>,
     children_q: Query<&Children>,
 ) {
-    let write = |entity: Entity, bindings: &PfBindings, index: Option<usize>| {
+    let write = |entity: Entity,
+                 bindings: &PfBindings,
+                 items: Option<&str>,
+                 index: Option<usize>| {
         for binding in &bindings.0 {
-            if binding.target != BindingTarget::SelectedIndex
-                || !binding.is_to_source()
-                || binding.source != PfBindingSource::DataContext
-            {
+            if !binding.is_to_source() || binding.source != PfBindingSource::DataContext {
                 continue;
             }
-            let value = index.map(|i| i as f64).unwrap_or(-1.0);
-            if let Some(ctx) = find_context_via_queries(entity, &parents, &contexts) {
-                let current = ctx.read_path(&binding.path).and_then(|b| b.as_f64());
-                if current != Some(value) {
-                    ctx.write_path(&binding.path, &BoundValue::Num(value));
+            let Some(ctx) = find_context_via_queries(entity, &parents, &contexts) else {
+                continue;
+            };
+            match binding.target {
+                BindingTarget::SelectedIndex => {
+                    let value = index.map(|i| i as f64).unwrap_or(-1.0);
+                    let current = ctx.read_path(&binding.path).and_then(|b| b.as_f64());
+                    if current != Some(value) {
+                        ctx.write_path(&binding.path, &BoundValue::Num(value));
+                    }
                 }
+                // Write the OBJECT back, not its position. The guard is a
+                // selection_match against the row the user picked: if the
+                // model already holds that exact row there is nothing to do,
+                // and skipping the write avoids a version bump that would
+                // ripple back through every binding reading this path.
+                BindingTarget::SelectedItem => {
+                    let Some(items) = items else {
+                        continue;
+                    };
+                    match index {
+                        Some(i) => {
+                            if ctx.selection_match(items, &binding.path, Some(i))
+                                != SelectionMatch::Index(i)
+                            {
+                                ctx.set_from(&binding.path, &format!("{items}[{i}]"));
+                            }
+                        }
+                        None => {
+                            if ctx.selection_match(items, &binding.path, None)
+                                != SelectionMatch::Null
+                            {
+                                ctx.set_null(&binding.path);
+                            }
+                        }
+                    }
+                }
+                _ => continue,
             }
         }
     };
-    for (entity, list, panel, bindings, added) in &lists {
+    for (entity, list, panel, bindings, source, added) in &lists {
         // Added-component echo guard: the first Changed tick is the spawn
         // itself — writing -1 back would clobber the source before the
         // initial to-target apply runs.
@@ -1550,13 +1948,13 @@ pub(crate) fn selection_write_back(
                 .ok()
                 .and_then(|children| children.iter().position(|c| c == sel))
         });
-        write(entity, bindings, index);
+        write(entity, bindings, source.map(|s| s.path.as_str()), index);
     }
-    for (entity, combo, bindings, added) in &combos {
+    for (entity, combo, bindings, source, added) in &combos {
         if added.is_added() {
             continue;
         }
-        write(entity, bindings, combo.selected);
+        write(entity, bindings, source.map(|s| s.path.as_str()), combo.selected);
     }
 }
 

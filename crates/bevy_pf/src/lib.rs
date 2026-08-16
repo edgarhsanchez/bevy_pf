@@ -71,7 +71,7 @@ pub use bevy_pf_xaml as xaml_ast;
 pub use app_theme::{AppTheme, PfAppTheme, PfAppThemeRefs, app_theme, set_user_app_theme};
 pub use device::{DeviceIdiom, DevicePlatform, PfDevice};
 pub use asset::{XamlAsset, XamlView};
-pub use binding::{Bindable, BoundValue, DataContext, DataContextScope, PfBindings};
+pub use binding::{Bindable, BoundValue, DataContext, DataContextScope, PfBindings, SelectionMatch};
 pub use components::{ButtonVisual, PfAttachedProps, PfElementKind, PfName, XamlNames};
 pub use dynamic::{
     PfApplicationResources, PfDynamicResources, PfResources, merge_application_resources,

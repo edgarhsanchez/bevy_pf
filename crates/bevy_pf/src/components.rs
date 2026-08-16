@@ -305,6 +305,11 @@ pub struct PfViewbox {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PfLogicalParent(pub Entity);
 
+/// `SelectedValuePath`: the member of each item that `SelectedValue` binds.
+/// Empty means the item itself, which is WPF's default.
+#[derive(Component, Debug, Clone)]
+pub struct PfSelectedValuePath(pub String);
+
 /// WPF `ComboBox`: dropdown state and links to its generated parts.
 #[derive(Component, Debug, Clone)]
 pub struct PfComboBox {
