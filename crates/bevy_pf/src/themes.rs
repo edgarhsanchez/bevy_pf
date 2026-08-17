@@ -24,18 +24,66 @@ pub struct ThemeInfo {
 
 /// Every built-in theme, in menu order.
 pub const THEMES: &[ThemeInfo] = &[
-    ThemeInfo { slug: "fluent-light", name: "Fluent Light", dark: false },
-    ThemeInfo { slug: "fluent-dark", name: "Fluent Dark", dark: true },
-    ThemeInfo { slug: "material-light", name: "Material Light", dark: false },
-    ThemeInfo { slug: "material-dark", name: "Material Dark", dark: true },
-    ThemeInfo { slug: "nord", name: "Nord", dark: true },
-    ThemeInfo { slug: "dracula", name: "Dracula", dark: true },
-    ThemeInfo { slug: "catppuccin-latte", name: "Catppuccin Latte", dark: false },
-    ThemeInfo { slug: "catppuccin-mocha", name: "Catppuccin Mocha", dark: true },
-    ThemeInfo { slug: "solarized-light", name: "Solarized Light", dark: false },
-    ThemeInfo { slug: "solarized-dark", name: "Solarized Dark", dark: true },
-    ThemeInfo { slug: "gruvbox-dark", name: "Gruvbox Dark", dark: true },
-    ThemeInfo { slug: "tokyo-night", name: "Tokyo Night", dark: true },
+    ThemeInfo {
+        slug: "fluent-light",
+        name: "Fluent Light",
+        dark: false,
+    },
+    ThemeInfo {
+        slug: "fluent-dark",
+        name: "Fluent Dark",
+        dark: true,
+    },
+    ThemeInfo {
+        slug: "material-light",
+        name: "Material Light",
+        dark: false,
+    },
+    ThemeInfo {
+        slug: "material-dark",
+        name: "Material Dark",
+        dark: true,
+    },
+    ThemeInfo {
+        slug: "nord",
+        name: "Nord",
+        dark: true,
+    },
+    ThemeInfo {
+        slug: "dracula",
+        name: "Dracula",
+        dark: true,
+    },
+    ThemeInfo {
+        slug: "catppuccin-latte",
+        name: "Catppuccin Latte",
+        dark: false,
+    },
+    ThemeInfo {
+        slug: "catppuccin-mocha",
+        name: "Catppuccin Mocha",
+        dark: true,
+    },
+    ThemeInfo {
+        slug: "solarized-light",
+        name: "Solarized Light",
+        dark: false,
+    },
+    ThemeInfo {
+        slug: "solarized-dark",
+        name: "Solarized Dark",
+        dark: true,
+    },
+    ThemeInfo {
+        slug: "gruvbox-dark",
+        name: "Gruvbox Dark",
+        dark: true,
+    },
+    ThemeInfo {
+        slug: "tokyo-night",
+        name: "Tokyo Night",
+        dark: true,
+    },
 ];
 
 /// The XAML source of a built-in theme dictionary.
@@ -63,8 +111,7 @@ pub fn apply_theme(world: &mut World, slug: &str) -> Result<Vec<String>, PfError
     let source = theme_source(slug)
         .ok_or_else(|| PfError::instantiate(format!("unknown theme `{slug}`")))?;
     let doc = bevy_pf_xaml::parse(source)?;
-    let warnings =
-        crate::instantiate::set_application_resources(world, &doc, &XamlEnv::default());
+    let warnings = crate::instantiate::set_application_resources(world, &doc, &XamlEnv::default());
     // Applying a theme is also a statement about light vs dark, so
     // `{AppThemeBinding}` follows the built-in themes without the host
     // having to say so twice. It lands on the USER theme, which means

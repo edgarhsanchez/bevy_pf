@@ -140,18 +140,21 @@ fn wire_new_pages(
             text.0 = format!(
                 "page: {}{}",
                 nav.source,
-                nav.title.as_deref().map(|t| format!("  ({t})")).unwrap_or_default()
+                nav.title
+                    .as_deref()
+                    .map(|t| format!("  ({t})"))
+                    .unwrap_or_default()
             );
         }
         // The settings page's button is new on every visit.
         if nav.source == "settings.xaml"
             && let Some(bump) = ui.by_name("Bump")
         {
-            commands.entity(bump).observe(
-                |_: On<Pointer<Click>>, vm: Res<VmHandle>| {
+            commands
+                .entity(bump)
+                .observe(|_: On<Pointer<Click>>, vm: Res<VmHandle>| {
                     vm.0.update(|m: &mut Vm| m.count += 1);
-                },
-            );
+                });
         }
     }
 }

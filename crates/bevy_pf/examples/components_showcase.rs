@@ -107,23 +107,19 @@ fn main() {
 /// One-shot: attach a click observer to the "VsyncToggle" menu item once the
 /// scene has instantiated. The built-in menu behavior (close on leaf click)
 /// still runs — observers stack.
-fn wire_vsync_menu(
-    mut wired: Local<bool>,
-    ui: PfQuery,
-    mut commands: Commands,
-) {
+fn wire_vsync_menu(mut wired: Local<bool>, ui: PfQuery, mut commands: Commands) {
     if *wired {
         return;
     }
     let Some(toggle) = ui.by_name("VsyncToggle") else {
         return;
     };
-    commands.entity(toggle).observe(
-        |_click: On<Pointer<Click>>, mut vsync: ResMut<Vsync>| {
+    commands
+        .entity(toggle)
+        .observe(|_click: On<Pointer<Click>>, mut vsync: ResMut<Vsync>| {
             vsync.on = !vsync.on;
             vsync.dirty = true;
-        },
-    );
+        });
     if let Some(dialog_btn) = ui.by_name("DialogBtn") {
         commands.entity(dialog_btn).observe(
             |_: On<Pointer<Click>>, mut commands: Commands| {
@@ -147,8 +143,9 @@ fn wire_vsync_menu(
         );
     }
     if let Some(toast_btn) = ui.by_name("ToastBtn") {
-        commands.entity(toast_btn).observe(
-            |_: On<Pointer<Click>>, mut commands: Commands| {
+        commands
+            .entity(toast_btn)
+            .observe(|_: On<Pointer<Click>>, mut commands: Commands| {
                 commands.queue(|world: &mut World| {
                     bevy_pf::toast::show_with(
                         world,
@@ -157,8 +154,7 @@ fn wire_vsync_menu(
                         4.0,
                     );
                 });
-            },
-        );
+            });
     }
     *wired = true;
 }
@@ -196,13 +192,28 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     let vm = Bindable::new(Vm {
         files: vec![
-            FileRow { name: "main.rs".into(), kind: "Rust".into(), size: 1240 },
-            FileRow { name: "app.xaml".into(), kind: "XAML".into(), size: 862 },
-            FileRow { name: "theme.xaml".into(), kind: "XAML".into(), size: 311 },
+            FileRow {
+                name: "main.rs".into(),
+                kind: "Rust".into(),
+                size: 1240,
+            },
+            FileRow {
+                name: "app.xaml".into(),
+                kind: "XAML".into(),
+                size: 862,
+            },
+            FileRow {
+                name: "theme.xaml".into(),
+                kind: "XAML".into(),
+                size: 311,
+            },
         ],
         players: vec!["Ada".into(), "Bevy".into(), "Cleo".into(), "Дмитрий".into()],
         count: 0.0,
-        profile: Profile { name: "Grace Hopper".into(), role: "Rear Admiral, compiler pioneer".into() },
+        profile: Profile {
+            name: "Grace Hopper".into(),
+            role: "Rear Admiral, compiler pioneer".into(),
+        },
     });
     // RepeatButton demo: each Click (initial tap + repeats while held)
     // invokes this command.
@@ -648,9 +659,7 @@ fn live_updates(
                 world,
                 swatch,
                 bevy_pf::PropertyTarget::Background,
-                bevy_pf::resources::PfValue::Brush(bevy_pf::xaml_ast::value::PfBrush::Solid(
-                    color,
-                )),
+                bevy_pf::resources::PfValue::Brush(bevy_pf::xaml_ast::value::PfBrush::Solid(color)),
             );
         });
     }

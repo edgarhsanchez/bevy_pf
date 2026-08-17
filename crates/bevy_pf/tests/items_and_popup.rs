@@ -18,8 +18,8 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
     let doc = bevy_pf_xaml::parse(xaml).expect("parses");
     let world = app.world_mut();
     let root = world.spawn_empty().id();
-    let result = instantiate_document_env(world, root, &doc, &XamlEnv::default())
-        .expect("instantiates");
+    let result =
+        instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
     assert!(
         result.warnings.is_empty(),
         "expected clean instantiation: {:?}",
@@ -29,7 +29,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 fn children_of(app: &App, e: Entity) -> Vec<Entity> {
@@ -108,15 +112,26 @@ fn combo_open_state_reaches_popup_display() {
         .unwrap()
         .popup;
     app.update();
-    assert_eq!(app.world().get::<Node>(popup).unwrap().display, Display::None);
+    assert_eq!(
+        app.world().get::<Node>(popup).unwrap().display,
+        Display::None
+    );
 
     app.world_mut()
         .get_mut::<bevy_pf::components::PfComboBox>(combo)
         .unwrap()
         .open = true;
     app.update();
-    assert!(app.world().get::<bevy_pf::overlay::PfPopup>(popup).unwrap().open);
-    assert_ne!(app.world().get::<Node>(popup).unwrap().display, Display::None);
+    assert!(
+        app.world()
+            .get::<bevy_pf::overlay::PfPopup>(popup)
+            .unwrap()
+            .open
+    );
+    assert_ne!(
+        app.world().get::<Node>(popup).unwrap().display,
+        Display::None
+    );
 }
 
 #[derive(Reflect, Default)]
@@ -146,7 +161,9 @@ fn items_source_plain_strings() {
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     x:Name="L" ItemsSource="{Binding names}"/>"#,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     let list = named(&app, root, "L");
@@ -179,8 +196,14 @@ fn items_source_with_data_template() {
     let mut app = test_app();
     let vm = Bindable::new(Roster {
         players: vec![
-            Player { name: "Ada".into(), score: 10 },
-            Player { name: "Bob".into(), score: 20 },
+            Player {
+                name: "Ada".into(),
+                score: 10,
+            },
+            Player {
+                name: "Bob".into(),
+                score: 20,
+            },
         ],
         ..Default::default()
     });
@@ -199,7 +222,9 @@ fn items_source_with_data_template() {
              </ItemsControl.ItemTemplate>
            </ItemsControl>"#,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
     app.update(); // template bindings resolve on the frame after generation
 
@@ -232,8 +257,14 @@ fn items_source_display_member_path() {
     let mut app = test_app();
     let vm = Bindable::new(Roster {
         players: vec![
-            Player { name: "Ada".into(), score: 1 },
-            Player { name: "Bob".into(), score: 2 },
+            Player {
+                name: "Ada".into(),
+                score: 1,
+            },
+            Player {
+                name: "Bob".into(),
+                score: 2,
+            },
         ],
         ..Default::default()
     });
@@ -304,7 +335,10 @@ fn tooltip_property_attaches() {
 fn item_write_back_through_scoped_context() {
     // TwoWay through a scoped item context writes into the list element.
     let vm = Bindable::new(Roster {
-        players: vec![Player { name: "Ada".into(), score: 1 }],
+        players: vec![Player {
+            name: "Ada".into(),
+            score: 1,
+        }],
         ..Default::default()
     });
     let item = vm.at("players[0]");
@@ -344,7 +378,9 @@ fn items_panel_redirects_generation_and_container_style_applies() {
               </ListBox.ItemContainerStyle>
             </ListBox>"##,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     let list = named(&app, root, "L");
@@ -411,7 +447,9 @@ fn selected_index_two_way_through_items_panel() {
               </ListBox.ItemsPanel>
             </ListBox>"##,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
     app.update(); // settle: generation, then selection apply
 
@@ -461,7 +499,9 @@ struct Shell {
 fn content_control_selects_datatype_template_and_scalar_text() {
     let mut app = test_app();
     let vm = Bindable::new(Shell {
-        current: Detail { title: "Hello".into() },
+        current: Detail {
+            title: "Hello".into(),
+        },
         note: "plain note".into(),
     });
     let root = spawn(
@@ -479,7 +519,9 @@ fn content_control_selects_datatype_template_and_scalar_text() {
               <ContentControl x:Name="Note" Content="{Binding note}"/>
             </StackPanel>"##,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
     app.update(); // template bindings resolve the frame after generation
 
@@ -537,8 +579,12 @@ fn generated_items_stretch_across_a_column_items_panel() {
     let mut app = test_app();
     let vm = Bindable::new(RowsVm {
         rows: vec![
-            RowVm { name: "alpha".into() },
-            RowVm { name: "beta".into() },
+            RowVm {
+                name: "alpha".into(),
+            },
+            RowVm {
+                name: "beta".into(),
+            },
         ],
     });
     let doc = bevy_pf_xaml::parse(
@@ -585,7 +631,9 @@ fn generated_items_stretch_across_a_column_items_panel() {
 fn generated_items_do_not_stretch_across_a_wrap_panel() {
     let mut app = test_app();
     let vm = Bindable::new(RowsVm {
-        rows: vec![RowVm { name: "alpha".into() }],
+        rows: vec![RowVm {
+            name: "alpha".into(),
+        }],
     });
     let doc = bevy_pf_xaml::parse(
         r##"<ItemsControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -646,7 +694,9 @@ fn unrelated_named_updates_do_not_regenerate_items() {
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     x:Name="L" ItemsSource="{Binding names}"/>"#,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
     let list = named(&app, root, "L");
     let before = children_of(&app, list);

@@ -56,9 +56,10 @@ pub fn resolve_dynamic(world: &World, entity: Entity, key: &ResourceKey) -> Opti
     let mut current = Some(entity);
     while let Some(e) = current {
         if let Some(res) = world.get::<PfResources>(e)
-            && let Some(v) = res.0.get(key) {
-                return Some(v.clone());
-            }
+            && let Some(v) = res.0.get(key)
+        {
+            return Some(v.clone());
+        }
         // Follow logical links first (popup content under the overlay root).
         current = world
             .get::<crate::components::PfLogicalParent>(e)
@@ -100,10 +101,8 @@ pub(crate) fn refresh_dynamic_resources(world: &mut World) {
     // A theme change alone cannot move a plain {DynamicResource}.
     if rev_changed {
         let mut query = world.query::<(Entity, &PfDynamicResources)>();
-        let targets: Vec<(Entity, Vec<DynEntry>)> = query
-            .iter(world)
-            .map(|(e, d)| (e, d.0.clone()))
-            .collect();
+        let targets: Vec<(Entity, Vec<DynEntry>)> =
+            query.iter(world).map(|(e, d)| (e, d.0.clone())).collect();
         for (entity, entries) in targets {
             for entry in entries {
                 if let Some(value) = resolve_dynamic(world, entity, &entry.key) {
@@ -121,10 +120,8 @@ pub(crate) fn refresh_dynamic_resources(world: &mut World) {
 
     let theme = crate::app_theme::app_theme(world);
     let mut query = world.query::<(Entity, &crate::app_theme::PfAppThemeRefs)>();
-    let themed: Vec<(Entity, Vec<crate::app_theme::AppThemeEntry>)> = query
-        .iter(world)
-        .map(|(e, r)| (e, r.0.clone()))
-        .collect();
+    let themed: Vec<(Entity, Vec<crate::app_theme::AppThemeEntry>)> =
+        query.iter(world).map(|(e, r)| (e, r.0.clone())).collect();
     for (entity, entries) in themed {
         for entry in entries {
             let value = match entry.arms.pick(theme) {

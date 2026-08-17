@@ -25,7 +25,11 @@ fn corpus_files(sub: &str) -> Vec<PathBuf> {
         })
         .collect();
     files.sort();
-    assert!(!files.is_empty(), "no corpus files found in {}", dir.display());
+    assert!(
+        !files.is_empty(),
+        "no corpus files found in {}",
+        dir.display()
+    );
     files
 }
 
@@ -64,8 +68,7 @@ fn parses_all_wpf_upstream_corpus_files() {
 
 #[test]
 fn hello_world_shape_is_correct() {
-    let src =
-        std::fs::read_to_string(corpus_dir().join("wpf/hello.xaml")).unwrap();
+    let src = std::fs::read_to_string(corpus_dir().join("wpf/hello.xaml")).unwrap();
     let doc = bevy_pf_xaml::parse(&src).unwrap();
     assert_eq!(doc.root.name, "Window");
     assert_eq!(doc.root.x_class.as_deref(), Some("HelloWorld.MainWindow"));
@@ -78,8 +81,7 @@ fn hello_world_shape_is_correct() {
 
 #[test]
 fn expenseit_home_structure() {
-    let src =
-        std::fs::read_to_string(corpus_dir().join("wpf/expenseithome.xaml")).unwrap();
+    let src = std::fs::read_to_string(corpus_dir().join("wpf/expenseithome.xaml")).unwrap();
     let doc = bevy_pf_xaml::parse(&src).unwrap();
     assert_eq!(doc.root.name, "Page");
     let grid = doc.root.child_elements().next().unwrap();

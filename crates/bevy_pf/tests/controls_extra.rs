@@ -18,8 +18,8 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
     let doc = bevy_pf_xaml::parse(xaml).expect("parses");
     let world = app.world_mut();
     let root = world.spawn_empty().id();
-    let result = instantiate_document_env(world, root, &doc, &XamlEnv::default())
-        .expect("instantiates");
+    let result =
+        instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
     assert!(
         result.warnings.is_empty(),
         "expected clean instantiation: {:?}",
@@ -29,7 +29,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 fn children_of(app: &App, e: Entity) -> Vec<Entity> {
@@ -72,7 +76,10 @@ fn tab_control_selection() {
 
     // Selected header is highlighted white.
     assert_eq!(
-        app.world().get::<BackgroundColor>(state.headers[1]).unwrap().0,
+        app.world()
+            .get::<BackgroundColor>(state.headers[1])
+            .unwrap()
+            .0,
         Color::WHITE
     );
 
@@ -114,7 +121,10 @@ fn tree_view_expansion_and_selection() {
     assert!(root_state.expanded);
     assert!(root_state.has_children);
     assert_ne!(
-        app.world().get::<Node>(root_state.container).unwrap().display,
+        app.world()
+            .get::<Node>(root_state.container)
+            .unwrap()
+            .display,
         Display::None
     );
     // Two children under the root item.
@@ -199,24 +209,49 @@ fn menu_submenus_open_and_close() {
 
     // Activate "File" -> its popup opens.
     bevy_pf::instantiate::activate_menu_item(app.world_mut(), file);
-    assert!(app.world().get::<bevy_pf::PfPopup>(file_popup).unwrap().open);
+    assert!(
+        app.world()
+            .get::<bevy_pf::PfPopup>(file_popup)
+            .unwrap()
+            .open
+    );
 
     // Activating "Help" closes File's popup, opens Help's.
     bevy_pf::instantiate::activate_menu_item(app.world_mut(), help);
-    assert!(!app.world().get::<bevy_pf::PfPopup>(file_popup).unwrap().open);
+    assert!(
+        !app.world()
+            .get::<bevy_pf::PfPopup>(file_popup)
+            .unwrap()
+            .open
+    );
     let help_popup = app
         .world()
         .get::<bevy_pf::components::PfMenuItem>(help)
         .unwrap()
         .submenu
         .unwrap();
-    assert!(app.world().get::<bevy_pf::PfPopup>(help_popup).unwrap().open);
+    assert!(
+        app.world()
+            .get::<bevy_pf::PfPopup>(help_popup)
+            .unwrap()
+            .open
+    );
 
     // A leaf item closes everything in this menu.
     bevy_pf::instantiate::activate_menu_item(app.world_mut(), file);
     bevy_pf::instantiate::activate_menu_item(app.world_mut(), exit);
-    assert!(!app.world().get::<bevy_pf::PfPopup>(file_popup).unwrap().open);
-    assert!(!app.world().get::<bevy_pf::PfPopup>(help_popup).unwrap().open);
+    assert!(
+        !app.world()
+            .get::<bevy_pf::PfPopup>(file_popup)
+            .unwrap()
+            .open
+    );
+    assert!(
+        !app.world()
+            .get::<bevy_pf::PfPopup>(help_popup)
+            .unwrap()
+            .open
+    );
     let _ = menu;
 }
 
@@ -277,8 +312,14 @@ fn data_grid_columns_and_rows() {
     let mut app = test_app();
     let vm = Bindable::new(GridVm {
         rows: vec![
-            Row { name: "Ada".into(), score: 10 },
-            Row { name: "Bob".into(), score: 20 },
+            Row {
+                name: "Ada".into(),
+                score: 10,
+            },
+            Row {
+                name: "Bob".into(),
+                score: 20,
+            },
         ],
     });
     let root = spawn(
@@ -292,7 +333,9 @@ fn data_grid_columns_and_rows() {
              </DataGrid.Columns>
            </DataGrid>"#,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     let grid = named(&app, root, "G");
@@ -309,10 +352,7 @@ fn data_grid_columns_and_rows() {
     let kids = children_of(&app, grid);
     assert_eq!(kids.len(), 2);
     let header_cells = children_of(&app, kids[0]);
-    assert_eq!(
-        app.world().get::<Text>(header_cells[0]).unwrap().0,
-        "Name"
-    );
+    assert_eq!(app.world().get::<Text>(header_cells[0]).unwrap().0, "Name");
 
     // Generated rows with per-column cells.
     let rows = children_of(&app, state.rows_host);
@@ -334,7 +374,12 @@ fn data_grid_columns_and_rows() {
     );
 
     // Model change rebuilds rows.
-    vm.update(|m: &mut GridVm| m.rows.push(Row { name: "Cleo".into(), score: 30 }));
+    vm.update(|m: &mut GridVm| {
+        m.rows.push(Row {
+            name: "Cleo".into(),
+            score: 30,
+        })
+    });
     app.update();
     let rows = children_of(&app, state.rows_host);
     assert_eq!(rows.len(), 3);
@@ -363,12 +408,18 @@ fn checkable_menu_item_toggles_on_activation() {
         .get::<bevy_pf::components::PfCheckableMenuItem>(standard)
         .unwrap()
         .glyph;
-    assert_eq!(app.world().get::<Node>(glyph).unwrap().display, Display::Flex);
+    assert_eq!(
+        app.world().get::<Node>(glyph).unwrap().display,
+        Display::Flex
+    );
 
     // Leaf activation toggles off, then back on.
     bevy_pf::instantiate::activate_menu_item(app.world_mut(), standard);
     assert!(app.world().get::<bevy::ui::Checked>(standard).is_none());
-    assert_eq!(app.world().get::<Node>(glyph).unwrap().display, Display::None);
+    assert_eq!(
+        app.world().get::<Node>(glyph).unwrap().display,
+        Display::None
+    );
     bevy_pf::instantiate::activate_menu_item(app.world_mut(), standard);
     assert!(app.world().get::<bevy::ui::Checked>(standard).is_some());
 
@@ -394,7 +445,9 @@ fn scroll_bar_structure_nudge_and_binding() {
                         SmallChange="5" Value="{Binding pos}"/>
            </StackPanel>"##,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     let names = app.world().get::<XamlNames>(root).unwrap();
@@ -407,7 +460,10 @@ fn scroll_bar_structure_nudge_and_binding() {
 
     // Value binding landed on the SliderValue carrier.
     assert_eq!(
-        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        app.world()
+            .get::<bevy::ui_widgets::SliderValue>(bar)
+            .unwrap()
+            .0,
         20.0
     );
 
@@ -426,7 +482,10 @@ fn scroll_bar_structure_nudge_and_binding() {
         bevy_pf::instantiate::scroll_bar_nudge(app.world_mut(), bar, 1.0);
     }
     assert_eq!(
-        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        app.world()
+            .get::<bevy::ui_widgets::SliderValue>(bar)
+            .unwrap()
+            .0,
         100.0,
         "nudge clamps at Maximum"
     );
@@ -443,7 +502,10 @@ fn scroll_bar_structure_nudge_and_binding() {
     vm.update(|m: &mut ScrollVm| m.pos = 0.0);
     app.update();
     assert_eq!(
-        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        app.world()
+            .get::<bevy::ui_widgets::SliderValue>(bar)
+            .unwrap()
+            .0,
         0.0
     );
 }

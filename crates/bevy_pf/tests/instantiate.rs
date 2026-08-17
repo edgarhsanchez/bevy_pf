@@ -50,10 +50,7 @@ fn hello_world_tree() {
     assert_eq!(node.width, Val::Px(800.0));
     assert_eq!(node.display, Display::Grid);
     // Window gets a white default background.
-    assert_eq!(
-        world.get::<BackgroundColor>(root).unwrap().0,
-        Color::WHITE
-    );
+    assert_eq!(world.get::<BackgroundColor>(root).unwrap().0, Color::WHITE);
 
     let grid = children_of(&world, root)[0];
     assert_eq!(world.get::<PfElementKind>(grid).unwrap().0, "Grid");
@@ -380,7 +377,9 @@ fn checkbox_structure_and_state() {
     assert!(world.get::<Checked>(checked_box).is_some());
     assert!(world.get::<Checked>(unchecked_box).is_none());
 
-    let visual = world.get::<bevy_pf::components::PfCheckVisual>(checked_box).unwrap();
+    let visual = world
+        .get::<bevy_pf::components::PfCheckVisual>(checked_box)
+        .unwrap();
     assert_eq!(
         *world.get::<Visibility>(visual.glyph).unwrap(),
         Visibility::Inherited
@@ -458,7 +457,9 @@ fn slider_components_and_thumb() {
     assert_eq!(world.get::<SliderValue>(root).unwrap().0, 25.0);
     let range = world.get::<SliderRange>(root).unwrap();
     assert_eq!((range.start(), range.end()), (0.0, 100.0));
-    let visual = world.get::<bevy_pf::components::PfSliderVisual>(root).unwrap();
+    let visual = world
+        .get::<bevy_pf::components::PfSliderVisual>(root)
+        .unwrap();
     let thumb_node = world.get::<Node>(visual.thumb).unwrap();
     assert_eq!(thumb_node.left, Val::Percent(25.0));
 }
@@ -585,7 +586,11 @@ fn listbox_wraps_items_and_selects() {
     let items = children_of(&world, root);
     assert_eq!(items.len(), 2);
     for &item in &items {
-        assert!(world.get::<bevy_pf::components::PfListBoxItem>(item).is_some());
+        assert!(
+            world
+                .get::<bevy_pf::components::PfListBoxItem>(item)
+                .is_some()
+        );
         assert!(world.get::<Interaction>(item).is_some());
     }
     let list = world.get::<bevy_pf::components::PfListBox>(root).unwrap();
@@ -651,7 +656,11 @@ fn shapes_from_xaml() {
     let line = world.get::<PfShape>(kids[4]).unwrap();
     assert!(matches!(
         line.geometry,
-        ShapeGeometry::Line { x2: 80.0, y2: 20.0, .. }
+        ShapeGeometry::Line {
+            x2: 80.0,
+            y2: 20.0,
+            ..
+        }
     ));
 }
 
@@ -679,15 +688,25 @@ fn groupbox_and_expander() {
     assert_eq!(world.get::<Text>(gb_kids[0]).unwrap().0, "Settings");
 
     // Expanded expander: content visible, Checked present.
-    let exp = world.get::<bevy_pf::components::PfExpander>(kids[1]).unwrap();
+    let exp = world
+        .get::<bevy_pf::components::PfExpander>(kids[1])
+        .unwrap();
     assert!(world.get::<Checked>(kids[1]).is_some());
-    assert_ne!(world.get::<Node>(exp.content).unwrap().display, Display::None);
+    assert_ne!(
+        world.get::<Node>(exp.content).unwrap().display,
+        Display::None
+    );
     assert_eq!(world.get::<Text>(exp.arrow).unwrap().0, "−");
 
     // Collapsed expander: content hidden.
-    let exp2 = world.get::<bevy_pf::components::PfExpander>(kids[2]).unwrap();
+    let exp2 = world
+        .get::<bevy_pf::components::PfExpander>(kids[2])
+        .unwrap();
     assert!(world.get::<Checked>(kids[2]).is_none());
-    assert_eq!(world.get::<Node>(exp2.content).unwrap().display, Display::None);
+    assert_eq!(
+        world.get::<Node>(exp2.content).unwrap().display,
+        Display::None
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -766,9 +785,7 @@ fn stroke_dashes_and_caps_from_xaml() {
                    StrokeLineJoin="Bevel" StrokeMiterLimit="4"/>
            </StackPanel>"#
     ));
-    let line = world
-        .get::<PfShape>(children_of(&world, root)[0])
-        .unwrap();
+    let line = world.get::<PfShape>(children_of(&world, root)[0]).unwrap();
     assert_eq!(line.stroke_dash_array, vec![2.0, 4.0]);
     assert_eq!(line.stroke_cap, PenLineCap::Round);
     assert_eq!(line.stroke_join, PenLineJoin::Bevel);
@@ -798,7 +815,10 @@ fn tag_x_static_zindex_and_qualified_setters() {
     assert_eq!(world.get::<Node>(kids[0]).unwrap().display, Display::None);
     // Qualified setter applied as a plain property.
     assert_eq!(
-        world.get::<bevy::text::TextFont>(kids[0]).unwrap().font_size,
+        world
+            .get::<bevy::text::TextFont>(kids[0])
+            .unwrap()
+            .font_size,
         bevy::text::FontSize::Px(19.0)
     );
     assert_eq!(world.get::<bevy::ui::ZIndex>(kids[1]).unwrap().0, 5);
@@ -862,16 +882,18 @@ fn image_slice_selects_nine_patch_mode() {
     .expect("parses");
     let world = app.world_mut();
     let root = world.spawn_empty().id();
-    let result =
-        bevy_pf::instantiate_document_env(world, root, &doc, &bevy_pf::XamlEnv::default())
-            .expect("instantiates");
+    let result = bevy_pf::instantiate_document_env(world, root, &doc, &bevy_pf::XamlEnv::default())
+        .expect("instantiates");
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
 
     let names = app.world().get::<XamlNames>(root).unwrap();
     let nine = names.get("Nine").unwrap();
     let plain = names.get("Plain").unwrap();
 
-    let node = app.world().get::<bevy::ui::widget::ImageNode>(nine).unwrap();
+    let node = app
+        .world()
+        .get::<bevy::ui::widget::ImageNode>(nine)
+        .unwrap();
     match &node.image_mode {
         bevy::ui::widget::NodeImageMode::Sliced(slicer) => {
             assert_eq!(slicer.border.min_inset, Vec2::new(8.0, 4.0));
@@ -880,8 +902,14 @@ fn image_slice_selects_nine_patch_mode() {
         other => panic!("expected Sliced image mode, got {other:?}"),
     }
     // No Slice attribute -> default (stretch) mode.
-    let node = app.world().get::<bevy::ui::widget::ImageNode>(plain).unwrap();
-    assert!(matches!(node.image_mode, bevy::ui::widget::NodeImageMode::Auto));
+    let node = app
+        .world()
+        .get::<bevy::ui::widget::ImageNode>(plain)
+        .unwrap();
+    assert!(matches!(
+        node.image_mode,
+        bevy::ui::widget::NodeImageMode::Auto
+    ));
 }
 
 /// `{x:Null}` as an ATTRIBUTE clears a store-managed property instead of

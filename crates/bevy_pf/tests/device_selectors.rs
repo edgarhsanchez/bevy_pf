@@ -32,7 +32,12 @@ fn spawn(app: &mut App, xaml: &str) -> (Entity, Vec<String>) {
 }
 
 fn background(app: &App, root: Entity, name: &str) -> Option<String> {
-    let entity = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+    let entity = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap();
     app.world()
         .get::<BackgroundColor>(entity)
         .map(|c| bevy_pf::instantiate::color_to_hex(c.0))
@@ -87,7 +92,11 @@ fn maui_markup_ports_unchanged() {
                   Default=#101010}";
     let (color, warnings) = paint(app_on(DevicePlatform::MacOS, DeviceIdiom::Desktop), markup);
     assert_eq!(warnings, Vec::<String>::new());
-    assert_eq!(color, Some("#00FFFF".into()), "MacCatalyst must match a Mac");
+    assert_eq!(
+        color,
+        Some("#00FFFF".into()),
+        "MacCatalyst must match a Mac"
+    );
 
     // The host-only names never match, so a Linux build takes Default.
     let (color, _) = paint(app_on(DevicePlatform::Linux, DeviceIdiom::Desktop), markup);
@@ -115,7 +124,11 @@ fn a_platform_with_no_arm_and_no_default_clears_the_property() {
         "{OnPlatform Android=#FF0000}",
     );
     assert_eq!(warnings, Vec::<String>::new());
-    assert_ne!(color, Some("#FF0000".into()), "the Android arm must not leak");
+    assert_ne!(
+        color,
+        Some("#FF0000".into()),
+        "the Android arm must not leak"
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -313,7 +326,12 @@ fn content_alignment_overrides_the_per_kind_default() {
     assert_eq!(warnings, Vec::<String>::new());
 
     let node = |name: &str| {
-        let e = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+        let e = app
+            .world()
+            .get::<XamlNames>(root)
+            .unwrap()
+            .get(name)
+            .unwrap();
         let n = app.world().get::<Node>(e).unwrap();
         (n.justify_items, n.align_items)
     };
@@ -360,7 +378,12 @@ fn per_axis_spacing_reaches_the_gaps() {
     app.update();
     assert_eq!(warnings, Vec::<String>::new());
     let gaps = |name: &str| {
-        let e = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+        let e = app
+            .world()
+            .get::<XamlNames>(root)
+            .unwrap()
+            .get(name)
+            .unwrap();
         let n = app.world().get::<Node>(e).unwrap();
         (n.row_gap, n.column_gap)
     };

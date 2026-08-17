@@ -19,9 +19,9 @@
 //! Add `--features bevy/trace_tracy` to stream the run to a Tracy capture
 //! for per-system frame breakdowns.
 
+use bevy::camera::RenderTarget;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::camera::RenderTarget;
 use bevy::render::render_resource::{
     Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
@@ -161,9 +161,9 @@ fn scene_xaml(name: &str) -> Option<String> {
         "viewbox" => format!(
             r##"<Viewbox {NS} Width="300" Height="200"><TextBlock Text="Scaled text"/></Viewbox>"##
         ),
-        "tooltip" => format!(
-            r##"<Button {NS} Content="Hover me" ToolTip="A helpful tip" Width="140"/>"##
-        ),
+        "tooltip" => {
+            format!(r##"<Button {NS} Content="Hover me" ToolTip="A helpful tip" Width="140"/>"##)
+        }
         "stackpanel" => {
             let items: String = (0..10)
                 .map(|i| format!(r##"<TextBlock Text="stacked line {i}"/>"##))
@@ -221,7 +221,10 @@ fn scene_xaml(name: &str) -> Option<String> {
         "uniformgrid" => {
             let items: String = (0..16)
                 .map(|i| {
-                    format!(r##"<Border Margin="2" Background="#FF66{:02X}66"/>"##, 40 + i * 12)
+                    format!(
+                        r##"<Border Margin="2" Background="#FF66{:02X}66"/>"##,
+                        40 + i * 12
+                    )
                 })
                 .collect();
             format!(
@@ -516,8 +519,7 @@ fn main() {
     }
     #[cfg(not(target_arch = "wasm32"))] // configured out of bevy_render on wasm
     if std::env::var("BENCH_NOPIPE").is_ok() {
-        plugins =
-            plugins.disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>();
+        plugins = plugins.disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>();
     }
     app.add_plugins(plugins);
     if std::env::var("BENCH_ST").is_ok() {
@@ -560,11 +562,7 @@ fn main() {
         .run();
 }
 
-fn setup(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    config: Res<BenchConfig>,
-) {
+fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, config: Res<BenchConfig>) {
     let camera = if config.offscreen {
         let size = Extent3d {
             width: 1280,
@@ -636,8 +634,7 @@ fn setup(
         }
         name => {
             let xaml = scene_xaml(name).expect("scene existence checked in main");
-            let scene =
-                XamlScene::parse(xaml).expect("bench scene XAML must be valid");
+            let scene = XamlScene::parse(xaml).expect("bench scene XAML must be valid");
             if needs_vm(name) {
                 commands.spawn_xaml_bound(scene, bench_vm());
             } else {

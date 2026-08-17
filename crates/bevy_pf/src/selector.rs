@@ -106,9 +106,12 @@ impl Sel {
                 other => other.substitute_nesting(parent),
             },
             Sel::Any => Sel::Any,
-            Sel::Or(branches) => {
-                Sel::Or(branches.iter().map(|b| b.substitute_nesting(parent)).collect())
-            }
+            Sel::Or(branches) => Sel::Or(
+                branches
+                    .iter()
+                    .map(|b| b.substitute_nesting(parent))
+                    .collect(),
+            ),
             Sel::OfType { prev, name } => Sel::OfType {
                 prev: sub(prev),
                 name: name.clone(),
@@ -202,9 +205,7 @@ pub struct ElementInfo {
 /// whitespace, like any style-class list.
 pub fn classes_of(node: &bevy_pf_xaml::XamlNode) -> Vec<String> {
     match node.attribute("Classes") {
-        Some(bevy_pf_xaml::XamlValue::Str(s)) => {
-            s.split_whitespace().map(str::to_string).collect()
-        }
+        Some(bevy_pf_xaml::XamlValue::Str(s)) => s.split_whitespace().map(str::to_string).collect(),
         _ => Vec::new(),
     }
 }
@@ -224,20 +225,21 @@ pub fn matches_static(sel: &Sel, stack: &[ElementInfo]) -> bool {
         Sel::Not { prev, inner } => {
             // A `:not()` over a dynamic inner selector cannot be decided
             // now; over a static one it is final.
-            matches_static(prev, stack)
-                && (inner.has_activator() || !matches(inner, stack))
+            matches_static(prev, stack) && (inner.has_activator() || !matches(inner, stack))
         }
         Sel::OfType { prev, name } | Sel::Is { prev, name } => {
             stack.last().is_some_and(|e| e.type_name == *name) && matches_static(prev, stack)
         }
         Sel::Name { prev, name } => {
-            stack.last().is_some_and(|e| e.name.as_deref() == Some(name.as_str()))
+            stack
+                .last()
+                .is_some_and(|e| e.name.as_deref() == Some(name.as_str()))
                 && matches_static(prev, stack)
         }
         Sel::Child(prev) => stack.len() >= 2 && matches_static(prev, &stack[..stack.len() - 1]),
-        Sel::Descendant(prev) => {
-            (1..stack.len()).rev().any(|k| matches_static(prev, &stack[..k]))
-        }
+        Sel::Descendant(prev) => (1..stack.len())
+            .rev()
+            .any(|k| matches_static(prev, &stack[..k])),
         // Everything else keeps the strict answer.
         _ => matches(sel, stack),
     }
@@ -285,9 +287,7 @@ pub fn matches(sel: &Sel, stack: &[ElementInfo]) -> bool {
             hit && matches(prev, stack)
         }
         Sel::Not { prev, inner } => matches(prev, stack) && !matches(inner, stack),
-        Sel::Child(prev) => {
-            stack.len() >= 2 && matches(prev, &stack[..stack.len() - 1])
-        }
+        Sel::Child(prev) => stack.len() >= 2 && matches(prev, &stack[..stack.len() - 1]),
         Sel::Descendant(prev) => (1..stack.len()).rev().any(|k| matches(prev, &stack[..k])),
         // Phase 3 / phase 5: a templated parent and a live property are not
         // available at this point, so these do not match rather than
@@ -655,13 +655,19 @@ mod tests {
             panic!("outermost should be the TextBlock, got {sel:?}");
         };
         assert_eq!(name, "TextBlock");
-        assert!(matches!(&**prev, Sel::Child(_)), "joined by a child combinator");
+        assert!(
+            matches!(&**prev, Sel::Child(_)),
+            "joined by a child combinator"
+        );
 
         let sel = parse("Button TextBlock").unwrap();
         let Sel::OfType { prev, .. } = &sel else {
             panic!("got {sel:?}");
         };
-        assert!(matches!(&**prev, Sel::Descendant(_)), "space is a descendant");
+        assert!(
+            matches!(&**prev, Sel::Descendant(_)),
+            "space is a descendant"
+        );
     }
 
     #[test]
@@ -721,7 +727,10 @@ mod tests {
         else {
             panic!("got {sel:?}");
         };
-        assert_eq!((owner.as_deref(), name.as_str(), value.as_str()), (None, "IsVisible", "True"));
+        assert_eq!(
+            (owner.as_deref(), name.as_str(), value.as_str()),
+            (None, "IsVisible", "True")
+        );
 
         let sel = parse("Button[(Grid.Row)=1]").unwrap();
         let Sel::Property { owner, name, .. } = &sel else {
@@ -734,14 +743,21 @@ mod tests {
     #[test]
     fn is_and_not_parse() {
         assert!(matches!(parse(":is(Button)").unwrap(), Sel::Is { .. }));
-        assert!(matches!(parse("Button:not(.danger)").unwrap(), Sel::Not { .. }));
+        assert!(matches!(
+            parse("Button:not(.danger)").unwrap(),
+            Sel::Not { .. }
+        ));
     }
 
     #[test]
     fn the_activator_bucket_is_about_state_not_length() {
         // The rule that decides precedence: a long structural selector is
         // NOT activated, and a one-character class IS.
-        assert!(!parse("Window > Grid > StackPanel Button").unwrap().has_activator());
+        assert!(
+            !parse("Window > Grid > StackPanel Button")
+                .unwrap()
+                .has_activator()
+        );
         assert!(!parse("Button#go").unwrap().has_activator());
         assert!(!parse("Button:nth-child(2)").unwrap().has_activator());
         assert!(parse(".x").unwrap().has_activator());
@@ -855,8 +871,14 @@ mod match_tests {
 
     #[test]
     fn comma_is_alternation() {
-        assert!(hits("Button.toolBar, ToggleButton.toolBar", &[classed("ToggleButton", &["toolBar"])]));
-        assert!(!hits("Button.toolBar, ToggleButton.toolBar", &[classed("CheckBox", &["toolBar"])]));
+        assert!(hits(
+            "Button.toolBar, ToggleButton.toolBar",
+            &[classed("ToggleButton", &["toolBar"])]
+        ));
+        assert!(!hits(
+            "Button.toolBar, ToggleButton.toolBar",
+            &[classed("CheckBox", &["toolBar"])]
+        ));
     }
 
     #[test]
@@ -879,7 +901,10 @@ mod match_tests {
     #[test]
     fn not_inverts_only_its_inner_selector() {
         assert!(hits("Button:not(.danger)", &[classed("Button", &["safe"])]));
-        assert!(!hits("Button:not(.danger)", &[classed("Button", &["danger"])]));
+        assert!(!hits(
+            "Button:not(.danger)",
+            &[classed("Button", &["danger"])]
+        ));
         assert!(
             !hits("Button:not(.danger)", &[classed("TextBlock", &["safe"])]),
             "the outer type must still match"
@@ -890,7 +915,10 @@ mod match_tests {
     fn a_selector_needing_state_we_do_not_have_yet_does_not_match() {
         // Template and property selectors land in later phases. Not matching
         // is the honest answer; matching would style the wrong thing.
-        assert!(!hits("Button /template/ ContentPresenter", &[el("Button"), el("ContentPresenter")]));
+        assert!(!hits(
+            "Button /template/ ContentPresenter",
+            &[el("Button"), el("ContentPresenter")]
+        ));
         assert!(!hits("Button[IsVisible=True]", &[el("Button")]));
     }
 }

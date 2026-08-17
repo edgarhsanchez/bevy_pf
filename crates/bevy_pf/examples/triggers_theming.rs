@@ -35,9 +35,17 @@ fn main() {
 fn theme(dark: bool) -> ResourceDictionary {
     let mut dict = ResourceDictionary::new();
     let (bg, card, text) = if dark {
-        (PfColor::rgb(0x1E, 0x1E, 0x1E), PfColor::rgb(0x2D, 0x2D, 0x2D), PfColor::rgb(0xEE, 0xEE, 0xEE))
+        (
+            PfColor::rgb(0x1E, 0x1E, 0x1E),
+            PfColor::rgb(0x2D, 0x2D, 0x2D),
+            PfColor::rgb(0xEE, 0xEE, 0xEE),
+        )
     } else {
-        (PfColor::rgb(0xFF, 0xFF, 0xFF), PfColor::rgb(0xF3, 0xF3, 0xF3), PfColor::rgb(0x22, 0x22, 0x22))
+        (
+            PfColor::rgb(0xFF, 0xFF, 0xFF),
+            PfColor::rgb(0xF3, 0xF3, 0xF3),
+            PfColor::rgb(0x22, 0x22, 0x22),
+        )
     };
     dict.insert(
         ResourceKey::Explicit("Theme.WindowBg".into()),

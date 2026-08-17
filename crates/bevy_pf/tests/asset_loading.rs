@@ -48,10 +48,7 @@ fn xaml_view_instantiates_from_asset() {
 
     let world = app.world_mut();
     // The Window root was instantiated onto the view entity itself.
-    assert_eq!(
-        world.get::<PfElementKind>(view).unwrap().0,
-        "Window"
-    );
+    assert_eq!(world.get::<PfElementKind>(view).unwrap().0, "Window");
     assert!(world.get::<XamlNames>(view).is_some());
     // And the XamlView component survived the rebuild.
     assert!(world.get::<XamlView>(view).is_some());

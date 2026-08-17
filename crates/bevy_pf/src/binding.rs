@@ -38,9 +38,8 @@ struct BindableInner {
     value: std::sync::RwLock<Box<dyn Reflect + Send + Sync>>,
     version: AtomicU64,
     /// ICommand analog: named commands invokable from `Command=` bindings.
-    commands: std::sync::RwLock<
-        bevy::platform::collections::HashMap<String, std::sync::Arc<CommandFn>>,
-    >,
+    commands:
+        std::sync::RwLock<bevy::platform::collections::HashMap<String, std::sync::Arc<CommandFn>>>,
     /// Change log: one `(version, path)` entry per mutation; `None` path
     /// means "anything may have changed" (whole-model [`Bindable::update`]).
     /// Capped at [`CHANGE_LOG_CAP`]; consumers whose last-seen version has
@@ -614,7 +613,9 @@ fn bound_to_reflect(target: &mut dyn PartialReflect, value: &BoundValue) -> bool
         return true;
     }
     if let Some(slot) = target.try_downcast_mut::<bool>() {
-        let Some(b) = value.as_bool() else { return false };
+        let Some(b) = value.as_bool() else {
+            return false;
+        };
         *slot = b;
         return true;
     }
@@ -735,7 +736,6 @@ impl PfBinding {
     }
 }
 
-
 /// Expand `{0}` / `{0:spec}` placeholders with .NET's common numeric format
 /// specifiers (`C` currency, `F`/`N` fixed decimals, `P` percent). Unknown
 /// specs fall back to the raw value.
@@ -777,10 +777,7 @@ fn apply_multi_format(fmt: &str, values: &[BoundValue]) -> String {
         match index.parse::<usize>() {
             Ok(i) => {
                 out.push_str(&rest[..start]);
-                let raw = values
-                    .get(i)
-                    .map(|v| v.to_display())
-                    .unwrap_or_default();
+                let raw = values.get(i).map(|v| v.to_display()).unwrap_or_default();
                 out.push_str(&format_with_spec(spec, &raw));
             }
             // `{}` escape prefix and friends: emit literally.
@@ -983,9 +980,9 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
                 // {StaticResource key} or a bare name: the key is the
                 // converter's registry name either way.
                 spec.converter = match value {
-                    bevy_pf_xaml::markup::MarkupValue::Extension(inner) => inner
-                        .first_positional_str()
-                        .map(|k| k.to_string()),
+                    bevy_pf_xaml::markup::MarkupValue::Extension(inner) => {
+                        inner.first_positional_str().map(|k| k.to_string())
+                    }
                     _ => Some(value_str.to_string()),
                 };
             }
@@ -998,9 +995,7 @@ pub fn parse_binding_extension(ext: &bevy_pf_xaml::MarkupExtension) -> BindingSp
                     bevy_pf_xaml::markup::MarkupValue::Extension(inner) => inner
                         .first_positional_str()
                         .map(|m| m.to_string())
-                        .or_else(|| {
-                            inner.arg("Mode").and_then(|m| m.as_str()).map(String::from)
-                        }),
+                        .or_else(|| inner.arg("Mode").and_then(|m| m.as_str()).map(String::from)),
                     _ => Some(value_str.to_string()),
                 };
                 let ancestor_type = match value {
@@ -1148,28 +1143,29 @@ pub(crate) fn apply_bindings(world: &mut World) {
                             continue;
                         }
                         if let Some(ctx) = &ctx
-                            && b.seen_version != ctx.version() {
-                                // A selection binding also depends on the
-                                // COLLECTION: after a rebuild the item must
-                                // be re-located, or the selection is left
-                                // pointing at a despawned row. This is WPF's
-                                // OnItemsChanged -> CoerceValue(SelectedItem).
-                                let items_path = matches!(
-                                    b.target,
-                                    BindingTarget::SelectedItem | BindingTarget::SelectedValue
-                                )
-                                .then(|| world.get::<crate::items::PfItemsSource>(entity))
-                                .flatten()
-                                .map(|s| s.path.as_str());
-                                let reads = std::iter::once(b.path.as_str())
-                                    .chain(b.multi_paths.iter().map(String::as_str))
-                                    .chain(items_path);
-                                if ctx.changed_since(b.seen_version, reads) {
-                                    updates.push((i, b.clone()));
-                                } else {
-                                    fast_forward.push(i);
-                                }
+                            && b.seen_version != ctx.version()
+                        {
+                            // A selection binding also depends on the
+                            // COLLECTION: after a rebuild the item must
+                            // be re-located, or the selection is left
+                            // pointing at a despawned row. This is WPF's
+                            // OnItemsChanged -> CoerceValue(SelectedItem).
+                            let items_path = matches!(
+                                b.target,
+                                BindingTarget::SelectedItem | BindingTarget::SelectedValue
+                            )
+                            .then(|| world.get::<crate::items::PfItemsSource>(entity))
+                            .flatten()
+                            .map(|s| s.path.as_str());
+                            let reads = std::iter::once(b.path.as_str())
+                                .chain(b.multi_paths.iter().map(String::as_str))
+                                .chain(items_path);
+                            if ctx.changed_since(b.seen_version, reads) {
+                                updates.push((i, b.clone()));
+                            } else {
+                                fast_forward.push(i);
                             }
+                        }
                     }
                     // Element sources have no version counter; re-evaluate
                     // every frame (applies are no-ops when values match).
@@ -1216,8 +1212,7 @@ pub(crate) fn apply_bindings(world: &mut World) {
                         .as_deref()
                         .map(|fmt| BoundValue::Str(apply_multi_format(fmt, &values))),
                 };
-                let combined =
-                    combined.or_else(|| binding.fallback.clone().map(BoundValue::Str));
+                let combined = combined.or_else(|| binding.fallback.clone().map(BoundValue::Str));
                 if let Some(value) = combined {
                     // Without a converter the positional format is already
                     // consumed; with one, StringFormat applies to the
@@ -1230,12 +1225,11 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 }
                 let version = ctx.version();
                 if let Some(mut bindings) = world.get_mut::<PfBindings>(entity) {
-                    bindings.0[index].seen_version =
-                        if binding.mode == v::BindingMode::OneTime {
-                            version.max(1)
-                        } else {
-                            version
-                        };
+                    bindings.0[index].seen_version = if binding.mode == v::BindingMode::OneTime {
+                        version.max(1)
+                    } else {
+                        version
+                    };
                 }
                 continue;
             }
@@ -1256,20 +1250,20 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 };
                 // Prefer the row already selected, so that among equal items
                 // the user's actual pick is kept rather than the first match.
-                let preferred = if let Some(combo) = world.get::<crate::components::PfComboBox>(entity)
-                {
-                    combo.selected
-                } else {
-                    let selected = world
-                        .get::<crate::components::PfListBox>(entity)
-                        .and_then(|l| l.selected);
-                    selected.and_then(|sel| {
-                        let container = crate::items::items_container(world, entity);
-                        world
-                            .get::<Children>(container)
-                            .and_then(|c| c.iter().position(|child| child == sel))
-                    })
-                };
+                let preferred =
+                    if let Some(combo) = world.get::<crate::components::PfComboBox>(entity) {
+                        combo.selected
+                    } else {
+                        let selected = world
+                            .get::<crate::components::PfListBox>(entity)
+                            .and_then(|l| l.selected);
+                        selected.and_then(|sel| {
+                            let container = crate::items::items_container(world, entity);
+                            world
+                                .get::<Children>(container)
+                                .and_then(|c| c.iter().position(|child| child == sel))
+                        })
+                    };
 
                 let outcome = ctx.selection_match(&items, &binding.path, preferred);
                 let settled = apply_selection(world, entity, outcome, preferred);
@@ -1377,7 +1371,9 @@ fn apply_selection(
                     == Some(i)
             } else {
                 let container = crate::items::items_container(world, entity);
-                let child = world.get::<Children>(container).and_then(|c| c.iter().nth(i));
+                let child = world
+                    .get::<Children>(container)
+                    .and_then(|c| c.iter().nth(i));
                 let Some(child) = child else {
                     return false; // rows not generated yet — retry
                 };
@@ -1456,16 +1452,18 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
         BindingTarget::Text => {
             let text = binding.format(value);
             if let Some(mut t) = world.get_mut::<Text>(entity)
-                && t.0 != text {
-                    t.0 = text;
-                }
+                && t.0 != text
+            {
+                t.0 = text;
+            }
         }
         BindingTarget::EditableText => {
             let text = binding.format(value);
             if let Some(mut et) = world.get_mut::<bevy::text::EditableText>(entity)
-                && et.editor().text() != text.as_str() {
-                    et.editor.set_text(&text);
-                }
+                && et.editor().text() != text.as_str()
+            {
+                et.editor.set_text(&text);
+            }
         }
         BindingTarget::IsChecked => {
             let Some(b) = value.as_bool() else { return };
@@ -1516,9 +1514,10 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
         BindingTarget::ProgressValue => {
             let Some(n) = value.as_f64() else { return };
             if let Some(mut p) = world.get_mut::<crate::components::PfProgress>(entity)
-                && p.value != n as f32 {
-                    p.value = n as f32;
-                }
+                && p.value != n as f32
+            {
+                p.value = n as f32;
+            }
         }
         BindingTarget::Visibility => {
             let vis = match value {
@@ -1776,7 +1775,11 @@ pub(crate) fn element_write_back(
         queue(entity, BindingTarget::IsChecked, BoundValue::Bool(false));
     }
     for (entity, value) in &sliders {
-        queue(entity, BindingTarget::SliderValue, BoundValue::Num(value.0 as f64));
+        queue(
+            entity,
+            BindingTarget::SliderValue,
+            BoundValue::Num(value.0 as f64),
+        );
     }
     for (entity, et) in &texts {
         queue(
@@ -1806,9 +1809,10 @@ pub(crate) fn checked_write_back(
                 continue;
             }
             if let Some(ctx) = find_context_via_queries(entity, &parents, &contexts)
-                && ctx.read_path(&binding.path).and_then(|b| b.as_bool()) != Some(value) {
-                    ctx.write_path(&binding.path, &BoundValue::Bool(value));
-                }
+                && ctx.read_path(&binding.path).and_then(|b| b.as_bool()) != Some(value)
+            {
+                ctx.write_path(&binding.path, &BoundValue::Bool(value));
+            }
         }
     };
     for entity in &added {
@@ -1885,55 +1889,53 @@ pub(crate) fn selection_write_back(
     contexts: Query<&DataContext>,
     children_q: Query<&Children>,
 ) {
-    let write = |entity: Entity,
-                 bindings: &PfBindings,
-                 items: Option<&str>,
-                 index: Option<usize>| {
-        for binding in &bindings.0 {
-            if !binding.is_to_source() || binding.source != PfBindingSource::DataContext {
-                continue;
-            }
-            let Some(ctx) = find_context_via_queries(entity, &parents, &contexts) else {
-                continue;
-            };
-            match binding.target {
-                BindingTarget::SelectedIndex => {
-                    let value = index.map(|i| i as f64).unwrap_or(-1.0);
-                    let current = ctx.read_path(&binding.path).and_then(|b| b.as_f64());
-                    if current != Some(value) {
-                        ctx.write_path(&binding.path, &BoundValue::Num(value));
-                    }
+    let write =
+        |entity: Entity, bindings: &PfBindings, items: Option<&str>, index: Option<usize>| {
+            for binding in &bindings.0 {
+                if !binding.is_to_source() || binding.source != PfBindingSource::DataContext {
+                    continue;
                 }
-                // Write the OBJECT back, not its position. The guard is a
-                // selection_match against the row the user picked: if the
-                // model already holds that exact row there is nothing to do,
-                // and skipping the write avoids a version bump that would
-                // ripple back through every binding reading this path.
-                BindingTarget::SelectedItem => {
-                    let Some(items) = items else {
-                        continue;
-                    };
-                    match index {
-                        Some(i) => {
-                            if ctx.selection_match(items, &binding.path, Some(i))
-                                != SelectionMatch::Index(i)
-                            {
-                                ctx.set_from(&binding.path, &format!("{items}[{i}]"));
-                            }
-                        }
-                        None => {
-                            if ctx.selection_match(items, &binding.path, None)
-                                != SelectionMatch::Null
-                            {
-                                ctx.set_null(&binding.path);
-                            }
+                let Some(ctx) = find_context_via_queries(entity, &parents, &contexts) else {
+                    continue;
+                };
+                match binding.target {
+                    BindingTarget::SelectedIndex => {
+                        let value = index.map(|i| i as f64).unwrap_or(-1.0);
+                        let current = ctx.read_path(&binding.path).and_then(|b| b.as_f64());
+                        if current != Some(value) {
+                            ctx.write_path(&binding.path, &BoundValue::Num(value));
                         }
                     }
+                    // Write the OBJECT back, not its position. The guard is a
+                    // selection_match against the row the user picked: if the
+                    // model already holds that exact row there is nothing to do,
+                    // and skipping the write avoids a version bump that would
+                    // ripple back through every binding reading this path.
+                    BindingTarget::SelectedItem => {
+                        let Some(items) = items else {
+                            continue;
+                        };
+                        match index {
+                            Some(i) => {
+                                if ctx.selection_match(items, &binding.path, Some(i))
+                                    != SelectionMatch::Index(i)
+                                {
+                                    ctx.set_from(&binding.path, &format!("{items}[{i}]"));
+                                }
+                            }
+                            None => {
+                                if ctx.selection_match(items, &binding.path, None)
+                                    != SelectionMatch::Null
+                                {
+                                    ctx.set_null(&binding.path);
+                                }
+                            }
+                        }
+                    }
+                    _ => continue,
                 }
-                _ => continue,
             }
-        }
-    };
+        };
     for (entity, list, panel, bindings, source, added) in &lists {
         // Added-component echo guard: the first Changed tick is the spawn
         // itself — writing -1 back would clobber the source before the
@@ -1954,7 +1956,12 @@ pub(crate) fn selection_write_back(
         if added.is_added() {
             continue;
         }
-        write(entity, bindings, source.map(|s| s.path.as_str()), combo.selected);
+        write(
+            entity,
+            bindings,
+            source.map(|s| s.path.as_str()),
+            combo.selected,
+        );
     }
 }
 

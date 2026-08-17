@@ -26,7 +26,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 #[derive(bevy::reflect::Reflect, Default)]
@@ -63,8 +67,16 @@ fn loaded_behaviors_run_commands_and_change_properties() {
 
     assert_eq!(hits.load(Ordering::SeqCst), 1, "command invoked on Loaded");
     let label = named(&app, root, "Label");
-    let color = app.world().get::<bevy::text::TextColor>(label).unwrap().0.to_srgba();
-    assert!(color.green > 0.9, "ChangePropertyAction recolored the label");
+    let color = app
+        .world()
+        .get::<bevy::text::TextColor>(label)
+        .unwrap()
+        .0
+        .to_srgba();
+    assert!(
+        color.green > 0.9,
+        "ChangePropertyAction recolored the label"
+    );
 }
 
 #[test]
@@ -217,7 +229,12 @@ fn set_focus_action_and_focus_scoped_key_trigger() {
     app.update();
 
     // Move focus into the scoped Border -> the trigger fires.
-    let scoped = app.world().get::<XamlNames>(root).unwrap().get("Scoped").unwrap();
+    let scoped = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Scoped")
+        .unwrap();
     app.world_mut()
         .insert_resource(bevy::input_focus::InputFocus::from_entity(scoped));
     app.world_mut()
@@ -244,14 +261,25 @@ fn focus_control_resolves_a_textbox_to_its_editable_child() {
     );
     app.update();
 
-    let control = app.world().get::<XamlNames>(root).unwrap().get("Email").unwrap();
+    let control = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Email")
+        .unwrap();
     assert!(
-        app.world().get::<bevy::text::EditableText>(control).is_none(),
+        app.world()
+            .get::<bevy::text::EditableText>(control)
+            .is_none(),
         "the control itself is not the editable — that is the whole point"
     );
 
     let editable = find_editable_in(app.world(), control).expect("editable child");
-    assert!(app.world().get::<bevy::text::EditableText>(editable).is_some());
+    assert!(
+        app.world()
+            .get::<bevy::text::EditableText>(editable)
+            .is_some()
+    );
 
     focus_control(app.world_mut(), control);
     assert_eq!(
@@ -264,7 +292,9 @@ fn focus_control_resolves_a_textbox_to_its_editable_child() {
 
     clear_focus(app.world_mut());
     assert_eq!(
-        app.world().resource::<bevy::input_focus::InputFocus>().get(),
+        app.world()
+            .resource::<bevy::input_focus::InputFocus>()
+            .get(),
         None
     );
 }

@@ -86,7 +86,11 @@ fn frame_source_journal_and_titles() {
     assert!(can_go_back(app.world(), frame));
     assert!(!can_go_forward(app.world(), frame));
     assert_eq!(
-        app.world().get::<PfFrame>(frame).unwrap().current_title.as_deref(),
+        app.world()
+            .get::<PfFrame>(frame)
+            .unwrap()
+            .current_title
+            .as_deref(),
         Some("Details")
     );
 

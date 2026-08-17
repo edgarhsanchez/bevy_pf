@@ -1072,12 +1072,7 @@ impl<'w> Ctx<'w> {
     /// every active contributor in declaration order, which IS the dialect's
     /// reevaluation rule. They write at `ImplicitReference`, a tier that was
     /// declared and never used, so no existing writer can be disturbed.
-    fn attach_activated_styles(
-        &mut self,
-        entity: Entity,
-        kind: ElemKind,
-        parent_kind: ParentKind,
-    ) {
+    fn attach_activated_styles(&mut self, entity: Entity, kind: ElemKind, parent_kind: ParentKind) {
         let _ = (kind, parent_kind);
         if self.sheets.is_empty() {
             return;
@@ -1949,9 +1944,7 @@ impl<'w> Ctx<'w> {
                             // tiers, which is the crate's {x:Null}; elsewhere
                             // there is no entry to mask, so leave it alone.
                             Some(crate::resources::RawArm::Null) | None => {
-                                if let Some(target) =
-                                    crate::provider::property_target_for(name)
-                                {
+                                if let Some(target) = crate::provider::property_target_for(name) {
                                     crate::provider::store_and_apply(
                                         self.world, entity, target, self.tier, None,
                                     );
@@ -2135,6 +2128,14 @@ impl<'w> Ctx<'w> {
                             expected: value.clone(),
                         });
                     }
+                    crate::resources::PfTriggerCondition::VisualState { group, state } => {
+                        // Synthesised while parsing `<VisualState.Setters>`;
+                        // it carries no user-facing value to validate.
+                        conditions.push(ResolvedCondition::VisualState {
+                            group: group.clone(),
+                            state: state.clone(),
+                        });
+                    }
                 }
             }
 
@@ -2278,12 +2279,24 @@ impl<'w> Ctx<'w> {
                 // Tier + destination: style triggers own tier 7 on the
                 // root; ControlTemplate triggers own tier 6 on the root and
                 // tier 10 on TargetName-resolved template children.
+                // A visual state's setters take the VisualState tier
+                // wherever they sit, template or not: what makes them
+                // different from a Style trigger is that they must beat a
+                // local value, and that is true of a templated control as
+                // much as a bare one.
+                let from_visual_state = trigger
+                    .conditions
+                    .iter()
+                    .any(|c| matches!(c, crate::resources::PfTriggerCondition::VisualState { .. }));
                 let (dest, tier) = match (template_parts, &setter.target_name) {
                     (None, Some(name)) => {
                         self.warn(format!(
                             "trigger setter TargetName `{name}` outside a ControlTemplate; skipped"
                         ));
                         continue;
+                    }
+                    (None, None) if from_visual_state => {
+                        (None, crate::provider::ValueSource::VisualState)
                     }
                     (None, None) => (None, crate::provider::ValueSource::StyleTrigger),
                     (Some(_), None) => (None, crate::provider::ValueSource::TemplateTrigger),
@@ -3003,13 +3016,38 @@ impl<'w> Ctx<'w> {
         // property elements are handled by kind-specific code; everything else
         // is a structured value (brush, style, ...) applied as a property.
         if pe.name == "VisualStateGroups" {
-            // Consumed into PfControlTemplate.state_groups at parse time;
-            // outside a template they have no host to drive.
+            // Inside a ControlTemplate these were already consumed into
+            // PfControlTemplate.state_groups at parse time. Attached
+            // DIRECTLY to an element they belong to that element, which is
+            // where MAUI puts them — the two dialects differ by POSITION,
+            // not by syntax, so the same parser serves both.
             if self.template_ctx.is_empty() {
-                self.warn(format!(
-                    "{}: VisualStateGroups outside a ControlTemplate are ignored",
-                    pe.pos
-                ));
+                let dict = crate::resources::ResourceDictionary::default();
+                match crate::resources::parse_visual_state_groups(
+                    pe,
+                    &self.scopes,
+                    &dict,
+                    &mut self.warnings,
+                ) {
+                    Ok((groups, triggers)) if !groups.is_empty() => {
+                        let count = groups.len();
+                        self.world
+                            .entity_mut(entity)
+                            .insert(crate::animation::PfVisualStates {
+                                groups,
+                                current: vec![None; count],
+                                touched: vec![Vec::new(); count],
+                            });
+                        // `<VisualState.Setters>` arrives as triggers keyed
+                        // on the state; there is no template here, so they
+                        // target the element itself.
+                        if !triggers.is_empty() {
+                            self.attach_triggers(entity, &triggers, None);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => self.warn(format!("{}: VisualStateGroups: {e}", pe.pos)),
+                }
             }
             return;
         }
@@ -3415,9 +3453,7 @@ impl<'w> Ctx<'w> {
                 let px = value.to_f32()?;
                 let mut n = self.node_mut(entity);
                 match n.flex_direction {
-                    FlexDirection::Column | FlexDirection::ColumnReverse => {
-                        n.row_gap = Val::Px(px)
-                    }
+                    FlexDirection::Column | FlexDirection::ColumnReverse => n.row_gap = Val::Px(px),
                     _ => n.column_gap = Val::Px(px),
                 }
             }
@@ -3574,7 +3610,9 @@ impl<'w> Ctx<'w> {
                     "Right" | "End" => Some(JustifyItems::End),
                     "Stretch" => Some(JustifyItems::Stretch),
                     other => {
-                        self.warn(format!("HorizontalContentAlignment `{other}` is not a value"));
+                        self.warn(format!(
+                            "HorizontalContentAlignment `{other}` is not a value"
+                        ));
                         None
                     }
                 };
@@ -4482,9 +4520,8 @@ impl<'w> Ctx<'w> {
                         // {TemplateBinding} resolves before the shape is
                         // built, and writing into a component that does not
                         // exist yet loses the value silently.
-                        if let Some(store) = self
-                            .world
-                            .get::<crate::provider::PfPropertyStore>(entity)
+                        if let Some(store) =
+                            self.world.get::<crate::provider::PfPropertyStore>(entity)
                         {
                             for (target, slot) in [
                                 (crate::provider::PropertyTarget::Fill, 0),
@@ -4863,7 +4900,10 @@ impl<'w> Ctx<'w> {
         // PfTag), so it cannot forward LIVE; it is read once here, which is
         // all a Tag ever needs since nothing writes it after construction.
         if src_name == "Tag" {
-            let tag = self.world.get::<crate::components::PfTag>(parent).map(|t| t.0.clone());
+            let tag = self
+                .world
+                .get::<crate::components::PfTag>(parent)
+                .map(|t| t.0.clone());
             match tag {
                 Some(tag) => {
                     let kind = self
@@ -5234,10 +5274,7 @@ impl<'w> Ctx<'w> {
         // default (Button centers, the rest lead-align) that stands in for
         // WPF's per-control HorizontalContentAlignment defaults.
         {
-            let (h, v) = (
-                self.pending.h_content_align,
-                self.pending.v_content_align,
-            );
+            let (h, v) = (self.pending.h_content_align, self.pending.v_content_align);
             let mut n = self.node_mut(host);
             let centered = matches!(kind, ElemKind::Button | ElemKind::ToggleButton);
             n.justify_items = h.unwrap_or(if centered {

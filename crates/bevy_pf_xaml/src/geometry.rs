@@ -392,7 +392,10 @@ impl<'a> Parser<'a> {
 
     fn has_number_ahead(&mut self) -> bool {
         self.skip_sep();
-        matches!(self.peek(), Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.'))
+        matches!(
+            self.peek(),
+            Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.')
+        )
     }
 }
 

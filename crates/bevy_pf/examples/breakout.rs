@@ -349,11 +349,7 @@ fn reset_serve(game: &mut Game) {
     game.ball_vel = Vec2::ZERO;
 }
 
-fn keyboard(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut phase: ResMut<Phase>,
-    mut game: ResMut<Game>,
-) {
+fn keyboard(keys: Res<ButtonInput<KeyCode>>, mut phase: ResMut<Phase>, mut game: ResMut<Game>) {
     match *phase {
         Phase::Serve => {
             if keys.just_pressed(KeyCode::Space) {
@@ -375,9 +371,10 @@ fn keyboard(
             }
         }
         Phase::Paused
-            if (keys.just_pressed(KeyCode::KeyP) || keys.just_pressed(KeyCode::Space)) => {
-                *phase = Phase::Playing;
-            }
+            if (keys.just_pressed(KeyCode::KeyP) || keys.just_pressed(KeyCode::Space)) =>
+        {
+            *phase = Phase::Playing;
+        }
         _ => {}
     }
 }
@@ -463,10 +460,8 @@ fn tick_ball(
         if !brick.alive {
             continue;
         }
-        let overlap_x =
-            (pos.x + BALL).min(brick.x + BRICK_W) - pos.x.max(brick.x);
-        let overlap_y =
-            (pos.y + BALL).min(brick.y + BRICK_H) - pos.y.max(brick.y);
+        let overlap_x = (pos.x + BALL).min(brick.x + BRICK_W) - pos.x.max(brick.x);
+        let overlap_y = (pos.y + BALL).min(brick.y + BRICK_H) - pos.y.max(brick.y);
         if overlap_x <= 0.0 || overlap_y <= 0.0 {
             continue;
         }
@@ -550,7 +545,11 @@ fn sync_panels(phase: Res<Phase>, ui: PfQuery, mut nodes: Query<&mut Node>) {
         if let Some(panel) = ui.by_name(name)
             && let Ok(mut node) = nodes.get_mut(panel)
         {
-            node.display = if visible { Display::Grid } else { Display::None };
+            node.display = if visible {
+                Display::Grid
+            } else {
+                Display::None
+            };
         }
     }
 }
@@ -568,7 +567,9 @@ fn open_sponsor_page() {
     }
     #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
     {
-        let _ = std::process::Command::new("xdg-open").arg(SPONSOR_URL).spawn();
+        let _ = std::process::Command::new("xdg-open")
+            .arg(SPONSOR_URL)
+            .spawn();
     }
     #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
     {

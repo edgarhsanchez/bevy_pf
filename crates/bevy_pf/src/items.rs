@@ -53,10 +53,8 @@ pub struct PfContentSource {
 /// Rebuild ContentControl content when the bound model changes.
 pub(crate) fn sync_content_sources(world: &mut World) {
     let mut query = world.query::<(Entity, &PfContentSource)>();
-    let hosts: Vec<(Entity, PfContentSource)> = query
-        .iter(world)
-        .map(|(e, s)| (e, s.clone()))
-        .collect();
+    let hosts: Vec<(Entity, PfContentSource)> =
+        query.iter(world).map(|(e, s)| (e, s.clone())).collect();
 
     for (entity, source) in hosts {
         let Some(ctx) = find_context(world, entity) else {
@@ -126,10 +124,8 @@ pub fn items_container(world: &World, host: Entity) -> Entity {
 /// with `ObservableList` change events (roadmap 2.2).
 pub(crate) fn sync_items_sources(world: &mut World) {
     let mut query = world.query::<(Entity, &PfItemsSource)>();
-    let hosts: Vec<(Entity, PfItemsSource)> = query
-        .iter(world)
-        .map(|(e, s)| (e, s.clone()))
-        .collect();
+    let hosts: Vec<(Entity, PfItemsSource)> =
+        query.iter(world).map(|(e, s)| (e, s.clone())).collect();
 
     for (entity, source) in hosts {
         let Some(ctx) = find_context(world, entity) else {
@@ -164,18 +160,14 @@ pub(crate) fn sync_items_sources(world: &mut World) {
 
         // The container whose children are the generated items.
         let container = match source.kind {
-            ItemsHostKind::ComboBox => {
-                match world.get::<crate::components::PfComboBox>(entity) {
-                    Some(combo) => combo.popup,
-                    None => continue,
-                }
-            }
-            ItemsHostKind::DataGrid => {
-                match world.get::<crate::components::PfDataGrid>(entity) {
-                    Some(grid) => grid.rows_host,
-                    None => continue,
-                }
-            }
+            ItemsHostKind::ComboBox => match world.get::<crate::components::PfComboBox>(entity) {
+                Some(combo) => combo.popup,
+                None => continue,
+            },
+            ItemsHostKind::DataGrid => match world.get::<crate::components::PfDataGrid>(entity) {
+                Some(grid) => grid.rows_host,
+                None => continue,
+            },
             // ListBox/ItemsControl: an ItemsPanel redirects generation.
             _ => items_container(world, entity),
         };
@@ -200,8 +192,7 @@ pub(crate) fn sync_items_sources(world: &mut World) {
 
             // DataGrid rows are fully generated here (template columns).
             if source.kind == ItemsHostKind::DataGrid {
-                let Some(grid) = world.get::<crate::components::PfDataGrid>(entity).cloned()
-                else {
+                let Some(grid) = world.get::<crate::components::PfDataGrid>(entity).cloned() else {
                     continue;
                 };
                 let template: Vec<bevy::ui::RepeatedGridTrack> = grid

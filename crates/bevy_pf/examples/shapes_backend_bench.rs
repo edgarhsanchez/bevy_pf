@@ -55,8 +55,12 @@ fn main() {
         animate: std::env::args().any(|a| a == "--animate"),
         backend: if gpu { "gpu" } else { "cpu" },
         size: Vec2::new(
-            arg_value("--w").and_then(|s| s.parse().ok()).unwrap_or(56.0),
-            arg_value("--h").and_then(|s| s.parse().ok()).unwrap_or(40.0),
+            arg_value("--w")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(56.0),
+            arg_value("--h")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(40.0),
         ),
         complex: arg_value("--complex")
             .and_then(|s| s.parse().ok())
@@ -64,12 +68,7 @@ fn main() {
     };
     println!(
         "bench: backend={} shapes={} animate={} size={}x{} complex={}",
-        config.backend,
-        config.shapes,
-        config.animate,
-        config.size.x,
-        config.size.y,
-        config.complex
+        config.backend, config.shapes, config.animate, config.size.x, config.size.y, config.complex
     );
 
     let mut app = App::new();

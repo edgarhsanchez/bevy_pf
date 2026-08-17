@@ -311,7 +311,9 @@ fn stress_across_frames(
         // expected); one every few frames is thrashing.
         let budget = frames / 60;
         if steady > budget {
-            println!("stress: FAIL -- {steady} rebuilds in steady state exceeds budget {budget}; atlas is thrashing");
+            println!(
+                "stress: FAIL -- {steady} rebuilds in steady state exceeds budget {budget}; atlas is thrashing"
+            );
             std::process::exit(1);
         }
         if slotted.iter().count() == 0 {

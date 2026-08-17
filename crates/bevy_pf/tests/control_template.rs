@@ -100,7 +100,10 @@ fn style_setter_template_carries_control_template() {
         assert_eq!(setter.owner, None, "{property} normalizes to unqualified");
         assert_eq!(setter.property, "Template");
         assert!(
-            matches!(setter.value, PfSetterValue::Value(PfValue::ControlTemplate(_))),
+            matches!(
+                setter.value,
+                PfSetterValue::Value(PfValue::ControlTemplate(_))
+            ),
             "{property}: got {:?}",
             setter.value
         );
@@ -155,7 +158,12 @@ fn style_template_delivery_is_warning_free() {
            </StackPanel>"##,
     );
     assert_eq!(warnings, Vec::<String>::new());
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     assert!(
         app.world().get::<bevy_pf::ButtonVisual>(button).is_none(),
         "style-delivered template replaced the default chrome"
@@ -186,7 +194,11 @@ fn x_type_keys_meet_static_resource_type_lookups() {
              <TextBox x:Name="T" Style="{StaticResource Derived}"/>
            </StackPanel>"##,
     );
-    assert_eq!(warnings, Vec::<String>::new(), "key spaces meet: {warnings:?}");
+    assert_eq!(
+        warnings,
+        Vec::<String>::new(),
+        "key spaces meet: {warnings:?}"
+    );
     // The base style's Foreground reached the TextBox through BasedOn.
     let root_names = app.world().get::<XamlNames>(root).unwrap();
     let tb = root_names.get("T").unwrap();
@@ -306,7 +318,12 @@ fn inline_template_replaces_button_chrome() {
     let mut app = test_app();
     let (root, warnings) = spawn_collect_warnings(&mut app, BUTTON_TEMPLATE_PAGE);
     assert_eq!(warnings, Vec::<String>::new());
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
 
     // Default chrome gone.
     assert!(app.world().get::<bevy_pf::ButtonVisual>(button).is_none());
@@ -324,10 +341,7 @@ fn inline_template_replaces_button_chrome() {
         .expect("marker present");
     let border = templated.template_root;
     assert_eq!(
-        app.world()
-            .get::<bevy_pf::PfElementKind>(border)
-            .unwrap()
-            .0,
+        app.world().get::<bevy_pf::PfElementKind>(border).unwrap().0,
         "Border"
     );
     let bg = app.world().get::<BackgroundColor>(border).unwrap().0;
@@ -345,7 +359,13 @@ fn inline_template_replaces_button_chrome() {
     assert!(texts_in(&app, border).contains(&"Hi".to_string()));
 
     // Template-internal names are per-expansion: not in the page registry.
-    assert!(app.world().get::<XamlNames>(root).unwrap().get("border").is_none());
+    assert!(
+        app.world()
+            .get::<XamlNames>(root)
+            .unwrap()
+            .get("border")
+            .is_none()
+    );
 }
 
 #[test]
@@ -375,8 +395,16 @@ fn style_delivered_template_expands_identically() {
     assert_eq!(warnings, Vec::<String>::new());
     let names = app.world().get::<XamlNames>(root).unwrap();
     let (a, b) = (names.get("A").unwrap(), names.get("B").unwrap());
-    let ra = app.world().get::<bevy_pf::components::PfTemplatedControl>(a).unwrap().template_root;
-    let rb = app.world().get::<bevy_pf::components::PfTemplatedControl>(b).unwrap().template_root;
+    let ra = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(a)
+        .unwrap()
+        .template_root;
+    let rb = app
+        .world()
+        .get::<bevy_pf::components::PfTemplatedControl>(b)
+        .unwrap()
+        .template_root;
     assert_ne!(ra, rb, "each expansion is its own subtree");
     assert!(texts_in(&app, ra).contains(&"one".to_string()));
     assert!(texts_in(&app, rb).contains(&"two".to_string()));
@@ -404,7 +432,9 @@ fn projected_content_keeps_page_namescope() {
     );
     assert_eq!(warnings, Vec::<String>::new());
     let names = app.world().get::<XamlNames>(root).unwrap();
-    let inner = names.get("inner").expect("projected content x:Name is page-scoped");
+    let inner = names
+        .get("inner")
+        .expect("projected content x:Name is page-scoped");
     assert_eq!(
         app.world().get::<bevy::ui::widget::Text>(inner).unwrap().0,
         "projected"
@@ -428,15 +458,26 @@ fn templated_checkbox_keeps_behavior_loses_box_chrome() {
            </StackPanel>"##,
     );
     assert_eq!(warnings, Vec::<String>::new());
-    let cb = app.world().get::<XamlNames>(root).unwrap().get("C").unwrap();
+    let cb = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("C")
+        .unwrap();
     assert!(
         app.world()
             .get::<bevy_pf::components::PfCheckVisual>(cb)
             .is_none(),
         "box/glyph chrome replaced"
     );
-    assert!(app.world().get::<Interaction>(cb).is_some(), "behavior kept");
-    assert!(app.world().get::<bevy::ui::Checked>(cb).is_some(), "IsChecked seed kept");
+    assert!(
+        app.world().get::<Interaction>(cb).is_some(),
+        "behavior kept"
+    );
+    assert!(
+        app.world().get::<bevy::ui::Checked>(cb).is_some(),
+        "IsChecked seed kept"
+    );
     let templated = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(cb)
@@ -448,7 +489,12 @@ fn templated_checkbox_keeps_behavior_loses_box_chrome() {
 fn template_consumed_paint_is_suppressed_on_root() {
     let mut app = test_app();
     let (root, _) = spawn_collect_warnings(&mut app, BUTTON_TEMPLATE_PAGE);
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
 
     bevy_pf::provider::set_local(
         app.world_mut(),
@@ -472,7 +518,10 @@ fn template_consumed_paint_is_suppressed_on_root() {
         bevy_pf::provider::PropertyTarget::Padding,
         bevy_pf::resources::PfValue::Thickness(bevy_pf::xaml_ast::value::Thickness::uniform(9.0)),
     );
-    assert_eq!(app.world().get::<Node>(button).unwrap().padding, UiRect::ZERO);
+    assert_eq!(
+        app.world().get::<Node>(button).unwrap().padding,
+        UiRect::ZERO
+    );
 }
 
 #[test]
@@ -493,8 +542,16 @@ fn templated_textbox_expands_and_strips_chrome() {
     );
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("PART_ContentHost"));
-    let tb = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
-    assert!(app.world().get::<BackgroundColor>(tb).is_none(), "chrome stripped");
+    let tb = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("T")
+        .unwrap();
+    assert!(
+        app.world().get::<BackgroundColor>(tb).is_none(),
+        "chrome stripped"
+    );
     let node = app.world().get::<Node>(tb).unwrap();
     assert_eq!(node.padding, UiRect::ZERO);
     assert!(node.min_width != Val::Auto, "sizing defaults retained");
@@ -580,7 +637,12 @@ const TB_PAGE: &str = r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/
 fn tb_setup(app: &mut App) -> (Entity, Entity, Entity) {
     let (root, warnings) = spawn_collect_warnings(app, TB_PAGE);
     assert_eq!(warnings, Vec::<String>::new());
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let border = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
@@ -674,7 +736,12 @@ fn template_literal_paints_when_parent_value_is_unbound() {
            </StackPanel>"##,
     );
     assert_eq!(warnings, Vec::<String>::new());
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let border = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
@@ -745,7 +812,9 @@ fn templated_textbox_edits_inside_part_content_host() {
         query: String,
     }
     let mut app = test_app();
-    let vm = Bindable::new(Vm { query: "start".into() });
+    let vm = Bindable::new(Vm {
+        query: "start".into(),
+    });
     let (root, warnings) = spawn_collect_warnings(
         &mut app,
         r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -763,7 +832,12 @@ fn templated_textbox_edits_inside_part_content_host() {
            </StackPanel>"##,
     );
     assert_eq!(warnings, Vec::<String>::new());
-    let tb = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+    let tb = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("T")
+        .unwrap();
 
     // The editing surface lives under the PART.
     let parts = app
@@ -779,7 +853,9 @@ fn templated_textbox_edits_inside_part_content_host() {
     assert!(app.world().get::<bevy::text::EditableText>(input).is_some());
 
     // The TwoWay Text binding still round-trips through the templated input.
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
     let shown = app
         .world()
@@ -819,7 +895,12 @@ fn templated_textbox_without_part_degrades_with_warnings() {
     assert_eq!(warnings.len(), 2, "{warnings:?}");
     assert!(warnings.iter().any(|w| w.contains("no PART_ContentHost")));
     assert!(warnings.iter().any(|w| w.contains("Text binding skipped")));
-    let tb = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+    let tb = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("T")
+        .unwrap();
     // Still templated, still rendering — just no editing surface, and no
     // binding mis-attached to the root.
     assert!(
@@ -904,22 +985,35 @@ fn template_triggers_drive_named_children_and_revert_to_template_value() {
     let mut app = test_app();
     let (root, warnings) = spawn_collect_warnings(&mut app, TRIGGERED_TEMPLATE_PAGE);
     assert_eq!(warnings, Vec::<String>::new());
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let border = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
         .unwrap()
         .template_root;
     app.update();
-    assert_eq!(border_hex(&app, border), "#E8E8E8", "rest state = template literal");
+    assert_eq!(
+        border_hex(&app, border),
+        "#E8E8E8",
+        "rest state = template literal"
+    );
 
     // Hover: the TargetName setter (tier 10) overrides the template literal.
-    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Hovered);
     app.update();
     assert_eq!(border_hex(&app, border), "#BEE6FD");
 
     // Pressed: IsMouseOver and IsPressed both hold — last declared wins.
-    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Pressed);
     app.update();
     assert_eq!(border_hex(&app, border), "#C4E5F6");
 
@@ -928,7 +1022,10 @@ fn template_triggers_drive_named_children_and_revert_to_template_value() {
     app.world_mut().entity_mut(button).insert(Interaction::None);
     app.update();
     assert_eq!(border_hex(&app, border), "#E8E8E8");
-    assert!(app.world().get::<BackgroundColor>(button).is_none(), "root never paints");
+    assert!(
+        app.world().get::<BackgroundColor>(button).is_none(),
+        "root never paints"
+    );
 }
 
 #[test]
@@ -965,7 +1062,12 @@ fn style_and_template_trigger_blocks_merge_and_style_tier_wins() {
            </StackPanel>"##,
     );
     assert_eq!(warnings, Vec::<String>::new());
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let border = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
@@ -984,7 +1086,9 @@ fn style_and_template_trigger_blocks_merge_and_style_tier_wins() {
     // Hover: both triggers activate. On the ROOT's Background store the
     // local value (11) still outranks StyleTrigger (7) and TemplateTrigger
     // (6) — WPF's "trigger can't beat local" rule, which then forwards.
-    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Hovered);
     app.update();
     assert_eq!(border_hex(&app, border), "#008000");
     assert!(app.world().get::<BackgroundColor>(button).is_none());
@@ -1035,7 +1139,12 @@ fn style_and_template_triggers_without_local_value() {
            </StackPanel>"##,
     );
     assert_eq!(warnings, Vec::<String>::new());
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let border = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
@@ -1044,9 +1153,15 @@ fn style_and_template_triggers_without_local_value() {
     app.update();
     assert_eq!(border_hex(&app, border), "#008000", "style setter at rest");
 
-    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Hovered);
     app.update();
-    assert_eq!(border_hex(&app, border), "#112233", "StyleTrigger(7) > TemplateTrigger(6)");
+    assert_eq!(
+        border_hex(&app, border),
+        "#112233",
+        "StyleTrigger(7) > TemplateTrigger(6)"
+    );
 
     app.world_mut().entity_mut(button).insert(Interaction::None);
     app.update();
@@ -1077,7 +1192,12 @@ fn checked_template_trigger_on_templated_toggle() {
            </StackPanel>"##,
     );
     assert_eq!(warnings, Vec::<String>::new());
-    let cb = app.world().get::<XamlNames>(root).unwrap().get("C").unwrap();
+    let cb = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("C")
+        .unwrap();
     let mark = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(cb)
@@ -1092,14 +1212,23 @@ fn checked_template_trigger_on_templated_toggle() {
 
     app.world_mut().entity_mut(cb).remove::<bevy::ui::Checked>();
     app.update();
-    assert_eq!(border_hex(&app, mark), "#FFFFFF", "reverts to template literal");
+    assert_eq!(
+        border_hex(&app, mark),
+        "#FFFFFF",
+        "reverts to template literal"
+    );
 }
 
 #[test]
 fn despawned_target_name_dest_is_pruned_without_panic() {
     let mut app = test_app();
     let (root, _) = spawn_collect_warnings(&mut app, TRIGGERED_TEMPLATE_PAGE);
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let border = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
@@ -1109,7 +1238,9 @@ fn despawned_target_name_dest_is_pruned_without_panic() {
     app.world_mut().entity_mut(border).despawn();
 
     // Toggling the condition must not panic — and prunes the stale setter.
-    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Hovered);
     app.update();
     let blocks = app.world().get::<bevy_pf::PfTriggers>(button).unwrap();
     assert!(
@@ -1136,11 +1267,8 @@ fn g1_aero2_button_fragment_instantiates_and_functions() {
     // Application resources <- the verbatim theme fragment.
     let dict_src = include_str!("fixtures/aero2/button.xaml");
     let doc = bevy_pf_xaml::parse(dict_src).expect("fragment parses with zero errors");
-    let ingest_warnings = bevy_pf::instantiate::set_application_resources(
-        app.world_mut(),
-        &doc,
-        &XamlEnv::default(),
-    );
+    let ingest_warnings =
+        bevy_pf::instantiate::set_application_resources(app.world_mut(), &doc, &XamlEnv::default());
     // Ingest-time warning classes (count-stable; each is a documented
     // deferral — see docs/controltemplate-plan.md G1):
     //   x:Static keys inside DynamicResource values (SystemColors.*),
@@ -1189,7 +1317,12 @@ fn g1_aero2_button_fragment_instantiates_and_functions() {
     }
 
     // The button IS templated by the theme...
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let templated = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
@@ -1198,20 +1331,40 @@ fn g1_aero2_button_fragment_instantiates_and_functions() {
     app.update();
 
     // ...with the static theme brushes flowing through TemplateBinding...
-    assert_eq!(border_hex(&app, border), "#DDDDDD", "Button.Static.Background");
+    assert_eq!(
+        border_hex(&app, border),
+        "#DDDDDD",
+        "Button.Static.Background"
+    );
     assert!(app.world().get::<BackgroundColor>(button).is_none());
     assert!(texts_in(&app, border).contains(&"Aero2".to_string()));
 
     // ...and the real Aero2 triggers driving hover/press through the store.
-    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Hovered);
     app.update();
-    assert_eq!(border_hex(&app, border), "#BEE6FD", "Button.MouseOver.Background");
-    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    assert_eq!(
+        border_hex(&app, border),
+        "#BEE6FD",
+        "Button.MouseOver.Background"
+    );
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Pressed);
     app.update();
-    assert_eq!(border_hex(&app, border), "#C4E5F6", "Button.Pressed.Background");
+    assert_eq!(
+        border_hex(&app, border),
+        "#C4E5F6",
+        "Button.Pressed.Background"
+    );
     app.world_mut().entity_mut(button).insert(Interaction::None);
     app.update();
-    assert_eq!(border_hex(&app, border), "#DDDDDD", "revert to template value");
+    assert_eq!(
+        border_hex(&app, border),
+        "#DDDDDD",
+        "revert to template value"
+    );
 }
 
 #[test]
@@ -1230,7 +1383,12 @@ fn g1_aero2_toggle_button_checked_trigger_works_unadapted() {
              <ToggleButton x:Name="T" Content="pin"/>
            </StackPanel>"##,
     );
-    let toggle = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+    let toggle = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("T")
+        .unwrap();
     let border = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(toggle)
@@ -1241,7 +1399,11 @@ fn g1_aero2_toggle_button_checked_trigger_works_unadapted() {
 
     app.world_mut().entity_mut(toggle).insert(bevy::ui::Checked);
     app.update();
-    assert_eq!(border_hex(&app, border), "#BCDDEE", "Button.Checked.Background");
+    assert_eq!(
+        border_hex(&app, border),
+        "#BCDDEE",
+        "Button.Checked.Background"
+    );
 }
 
 #[test]
@@ -1377,7 +1539,10 @@ fn templated_combo_box_keeps_popup_runtime_and_selection() {
         .get::<bevy_pf::components::PfComboBox>(combo)
         .expect("combo runtime")
         .clone();
-    assert_eq!(state.text, selection_text, "selection presenter is the part");
+    assert_eq!(
+        state.text, selection_text,
+        "selection presenter is the part"
+    );
     let items: Vec<Entity> = app
         .world()
         .get::<Children>(state.popup)
@@ -1429,11 +1594,8 @@ fn g1_aero2_check_box_fragment_instantiates_and_functions() {
 
     let dict_src = include_str!("fixtures/aero2/checkbox.xaml");
     let doc = bevy_pf_xaml::parse(dict_src).expect("fragment parses with zero errors");
-    let ingest_warnings = bevy_pf::instantiate::set_application_resources(
-        app.world_mut(),
-        &doc,
-        &XamlEnv::default(),
-    );
+    let ingest_warnings =
+        bevy_pf::instantiate::set_application_resources(app.world_mut(), &doc, &XamlEnv::default());
     for w in &ingest_warnings {
         assert!(
             w.contains("x:Static")
@@ -1465,7 +1627,12 @@ fn g1_aero2_check_box_fragment_instantiates_and_functions() {
         );
     }
 
-    let checkbox = app.world().get::<XamlNames>(root).unwrap().get("C").unwrap();
+    let checkbox = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("C")
+        .unwrap();
     let templated = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(checkbox)
@@ -1518,7 +1685,11 @@ fn g1_aero2_check_box_fragment_instantiates_and_functions() {
         .entity_mut(checkbox)
         .insert(Interaction::None);
     app.update();
-    assert_eq!(border_hex(&app, border), "#FFFFFF", "revert to template value");
+    assert_eq!(
+        border_hex(&app, border),
+        "#FFFFFF",
+        "revert to template value"
+    );
 
     // Checking flips the glyph visible via the IsChecked trigger.
     app.world_mut()
@@ -1539,7 +1710,11 @@ fn g1_aero2_check_box_fragment_instantiates_and_functions() {
         .and_then(|s| s.fill.clone());
     match fill {
         Some(bevy_pf::xaml_ast::value::PfBrush::Solid(c)) => {
-            assert_eq!((c.r, c.g, c.b), (0x70, 0x70, 0x70), "OptionMark.Disabled.Glyph");
+            assert_eq!(
+                (c.r, c.g, c.b),
+                (0x70, 0x70, 0x70),
+                "OptionMark.Disabled.Glyph"
+            );
         }
         other => panic!("expected solid disabled glyph fill, got {other:?}"),
     }
@@ -1601,7 +1776,10 @@ fn templated_scroll_bar_wires_track_thumb_and_line_buttons() {
     assert_eq!(sb.track, track);
     assert_eq!(sb.thumb, grip);
     assert_eq!(
-        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        app.world()
+            .get::<bevy::ui_widgets::SliderValue>(bar)
+            .unwrap()
+            .0,
         40.0,
         "initial Value"
     );
@@ -1613,7 +1791,10 @@ fn templated_scroll_bar_wires_track_thumb_and_line_buttons() {
     match (grip_node.height, grip_node.top) {
         (Val::Percent(len), Val::Percent(top)) => {
             assert!((len - 20.0).abs() < 0.5, "thumb length {len}%");
-            assert!((top - 32.0).abs() < 0.5, "thumb at 40% of (100-20)% = {top}%");
+            assert!(
+                (top - 32.0).abs() < 0.5,
+                "thumb at 40% of (100-20)% = {top}%"
+            );
         }
         other => panic!("expected percent thumb geometry, got {other:?}"),
     }
@@ -1627,7 +1808,10 @@ fn templated_scroll_bar_wires_track_thumb_and_line_buttons() {
     );
     bevy_pf::instantiate::scroll_bar_nudge(app.world_mut(), bar, -1.0);
     assert_eq!(
-        app.world().get::<bevy::ui_widgets::SliderValue>(bar).unwrap().0,
+        app.world()
+            .get::<bevy::ui_widgets::SliderValue>(bar)
+            .unwrap()
+            .0,
         30.0,
         "nudge by SmallChange"
     );
@@ -1676,7 +1860,12 @@ fn console_page(pressed_value: &str) -> String {
 
 /// Returns (resting colour, pressed colour), asserting the release reverts.
 fn press_and_read_frame(app: &mut App, root: Entity, name: &str) -> (String, String) {
-    let button = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap();
     let frame = app
         .world()
         .get::<bevy_pf::components::PfTemplatedControl>(button)
@@ -1684,19 +1873,26 @@ fn press_and_read_frame(app: &mut App, root: Entity, name: &str) -> (String, Str
         .template_root;
     app.update();
     let rest = border_hex(app, frame);
-    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Pressed);
     app.update();
     let pressed = border_hex(app, frame);
     app.world_mut().entity_mut(button).insert(Interaction::None);
     app.update();
-    assert_eq!(border_hex(app, frame), rest, "{name} must revert on release");
+    assert_eq!(
+        border_hex(app, frame),
+        rest,
+        "{name} must revert on release"
+    );
     (rest, pressed)
 }
 
 #[test]
 fn template_binding_trigger_setter_fills_with_each_instance_accent() {
     let mut app = test_app();
-    let (root, warnings) = spawn_collect_warnings(&mut app, &console_page("{TemplateBinding BorderBrush}"));
+    let (root, warnings) =
+        spawn_collect_warnings(&mut app, &console_page("{TemplateBinding BorderBrush}"));
     assert_eq!(warnings, Vec::<String>::new());
 
     let (rest, pressed) = press_and_read_frame(&mut app, root, "Teal");
@@ -1772,7 +1968,9 @@ fn a_plain_style_setter_cannot_read_a_templated_parent() {
    </StackPanel>"##,
     );
     assert!(
-        warnings.iter().any(|w| w.contains("ControlTemplate.Triggers")),
+        warnings
+            .iter()
+            .any(|w| w.contains("ControlTemplate.Triggers")),
         "expected a warning naming where it IS valid, got {warnings:?}"
     );
 }
@@ -1838,8 +2036,15 @@ fn tag_forwards_into_a_template() {
     assert_eq!(warnings, Vec::<String>::new());
 
     let hint_of = |app: &App, name: &str| -> Option<String> {
-        let button = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
-        let parts = app.world().get::<bevy_pf::components::PfTemplateParts>(button)?;
+        let button = app
+            .world()
+            .get::<XamlNames>(root)
+            .unwrap()
+            .get(name)
+            .unwrap();
+        let parts = app
+            .world()
+            .get::<bevy_pf::components::PfTemplateParts>(button)?;
         let hint = parts.get("hint")?;
         app.world()
             .get::<bevy::ui::widget::Text>(hint)
@@ -1897,10 +2102,19 @@ fn a_shape_stroke_binds_to_the_templated_parent() {
    </StackPanel>"##,
     );
     app.update();
-    assert_eq!(warnings, Vec::<String>::new(), "the stroke binding must not warn");
+    assert_eq!(
+        warnings,
+        Vec::<String>::new(),
+        "the stroke binding must not warn"
+    );
 
     let stroke_of = |app: &App, name: &str| -> Option<String> {
-        let button = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+        let button = app
+            .world()
+            .get::<XamlNames>(root)
+            .unwrap()
+            .get(name)
+            .unwrap();
         let frame = app
             .world()
             .get::<bevy_pf::components::PfTemplateParts>(button)?

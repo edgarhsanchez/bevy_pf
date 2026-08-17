@@ -86,8 +86,7 @@ impl<'a, 'input> Ctx<'a, 'input> {
         let preserve_space = node
             .attributes()
             .find(|a| {
-                a.namespace() == Some("http://www.w3.org/XML/1998/namespace")
-                    && a.name() == "space"
+                a.namespace() == Some("http://www.w3.org/XML/1998/namespace") && a.name() == "space"
             })
             .map(|a| a.value() == "preserve")
             .unwrap_or(inherited_preserve);
@@ -304,10 +303,9 @@ fn normalize_whitespace_children(children: &mut Vec<XamlChild>) {
     let keep: Vec<bool> = (0..children.len())
         .map(|i| match &children[i] {
             XamlChild::Text(t) if t.trim().is_empty() => {
-                let prev_is_element =
-                    i > 0 && matches!(children[i - 1], XamlChild::Element(_));
-                let next_is_element = i + 1 < children.len()
-                    && matches!(children[i + 1], XamlChild::Element(_));
+                let prev_is_element = i > 0 && matches!(children[i - 1], XamlChild::Element(_));
+                let next_is_element =
+                    i + 1 < children.len() && matches!(children[i + 1], XamlChild::Element(_));
                 !t.is_empty() && prev_is_element && next_is_element
             }
             XamlChild::Text(t) => !t.is_empty(),
@@ -325,7 +323,7 @@ fn normalize_whitespace_children(children: &mut Vec<XamlChild>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::markup::{MarkupValue, MarkupExtension};
+    use crate::markup::{MarkupExtension, MarkupValue};
 
     #[test]
     fn parses_minimal_window() {
@@ -446,10 +444,7 @@ mod tests {
             panic!("expected extension")
         };
         assert_eq!(ext.name, "Binding");
-        assert_eq!(
-            ext.positional,
-            vec![MarkupValue::Str("Title".to_string())]
-        );
+        assert_eq!(ext.positional, vec![MarkupValue::Str("Title".to_string())]);
     }
 
     #[test]
@@ -642,12 +637,14 @@ mod tests {
 
     #[test]
     fn rejects_attributes_on_property_elements() {
-        assert!(parse(
-            r#"<Button xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+        assert!(
+            parse(
+                r#"<Button xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
                  <Button.Content Foo="bar"><TextBlock/></Button.Content>
                </Button>"#
-        )
-        .is_err());
+            )
+            .is_err()
+        );
     }
 
     #[test]

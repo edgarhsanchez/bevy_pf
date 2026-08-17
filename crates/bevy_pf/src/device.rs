@@ -188,7 +188,10 @@ impl PfDevice {
 /// The device to resolve against, defaulting to the build target when the
 /// resource is absent (a `World` built without the plugin).
 pub fn device(world: &World) -> PfDevice {
-    world.get_resource::<PfDevice>().copied().unwrap_or_default()
+    world
+        .get_resource::<PfDevice>()
+        .copied()
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -199,7 +202,10 @@ mod tests {
     fn platform_names_are_mauis_and_only_one_can_match() {
         let mac = DevicePlatform::MacOS;
         assert!(mac.matches("macOS"));
-        assert!(mac.matches("MacCatalyst"), "MAUI markup must port unchanged");
+        assert!(
+            mac.matches("MacCatalyst"),
+            "MAUI markup must port unchanged"
+        );
         assert!(!mac.matches("Android"));
         assert!(!mac.matches("iOS"));
         assert!(!mac.matches("WinUI"));

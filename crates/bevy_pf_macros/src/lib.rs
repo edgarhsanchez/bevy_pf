@@ -52,12 +52,9 @@ pub fn include_xaml(input: TokenStream) -> TokenStream {
     let source = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(e) => {
-            return syn::Error::new(
-                lit.span(),
-                format!("cannot read `{}`: {e}", path.display()),
-            )
-            .to_compile_error()
-            .into();
+            return syn::Error::new(lit.span(), format!("cannot read `{}`: {e}", path.display()))
+                .to_compile_error()
+                .into();
         }
     };
 

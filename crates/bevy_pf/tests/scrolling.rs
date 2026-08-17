@@ -230,7 +230,11 @@ fn keyboard_activation_and_arrow_selection() {
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::Space);
     app.update();
-    assert_eq!(clicks.load(std::sync::atomic::Ordering::SeqCst), 1, "Space clicked");
+    assert_eq!(
+        clicks.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "Space clicked"
+    );
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
         .reset_all();
@@ -319,9 +323,15 @@ fn is_tab_stop_false_opts_out_of_the_tab_ring() {
         app.world().get::<TabIndex>(skip).is_none(),
         "IsTabStop=False must not insert a TabIndex"
     );
-    assert!(app.world().get::<TabIndex>(editable_in(&app, field)).is_some());
     assert!(
-        app.world().get::<TabIndex>(editable_in(&app, ghost)).is_none(),
+        app.world()
+            .get::<TabIndex>(editable_in(&app, field))
+            .is_some()
+    );
+    assert!(
+        app.world()
+            .get::<TabIndex>(editable_in(&app, ghost))
+            .is_none(),
         "a non-tab-stop TextBox keeps its editable out of the ring too"
     );
 }
@@ -341,7 +351,12 @@ fn explicit_size_beats_a_controls_default_minimums() {
     );
     app.update();
 
-    let thin = app.world().get::<XamlNames>(root).unwrap().get("Thin").unwrap();
+    let thin = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Thin")
+        .unwrap();
     let node = app.world().get::<Node>(thin).unwrap();
     assert_eq!(node.height, Val::Px(1.0));
     assert_eq!(node.min_height, Val::Px(1.0), "explicit Height clamps min");
@@ -411,7 +426,12 @@ fn subtree_opacity_fades_the_text_caret() {
     app.update();
     app.update();
 
-    let faded = app.world().get::<XamlNames>(root).unwrap().get("Faded").unwrap();
+    let faded = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Faded")
+        .unwrap();
     let editable = editable_in(&app, faded);
     let cursor = app
         .world()

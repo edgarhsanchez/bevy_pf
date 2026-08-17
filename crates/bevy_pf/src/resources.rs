@@ -91,6 +91,16 @@ pub enum PfTriggerCondition {
     },
     /// `<DataTrigger Binding="{Binding Path}" Value="...">`
     Data { path: String, value: PfTriggerValue },
+    /// Synthesised, never written by hand: true while `group` is in `state`.
+    ///
+    /// This is how MAUI's `<VisualState.Setters>` is carried. WPF drives a
+    /// visual state with a storyboard, and that path is unchanged; MAUI
+    /// drives it with setters, and setters are exactly what the trigger
+    /// runtime already applies and reverts — with tiers, TargetName,
+    /// dynamic resources and theme re-picking all working the same way they
+    /// do for `Style.Triggers`. Lowering setters onto a trigger buys all of
+    /// that instead of growing a second machine beside it.
+    VisualState { group: String, state: String },
 }
 
 /// A trigger condition's expected value. `Null` is parse-level support for
@@ -263,8 +273,11 @@ impl RawSelectorArms {
     /// Source order decides only among arms that BOTH match, which happens
     /// for the one alias pair (`macOS` / `MacCatalyst`); the caller orders
     /// the names so `macOS` is offered first.
-    pub fn pick(&self, device: &crate::device::PfDevice, kind: crate::device::SelectorKind)
-    -> Option<&RawArm> {
+    pub fn pick(
+        &self,
+        device: &crate::device::PfDevice,
+        kind: crate::device::SelectorKind,
+    ) -> Option<&RawArm> {
         self.arms
             .iter()
             .find(|(name, _)| device.matches(kind, name))
@@ -360,9 +373,7 @@ fn theme_arm(value: &MarkupValue, owner: &str) -> Result<RawArm, PfError> {
 /// were written), so `{AppThemeBinding}` and `{AppThemeBinding Light={x:Null}}`
 /// are both errors. MAUI throws there; bevy_pf has no throw idiom, so this is
 /// an `Err` that the caller surfaces as a warning and skips.
-pub fn parse_app_theme_arms(
-    ext: &bevy_pf_xaml::MarkupExtension,
-) -> Result<RawThemeArms, PfError> {
+pub fn parse_app_theme_arms(ext: &bevy_pf_xaml::MarkupExtension) -> Result<RawThemeArms, PfError> {
     let arm = |value: &MarkupValue| theme_arm(value, "AppThemeBinding");
 
     let mut arms = RawThemeArms::default();
@@ -591,68 +602,14 @@ pub fn parse_resource_value(
             }
             // VSM groups live as an attached property element on the
             // template's visual root.
-            let mut state_groups = Vec::new();
-            if let Some(pe) = root
+            let (state_groups, state_triggers) = root
                 .property_elements
                 .iter()
                 .find(|p| p.name == "VisualStateGroups")
-            {
-                for group in pe.elements() {
-                    if group.name != "VisualStateGroup" {
-                        continue;
-                    }
-                    let name = group
-                        .x_name
-                        .clone()
-                        .unwrap_or_else(|| "CommonStates".to_string());
-                    let mut states = Vec::new();
-                    let mut transitions = Vec::new();
-                    // Dotted form routes to property elements.
-                    if let Some(tpe) = group
-                        .property_elements
-                        .iter()
-                        .find(|p| p.name == "Transitions")
-                    {
-                        for t in tpe.elements() {
-                            if t.name == "VisualTransition" {
-                                transitions.push(parse_visual_transition(t, warnings));
-                            }
-                        }
-                    }
-                    for state in group.child_elements() {
-                        match state.name.as_str() {
-                            "VisualState" => {
-                                let storyboard = state
-                                    .child_elements()
-                                    .find(|c| c.name == "Storyboard")
-                                    .map(|sb| parse_storyboard(sb, warnings))
-                                    .transpose()?
-                                    .map(Arc::new);
-                                states.push(crate::animation::PfVisualState {
-                                    name: state.x_name.clone().unwrap_or_default(),
-                                    storyboard,
-                                });
-                            }
-                            "VisualStateGroup.Transitions" => {
-                                for t in state.child_elements() {
-                                    if t.name == "VisualTransition" {
-                                        transitions.push(parse_visual_transition(t, warnings));
-                                    }
-                                }
-                            }
-                            "VisualTransition" => {
-                                transitions.push(parse_visual_transition(state, warnings));
-                            }
-                            _ => {}
-                        }
-                    }
-                    state_groups.push(crate::animation::PfVisualStateGroup {
-                        name,
-                        states,
-                        transitions,
-                    });
-                }
-            }
+                .map(|pe| parse_visual_state_groups(pe, scopes, local, warnings))
+                .transpose()?
+                .unwrap_or_default();
+            triggers.extend(state_triggers);
             PfValue::ControlTemplate(Arc::new(PfControlTemplate {
                 target_type,
                 root: Arc::new(root.clone()),
@@ -1285,14 +1242,20 @@ fn parse_key_frames(
 fn normalize_target_property(path: &str) -> String {
     let path = path.trim();
     let last_seg = |seg: &str| -> String {
-        seg.rsplit('.').next().unwrap_or_default().trim().to_string()
+        seg.rsplit('.')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
     };
 
     // The parenthesized steps, in order: "(A.B).(C.D)" -> ["A.B", "C.D"].
     let mut groups: Vec<&str> = Vec::new();
     let mut rest = path;
     while let Some(open) = rest.find('(') {
-        let Some(close) = rest[open..].find(')') else { break };
+        let Some(close) = rest[open..].find(')') else {
+            break;
+        };
         groups.push(&rest[open + 1..open + close]);
         rest = &rest[open + close + 1..];
     }
@@ -1337,6 +1300,127 @@ fn normalize_target_property(path: &str) -> String {
 
 /// `<VisualTransition From=.. To=.. GeneratedDuration=..>` with an
 /// optional `GeneratedEasingFunction` property element.
+/// Parse a `<VisualStateManager.VisualStateGroups>` property element.
+///
+/// Shared by the two places MAUI and WPF put visual states, which are
+/// different POSITIONS rather than different syntax: WPF attaches the groups
+/// to a ControlTemplate's visual root, MAUI attaches them directly to the
+/// element. Parsing them once means an element-attached group gets the same
+/// transitions, storyboards and setters a templated one does.
+///
+/// Returns the groups plus any triggers synthesised from
+/// `<VisualState.Setters>` — see `PfTriggerCondition::VisualState`.
+pub(crate) fn parse_visual_state_groups(
+    pe: &bevy_pf_xaml::XamlPropertyElement,
+    scopes: &ResourceScopes,
+    local: &ResourceDictionary,
+    warnings: &mut Vec<String>,
+) -> Result<(Vec<crate::animation::PfVisualStateGroup>, Vec<PfTrigger>), PfError> {
+    let mut state_groups = Vec::new();
+    let mut triggers = Vec::new();
+    {
+        for group in pe.elements() {
+            if group.name != "VisualStateGroup" {
+                continue;
+            }
+            let name = group
+                .x_name
+                .clone()
+                .unwrap_or_else(|| "CommonStates".to_string());
+            let mut states = Vec::new();
+            let mut transitions = Vec::new();
+            // Dotted form routes to property elements.
+            if let Some(tpe) = group
+                .property_elements
+                .iter()
+                .find(|p| p.name == "Transitions")
+            {
+                for t in tpe.elements() {
+                    if t.name == "VisualTransition" {
+                        transitions.push(parse_visual_transition(t, warnings));
+                    }
+                }
+            }
+            for state in group.child_elements() {
+                match state.name.as_str() {
+                    "VisualState" => {
+                        let storyboard = state
+                            .child_elements()
+                            .find(|c| c.name == "Storyboard")
+                            .map(|sb| parse_storyboard(sb, warnings))
+                            .transpose()?
+                            .map(Arc::new);
+                        let state_name = state.x_name.clone().unwrap_or_default();
+                        // MAUI's `<VisualState.Setters>`. The two
+                        // dialects need no mode flag and no attribute
+                        // to tell them apart: WPF puts a <Storyboard>
+                        // child inside the state, MAUI puts a
+                        // .Setters property element, and those are
+                        // different node kinds. A state carrying BOTH
+                        // is meaningful rather than ambiguous — the
+                        // setters apply and the storyboard runs — so
+                        // neither branch excludes the other.
+                        let mut state_setters = Vec::new();
+                        if let Some(spe) = state
+                            .property_elements
+                            .iter()
+                            .find(|pe| pe.name == "Setters")
+                        {
+                            for sn in spe.elements() {
+                                if sn.name != "Setter" {
+                                    continue;
+                                }
+                                match parse_setter(sn, scopes, local, warnings) {
+                                    Ok(setter) => state_setters.push(setter),
+                                    Err(e) => {
+                                        warnings.push(format!("VisualState `{state_name}`: {e}"))
+                                    }
+                                }
+                            }
+                        }
+                        if !state_setters.is_empty() {
+                            // Lowered to a trigger keyed on the state
+                            // rather than applied by the state machine
+                            // itself, so revert-on-leave is the same
+                            // code that reverts every other trigger.
+                            triggers.push(crate::resources::PfTrigger {
+                                conditions: vec![PfTriggerCondition::VisualState {
+                                    group: name.clone(),
+                                    state: state_name.clone(),
+                                }],
+                                setters: state_setters,
+                                enter_storyboards: Vec::new(),
+                                exit_storyboards: Vec::new(),
+                            });
+                        }
+                        states.push(crate::animation::PfVisualState {
+                            name: state_name,
+                            storyboard,
+                        });
+                    }
+                    "VisualStateGroup.Transitions" => {
+                        for t in state.child_elements() {
+                            if t.name == "VisualTransition" {
+                                transitions.push(parse_visual_transition(t, warnings));
+                            }
+                        }
+                    }
+                    "VisualTransition" => {
+                        transitions.push(parse_visual_transition(state, warnings));
+                    }
+                    _ => {}
+                }
+            }
+            state_groups.push(crate::animation::PfVisualStateGroup {
+                name,
+                states,
+                transitions,
+            });
+        }
+    }
+    Ok((state_groups, triggers))
+}
+
 fn parse_visual_transition(
     node: &XamlNode,
     warnings: &mut Vec<String>,
@@ -1804,9 +1888,7 @@ fn parse_setter(
             XamlValue::Extension(ext) if ext.name == "AppThemeBinding" => {
                 PfSetterValue::AppTheme(parse_app_theme_arms(ext)?)
             }
-            XamlValue::Extension(ext)
-                if ext.name == "OnPlatform" || ext.name == "OnIdiom" =>
-            {
+            XamlValue::Extension(ext) if ext.name == "OnPlatform" || ext.name == "OnIdiom" => {
                 let kind = if ext.name == "OnPlatform" {
                     crate::device::SelectorKind::Platform
                 } else {
@@ -1826,7 +1908,9 @@ fn parse_setter(
             XamlValue::Extension(ext) if ext.name == "Binding" => {
                 let spec = crate::binding::parse_binding_extension(ext);
                 match spec.relative {
-                    Some(crate::binding::PfRelativeSource::TemplatedParent) if !spec.path.is_empty() => {
+                    Some(crate::binding::PfRelativeSource::TemplatedParent)
+                        if !spec.path.is_empty() =>
+                    {
                         PfSetterValue::TemplatedParent(spec.path)
                     }
                     Some(crate::binding::PfRelativeSource::TemplatedParent) => {

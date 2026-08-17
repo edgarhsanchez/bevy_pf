@@ -33,7 +33,10 @@ use bevy_pf_xaml::value as v;
 #[derive(Debug, Clone)]
 pub enum ShapeGeometry {
     /// Fills the layout rect; `radius_*` are the WPF `RadiusX/RadiusY`.
-    Rectangle { radius_x: f32, radius_y: f32 },
+    Rectangle {
+        radius_x: f32,
+        radius_y: f32,
+    },
     /// An ellipse inscribed in the layout rect.
     Ellipse,
     Line {
@@ -100,7 +103,10 @@ pub enum PfShapeSystems {
 /// polylines, lines, dash patterns, elliptical corners, non-uniform ellipses
 /// — falls through to the rasterizer untouched.
 #[cfg(feature = "native_shapes")]
-fn native_style(shape: &PfShape, px: UVec2) -> Option<(Option<Color>, Option<Color>, BorderRadius, f32)> {
+fn native_style(
+    shape: &PfShape,
+    px: UVec2,
+) -> Option<(Option<Color>, Option<Color>, BorderRadius, f32)> {
     let size = Vec2::new(px.x as f32, px.y as f32);
     let solid = |brush: &v::PfBrush| match brush {
         v::PfBrush::Solid(c) => Some(Color::srgba_u8(c.r, c.g, c.b, c.a)),
@@ -160,7 +166,9 @@ pub(crate) fn style_native_shapes(
             node.border_radius = radius;
         }
         let mut e = commands.entity(entity);
-        e.insert(PfShapeClaim { backend: "bevy_ui_native" });
+        e.insert(PfShapeClaim {
+            backend: "bevy_ui_native",
+        });
         // Drop any texture a previous pass produced for this node.
         e.remove::<(ImageNode, PfShapeRendered)>();
         e.insert(BackgroundColor(fill.unwrap_or(Color::NONE)));
@@ -392,7 +400,10 @@ pub(crate) fn arc_to_cubics(
     out
 }
 
-fn path_data_to_skia(data: &PathData, transform: impl Fn(v::Point) -> v::Point) -> Option<tiny_skia::Path> {
+fn path_data_to_skia(
+    data: &PathData,
+    transform: impl Fn(v::Point) -> v::Point,
+) -> Option<tiny_skia::Path> {
     let mut pb = tiny_skia::PathBuilder::new();
     for fig in &data.figures {
         let s = transform(fig.start);
@@ -444,13 +455,21 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
     let mut pixmap = tiny_skia::Pixmap::new(width, height)?;
     let (w, h) = (width as f32, height as f32);
     let st = shape.stroke_thickness;
-    let inset = if shape.stroke.is_some() { st * 0.5 } else { 0.0 };
+    let inset = if shape.stroke.is_some() {
+        st * 0.5
+    } else {
+        0.0
+    };
 
     // Build the path in layout space.
     let (path, fill_rule) = match &shape.geometry {
         ShapeGeometry::Rectangle { radius_x, radius_y } => {
-            let rect =
-                tiny_skia::Rect::from_ltrb(inset, inset, (w - inset).max(inset + 0.1), (h - inset).max(inset + 0.1))?;
+            let rect = tiny_skia::Rect::from_ltrb(
+                inset,
+                inset,
+                (w - inset).max(inset + 0.1),
+                (h - inset).max(inset + 0.1),
+            )?;
             let mut pb = tiny_skia::PathBuilder::new();
             if *radius_x > 0.0 || *radius_y > 0.0 {
                 // tiny-skia has no rounded-rect primitive with distinct rx/ry;
@@ -475,8 +494,12 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
             (pb.finish()?, tiny_skia::FillRule::Winding)
         }
         ShapeGeometry::Ellipse => {
-            let rect =
-                tiny_skia::Rect::from_ltrb(inset, inset, (w - inset).max(inset + 0.1), (h - inset).max(inset + 0.1))?;
+            let rect = tiny_skia::Rect::from_ltrb(
+                inset,
+                inset,
+                (w - inset).max(inset + 0.1),
+                (h - inset).max(inset + 0.1),
+            )?;
             (
                 tiny_skia::PathBuilder::from_oval(rect)?,
                 tiny_skia::FillRule::Winding,
@@ -550,7 +573,13 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
             anti_alias: true,
             ..Default::default()
         };
-        pixmap.fill_path(&path, &paint, fill_rule, tiny_skia::Transform::identity(), None);
+        pixmap.fill_path(
+            &path,
+            &paint,
+            fill_rule,
+            tiny_skia::Transform::identity(),
+            None,
+        );
     }
     if let Some(stroke_brush) = &shape.stroke {
         let paint = tiny_skia::Paint {
@@ -588,7 +617,13 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
                 tiny_skia::StrokeDash::new(dashes, shape.stroke_dash_offset * width)
             },
         };
-        pixmap.stroke_path(&path, &paint, &stroke, tiny_skia::Transform::identity(), None);
+        pixmap.stroke_path(
+            &path,
+            &paint,
+            &stroke,
+            tiny_skia::Transform::identity(),
+            None,
+        );
     }
 
     // Premultiplied -> straight alpha RGBA8.
@@ -604,12 +639,10 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
 /// CPU rasterization backend. Public so a harness can register it directly
 /// and compare it against the `vector_gpu` backend on the same workload.
 pub fn rasterize_shapes(
-    mut shapes: Query<(
-        Entity,
-        &PfShape,
-        &ComputedNode,
-        Option<&PfShapeRendered>,
-    ), Without<PfShapeClaim>>,
+    mut shapes: Query<
+        (Entity, &PfShape, &ComputedNode, Option<&PfShapeRendered>),
+        Without<PfShapeClaim>,
+    >,
     images: Option<ResMut<Assets<Image>>>,
     mut commands: Commands,
 ) {
@@ -761,7 +794,16 @@ mod tests {
 
     #[test]
     fn rectangle_fills_bounds() {
-        let shape = shape(ShapeGeometry::Rectangle { radius_x: 0.0, radius_y: 0.0, }, Some(red()), None, 0.0, v::Stretch::Fill);
+        let shape = shape(
+            ShapeGeometry::Rectangle {
+                radius_x: 0.0,
+                radius_y: 0.0,
+            },
+            Some(red()),
+            None,
+            0.0,
+            v::Stretch::Fill,
+        );
         let data = rasterize_shape(&shape, 20, 10).unwrap();
         assert_eq!(pixel(&data, 20, 10, 5), [255, 0, 0, 255]);
         assert_eq!(pixel(&data, 20, 0, 0), [255, 0, 0, 255]);
@@ -769,7 +811,13 @@ mod tests {
 
     #[test]
     fn ellipse_leaves_corners_transparent() {
-        let shape = shape(ShapeGeometry::Ellipse, Some(red()), None, 0.0, v::Stretch::Fill);
+        let shape = shape(
+            ShapeGeometry::Ellipse,
+            Some(red()),
+            None,
+            0.0,
+            v::Stretch::Fill,
+        );
         let data = rasterize_shape(&shape, 40, 40).unwrap();
         assert_eq!(pixel(&data, 40, 20, 20), [255, 0, 0, 255]); // center
         assert_eq!(pixel(&data, 40, 1, 1)[3], 0); // corner transparent
@@ -785,24 +833,41 @@ mod tests {
             v::Point::new(38.0, 15.0),
             v::Point::new(9.0, 38.0),
         ];
-        let geometry = ShapeGeometry::Polyline { points: star, closed: true };
+        let geometry = ShapeGeometry::Polyline {
+            points: star,
+            closed: true,
+        };
 
         // WPF default (EvenOdd): the pentagon core is a hole.
         let evenodd = shape(geometry.clone(), Some(red()), None, 0.0, v::Stretch::None);
         let data = rasterize_shape(&evenodd, 40, 40).unwrap();
-        assert_eq!(pixel(&data, 40, 20, 18)[3], 0, "star core hollow under EvenOdd");
+        assert_eq!(
+            pixel(&data, 40, 20, 18)[3],
+            0,
+            "star core hollow under EvenOdd"
+        );
 
         // FillRule="NonZero": the core fills.
         let mut nonzero = shape(geometry, Some(red()), None, 0.0, v::Stretch::None);
         nonzero.fill_rule = Some(FillRule::NonZero);
         let data = rasterize_shape(&nonzero, 40, 40).unwrap();
-        assert_eq!(pixel(&data, 40, 20, 18), [255, 0, 0, 255], "core filled under NonZero");
+        assert_eq!(
+            pixel(&data, 40, 20, 18),
+            [255, 0, 0, 255],
+            "core filled under NonZero"
+        );
     }
 
     #[test]
     fn triangle_path_renders() {
         let data_path = bevy_pf_xaml::geometry::parse_path_data("M 0,40 L 20,0 L 40,40 Z").unwrap();
-        let shape = shape(ShapeGeometry::Path(data_path), Some(red()), None, 0.0, v::Stretch::None);
+        let shape = shape(
+            ShapeGeometry::Path(data_path),
+            Some(red()),
+            None,
+            0.0,
+            v::Stretch::None,
+        );
         let data = rasterize_shape(&shape, 40, 40).unwrap();
         assert_eq!(pixel(&data, 40, 20, 30), [255, 0, 0, 255]); // inside
         assert_eq!(pixel(&data, 40, 1, 1)[3], 0); // top-left outside
@@ -811,7 +876,18 @@ mod tests {
 
     #[test]
     fn line_strokes() {
-        let shape = shape(ShapeGeometry::Line { x1: 0.0, y1: 0.0, x2: 20.0, y2: 20.0, }, None, Some(red()), 3.0, v::Stretch::None);
+        let shape = shape(
+            ShapeGeometry::Line {
+                x1: 0.0,
+                y1: 0.0,
+                x2: 20.0,
+                y2: 20.0,
+            },
+            None,
+            Some(red()),
+            3.0,
+            v::Stretch::None,
+        );
         let data = rasterize_shape(&shape, 20, 20).unwrap();
         assert_eq!(pixel(&data, 20, 10, 10), [255, 0, 0, 255]); // on the line
         assert_eq!(pixel(&data, 20, 18, 2)[3], 0); // far off the line
@@ -822,7 +898,13 @@ mod tests {
         // Half-circle arc from WPF docs style data.
         let data_path =
             bevy_pf_xaml::geometry::parse_path_data("M 10,50 A 40,40 0 0 1 90,50 Z").unwrap();
-        let shape = shape(ShapeGeometry::Path(data_path), Some(red()), None, 0.0, v::Stretch::None);
+        let shape = shape(
+            ShapeGeometry::Path(data_path),
+            Some(red()),
+            None,
+            0.0,
+            v::Stretch::None,
+        );
         let data = rasterize_shape(&shape, 100, 60).unwrap();
         // Top of the arc bulges above the chord midpoint.
         assert_eq!(pixel(&data, 100, 50, 20), [255, 0, 0, 255]);
@@ -831,9 +913,15 @@ mod tests {
 
     #[test]
     fn uniform_stretch_scales_path() {
-        let data_path = bevy_pf_xaml::geometry::parse_path_data("M 0,0 L 10,0 L 10,10 L 0,10 Z")
-            .unwrap();
-        let shape = shape(ShapeGeometry::Path(data_path), Some(red()), None, 0.0, v::Stretch::Uniform);
+        let data_path =
+            bevy_pf_xaml::geometry::parse_path_data("M 0,0 L 10,0 L 10,10 L 0,10 Z").unwrap();
+        let shape = shape(
+            ShapeGeometry::Path(data_path),
+            Some(red()),
+            None,
+            0.0,
+            v::Stretch::Uniform,
+        );
         // 10x10 square scaled uniformly into 100x50 -> 50x50 square.
         let data = rasterize_shape(&shape, 100, 50).unwrap();
         assert_eq!(pixel(&data, 100, 25, 25), [255, 0, 0, 255]);
@@ -842,7 +930,18 @@ mod tests {
 
     #[test]
     fn natural_size_from_geometry() {
-        let shape = shape(ShapeGeometry::Line { x1: 0.0, y1: 0.0, x2: 30.0, y2: 10.0, }, None, Some(red()), 2.0, v::Stretch::None);
+        let shape = shape(
+            ShapeGeometry::Line {
+                x1: 0.0,
+                y1: 0.0,
+                x2: 30.0,
+                y2: 10.0,
+            },
+            None,
+            Some(red()),
+            2.0,
+            v::Stretch::None,
+        );
         assert_eq!(shape.natural_size(), Some(Vec2::new(31.0, 11.0)));
     }
 }

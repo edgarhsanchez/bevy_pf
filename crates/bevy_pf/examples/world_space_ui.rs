@@ -88,40 +88,41 @@ fn primary_window() -> Window {
 fn main() {
     let mut app = App::new();
     app.add_plugins({
-            let plugins = DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(primary_window()),
-                ..Default::default()
-            });
-            #[cfg(target_arch = "wasm32")]
-            let plugins = plugins.disable::<bevy::audio::AudioPlugin>();
-            plugins
-        })
-        .add_plugins((PfUiPlugin, MeshPickingPlugin))
-        .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (
-                orbit_camera,
-                spin,
-                bob,
-                follow_anchors,
-                billboards.after(follow_anchors).after(orbit_camera),
-                reactor_sim,
-            ),
-        );
+        let plugins = DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(primary_window()),
+            ..Default::default()
+        });
+        #[cfg(target_arch = "wasm32")]
+        let plugins = plugins.disable::<bevy::audio::AudioPlugin>();
+        plugins
+    })
+    .add_plugins((PfUiPlugin, MeshPickingPlugin))
+    .add_systems(Startup, setup)
+    .add_systems(
+        Update,
+        (
+            orbit_camera,
+            spin,
+            bob,
+            follow_anchors,
+            billboards.after(follow_anchors).after(orbit_camera),
+            reactor_sim,
+        ),
+    );
     // WSUI_SHOT=<path.png> captures a frame ~2s in (native verification).
     #[cfg(not(target_arch = "wasm32"))]
     if let Ok(path) = std::env::var("WSUI_SHOT") {
-        app.add_systems(Update, move |mut commands: Commands,
-                                      time: Res<Time>,
-                                      mut done: Local<bool>| {
-            if !*done && time.elapsed_secs() > 2.0 {
-                *done = true;
-                commands
-                    .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
-                    .observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
-            }
-        });
+        app.add_systems(
+            Update,
+            move |mut commands: Commands, time: Res<Time>, mut done: Local<bool>| {
+                if !*done && time.elapsed_secs() > 2.0 {
+                    *done = true;
+                    commands
+                        .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+                        .observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
+                }
+            },
+        );
     }
     app.run();
 }
@@ -422,7 +423,11 @@ fn follow_anchors(
     }
 }
 
-type CameraOnly = (With<OrbitCamera>, Without<FullBillboard>, Without<YawBillboard>);
+type CameraOnly = (
+    With<OrbitCamera>,
+    Without<FullBillboard>,
+    Without<YawBillboard>,
+);
 
 fn billboards(
     cams: Query<&Transform, CameraOnly>,

@@ -29,7 +29,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 /// Every `Text` value in the subtree under `root`, depth-first.
@@ -147,7 +151,10 @@ fn color_picker_parses_and_sets_color() {
         .get::<bevy_pf::components::PfColorPicker>(picker)
         .unwrap()
         .clone();
-    assert_eq!(bevy_pf::instantiate::color_to_hex(state.selected), "#339933");
+    assert_eq!(
+        bevy_pf::instantiate::color_to_hex(state.selected),
+        "#339933"
+    );
     let hex = app
         .world()
         .get::<bevy::text::EditableText>(state.hex_input)
@@ -185,8 +192,11 @@ fn auto_suggest_filters_as_you_type() {
     app.update();
     app.update(); // watch queues the rebuild; apply it
     let rows = texts_in(&app, state.popup);
-    assert_eq!(rows, vec!["Bern".to_string(), "Berlin".to_string()],
-        "prefix-filtered suggestions (depth-first order)");
+    assert_eq!(
+        rows,
+        vec!["Bern".to_string(), "Berlin".to_string()],
+        "prefix-filtered suggestions (depth-first order)"
+    );
     assert!(
         app.world()
             .get::<bevy_pf::overlay::PfPopup>(state.popup)
@@ -324,7 +334,11 @@ fn password_box_masks_and_tracks_the_real_value() {
             .text()
             .to_string()
     };
-    assert_eq!(shown(&app), "\u{2022}\u{2022}\u{2022}", "only mask chars render");
+    assert_eq!(
+        shown(&app),
+        "\u{2022}\u{2022}\u{2022}",
+        "only mask chars render"
+    );
     app.update(); // consume the added-tick (typing starts after a frame)
 
     // Type 'd' at the end (the editor shows ...•••d for one frame).

@@ -138,7 +138,9 @@ pub fn go_forward(world: &mut World, frame: Entity) -> bool {
 }
 
 pub fn can_go_back(world: &World, frame: Entity) -> bool {
-    world.get::<PfFrame>(frame).is_some_and(|f| !f.back.is_empty())
+    world
+        .get::<PfFrame>(frame)
+        .is_some_and(|f| !f.back.is_empty())
 }
 
 pub fn can_go_forward(world: &World, frame: Entity) -> bool {
@@ -196,9 +198,8 @@ fn show_page(world: &mut World, frame: Entity, route: &str) -> bool {
 /// Hyperlink activation: relative URIs navigate the nearest enclosing frame;
 /// absolute web/mail URIs open externally — WPF's split exactly.
 pub fn follow_hyperlink(world: &mut World, link: Entity, uri: &str) {
-    let external = uri.starts_with("http://")
-        || uri.starts_with("https://")
-        || uri.starts_with("mailto:");
+    let external =
+        uri.starts_with("http://") || uri.starts_with("https://") || uri.starts_with("mailto:");
     if external {
         crate::util::open_url(uri);
         return;

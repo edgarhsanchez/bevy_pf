@@ -91,9 +91,10 @@ pub fn show_message(world: &mut World, title: &str, body: &str, buttons: &[&str]
         node.width = Val::Percent(100.0);
         node.height = Val::Percent(100.0);
     }
-    world
-        .entity_mut(root)
-        .insert((bevy::ui::GlobalZIndex(i32::MAX - 64), Interaction::default()));
+    world.entity_mut(root).insert((
+        bevy::ui::GlobalZIndex(i32::MAX - 64),
+        Interaction::default(),
+    ));
 
     // Wire each button: despawn + report.
     let names: Vec<(usize, Entity)> = world
@@ -173,8 +174,12 @@ pub fn show_content(
         .and_then(|n| n.get("PfDlgContent"));
     let inner_scene = if let Some(host) = host {
         let inner = world.spawn_empty().id();
-        match crate::instantiate_document_env(world, inner, &content.document(), &XamlEnv::default())
-        {
+        match crate::instantiate_document_env(
+            world,
+            inner,
+            &content.document(),
+            &XamlEnv::default(),
+        ) {
             Ok(_) => {
                 world.entity_mut(host).add_children(&[inner]);
                 Some(inner)
@@ -209,9 +214,10 @@ pub fn show_content(
         node.width = Val::Percent(100.0);
         node.height = Val::Percent(100.0);
     }
-    world
-        .entity_mut(root)
-        .insert((bevy::ui::GlobalZIndex(i32::MAX - 64), Interaction::default()));
+    world.entity_mut(root).insert((
+        bevy::ui::GlobalZIndex(i32::MAX - 64),
+        Interaction::default(),
+    ));
 
     // Wire each button: despawn + report.
     let names: Vec<(usize, Entity)> = world

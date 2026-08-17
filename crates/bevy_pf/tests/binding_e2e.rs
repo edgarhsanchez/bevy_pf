@@ -45,7 +45,9 @@ fn one_way_text_binding_with_format() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     let names = app.world().get::<XamlNames>(root).unwrap();
@@ -69,10 +71,17 @@ fn ischecked_binding_both_directions() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
-    let cb = app.world().get::<XamlNames>(root).unwrap().get("Ready").unwrap();
+    let cb = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Ready")
+        .unwrap();
     assert!(app.world().get::<Checked>(cb).is_none());
 
     // Source -> target.
@@ -104,11 +113,24 @@ fn textbox_binding_initial_and_write_back() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
-    let tb = app.world().get::<XamlNames>(root).unwrap().get("Status").unwrap();
-    let input = app.world().get::<Children>(tb).unwrap().iter().next().unwrap();
+    let tb = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Status")
+        .unwrap();
+    let input = app
+        .world()
+        .get::<Children>(tb)
+        .unwrap()
+        .iter()
+        .next()
+        .unwrap();
     assert_eq!(
         app.world()
             .get::<bevy::text::EditableText>(input)
@@ -143,10 +165,17 @@ fn progress_value_binding() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
-    let bar = app.world().get::<XamlNames>(root).unwrap().get("P").unwrap();
+    let bar = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("P")
+        .unwrap();
     vm.update(|m: &mut GameVm| m.progress = 55.0);
     app.update();
     let progress = app
@@ -171,10 +200,17 @@ fn content_binding_creates_text_child() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     let text_child = app
         .world()
         .get::<Children>(button)
@@ -237,7 +273,9 @@ fn element_name_binding_checkbox_to_text() {
     let toggle = names.get("Toggle").unwrap();
     assert_eq!(app.world().get::<Text>(state).unwrap().0, "True");
 
-    app.world_mut().entity_mut(toggle).remove::<bevy::ui::Checked>();
+    app.world_mut()
+        .entity_mut(toggle)
+        .remove::<bevy::ui::Checked>();
     app.update();
     assert_eq!(app.world().get::<Text>(state).unwrap().0, "False");
 }
@@ -267,7 +305,10 @@ fn value_converters_and_fallback() {
 
     let mut app = test_app();
     app.register_converter("Doubler", Doubler);
-    let vm = Bindable::new(ConvVm { online: true, credits: 21.0 });
+    let vm = Bindable::new(ConvVm {
+        online: true,
+        credits: 21.0,
+    });
     let root = spawn_bound_scene(
         &mut app,
         r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -292,7 +333,11 @@ fn value_converters_and_fallback() {
         )
     };
     let text = |app: &App, e: Entity| -> String {
-        app.world().get::<bevy::ui::widget::Text>(e).unwrap().0.clone()
+        app.world()
+            .get::<bevy::ui::widget::Text>(e)
+            .unwrap()
+            .0
+            .clone()
     };
     // Built-in bool->visibility converter, applied to a text target too.
     assert_eq!(text(&app, badge), "Visible");
@@ -301,18 +346,27 @@ fn value_converters_and_fallback() {
     // FallbackValue covers the unresolvable path (no warning spam).
     assert_eq!(text(&app, missing), "offline");
     // Visibility target actually toggles layout.
-    assert_ne!(app.world().get::<Node>(panel).unwrap().display, Display::None);
+    assert_ne!(
+        app.world().get::<Node>(panel).unwrap().display,
+        Display::None
+    );
 
     vm.update(|m: &mut ConvVm| m.online = false);
     app.update();
     assert_eq!(text(&app, badge), "Collapsed");
-    assert_eq!(app.world().get::<Node>(panel).unwrap().display, Display::None);
+    assert_eq!(
+        app.world().get::<Node>(panel).unwrap().display,
+        Display::None
+    );
 }
 
 #[test]
 fn relative_source_self_and_templated_parent() {
     let mut app = test_app();
-    let vm = Bindable::new(ConvVm { online: true, credits: 5.0 });
+    let vm = Bindable::new(ConvVm {
+        online: true,
+        credits: 5.0,
+    });
     let root = spawn_bound_scene(
         &mut app,
         r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -360,16 +414,24 @@ fn relative_source_self_and_templated_parent() {
         .template_root;
     let state_text = find_text(&app, chrome_root).unwrap();
     assert_eq!(
-        app.world().get::<bevy::ui::widget::Text>(state_text).unwrap().0,
+        app.world()
+            .get::<bevy::ui::widget::Text>(state_text)
+            .unwrap()
+            .0,
         "True",
         "template chrome reads the templated parent"
     );
 
     // Self-source stays live: uncheck -> re-renders.
-    app.world_mut().entity_mut(toggle).remove::<bevy::ui::Checked>();
+    app.world_mut()
+        .entity_mut(toggle)
+        .remove::<bevy::ui::Checked>();
     app.update();
     assert_eq!(
-        app.world().get::<bevy::ui::widget::Text>(state_text).unwrap().0,
+        app.world()
+            .get::<bevy::ui::widget::Text>(state_text)
+            .unwrap()
+            .0,
         "False"
     );
 }
@@ -445,7 +507,10 @@ struct NullVm {
 #[test]
 fn target_null_value_substitutes_for_none() {
     let mut app = test_app();
-    let vm = Bindable::new(NullVm { nickname: None, ..Default::default() });
+    let vm = Bindable::new(NullVm {
+        nickname: None,
+        ..Default::default()
+    });
     let root = spawn_bound_scene(
         &mut app,
         r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -487,7 +552,11 @@ fn multi_binding_string_format_and_converter() {
         }
     }
     app.register_multi_converter("Ratio", Ratio);
-    let vm = Bindable::new(NullVm { done: 3.0, total: 4.0, ..Default::default() });
+    let vm = Bindable::new(NullVm {
+        done: 3.0,
+        total: 4.0,
+        ..Default::default()
+    });
     let root = spawn_bound_scene(
         &mut app,
         r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -554,7 +623,10 @@ fn find_ancestor_binds_to_enclosing_element() {
     // Headless: no real layout pass; the binding resolved to the Border and
     // the element read yielded its configured width through the store.
     let text = app.world().get::<Text>(w).map(|t| t.0.clone()).unwrap();
-    assert!(text.starts_with("w="), "FindAncestor bound and formatted: {text}");
+    assert!(
+        text.starts_with("w="),
+        "FindAncestor bound and formatted: {text}"
+    );
 }
 
 #[test]
@@ -649,10 +721,19 @@ fn border_brush_binds_and_updates() {
     );
     app.update();
 
-    let plate = app.world().get::<XamlNames>(root).unwrap().get("Plate").unwrap();
-    let border = |app: &App| -> Color { app.world().get::<bevy::ui::BorderColor>(plate).unwrap().top };
+    let plate = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Plate")
+        .unwrap();
+    let border =
+        |app: &App| -> Color { app.world().get::<bevy::ui::BorderColor>(plate).unwrap().top };
     let background = |app: &App| -> Color {
-        app.world().get::<bevy::ui::BackgroundColor>(plate).unwrap().0
+        app.world()
+            .get::<bevy::ui::BackgroundColor>(plate)
+            .unwrap()
+            .0
     };
 
     assert_eq!(border(&app), Color::srgba_u8(0xB4, 0x45, 0x1A, 0xFF));
@@ -691,7 +772,12 @@ fn a_malformed_border_brush_leaves_the_previous_colour() {
         vm.clone(),
     );
     app.update();
-    let plate = app.world().get::<XamlNames>(root).unwrap().get("Plate").unwrap();
+    let plate = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Plate")
+        .unwrap();
     assert_eq!(
         app.world().get::<bevy::ui::BorderColor>(plate).unwrap().top,
         Color::srgba_u8(0xB4, 0x45, 0x1A, 0xFF)
@@ -733,7 +819,12 @@ fn shape_stroke_and_fill_bind_and_repaint_at_the_same_size() {
     );
     app.update();
 
-    let cell = app.world().get::<XamlNames>(root).unwrap().get("Cell").unwrap();
+    let cell = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Cell")
+        .unwrap();
     fn solid(brush: Option<&bevy_pf_xaml::value::PfBrush>) -> (u8, u8, u8) {
         match brush {
             Some(bevy_pf_xaml::value::PfBrush::Solid(c)) => (c.r, c.g, c.b),
@@ -799,7 +890,9 @@ fn datacontext_attribute_rescopes_descendants() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     let names = app.world().get::<XamlNames>(root).unwrap();
@@ -839,7 +932,9 @@ fn datacontext_scopes_nest_and_apply_on_the_same_element() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     let names = app.world().get::<XamlNames>(root).unwrap();
@@ -872,13 +967,23 @@ fn store_managed_properties_bind_through_the_precedence_store() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
-    let node = app.world().get::<XamlNames>(root).unwrap().get("Box").unwrap();
+    let node = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Box")
+        .unwrap();
     let margin = app.world().get::<Node>(node).unwrap().margin;
     assert_eq!(margin, UiRect::all(Val::Px(4.0)));
-    let opacity = app.world().get::<bevy_pf::provider::PfOpacity>(node).unwrap();
+    let opacity = app
+        .world()
+        .get::<bevy_pf::provider::PfOpacity>(node)
+        .unwrap();
     assert_eq!(opacity.value, 0.5);
 
     vm.update(|m: &mut StoreVm| {
@@ -896,7 +1001,10 @@ fn store_managed_properties_bind_through_the_precedence_store() {
             bottom: Val::Px(2.0),
         }
     );
-    let opacity = app.world().get::<bevy_pf::provider::PfOpacity>(node).unwrap();
+    let opacity = app
+        .world()
+        .get::<bevy_pf::provider::PfOpacity>(node)
+        .unwrap();
     assert_eq!(opacity.value, 1.0);
 }
 
@@ -939,7 +1047,9 @@ fn named_updates_invalidate_only_overlapping_bindings() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
     let initial = count.load(Ordering::SeqCst);
     assert!(initial >= 1);
@@ -973,13 +1083,20 @@ fn derived_setters_notify_selectively_and_skip_equal_values() {
            </StackPanel>"#,
         vm.clone(),
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
 
     // Generated setter: writes, notifies, propagates.
     assert!(vm.set_score(42));
     app.update();
-    let score = app.world().get::<XamlNames>(root).unwrap().get("Score").unwrap();
+    let score = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Score")
+        .unwrap();
     assert_eq!(app.world().get::<Text>(score).unwrap().0, "42");
 
     // Equal value: no write, no version bump.

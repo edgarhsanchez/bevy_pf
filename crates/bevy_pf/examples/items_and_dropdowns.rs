@@ -35,9 +35,18 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     let vm = Bindable::new(Vm {
         players: vec![
-            Player { name: "Ada".into(), score: 120 },
-            Player { name: "Grace".into(), score: 95 },
-            Player { name: "Alan".into(), score: 88 },
+            Player {
+                name: "Ada".into(),
+                score: 120,
+            },
+            Player {
+                name: "Grace".into(),
+                score: 95,
+            },
+            Player {
+                name: "Alan".into(),
+                score: 88,
+            },
         ],
     });
     commands.insert_resource(SharedVm(vm.clone()));

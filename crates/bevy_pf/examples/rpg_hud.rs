@@ -248,10 +248,10 @@ fn simulate(time: Res<Time>, mut sim: ResMut<Sim>, vm: Res<VmHandle>) {
     let t = time.elapsed_secs();
 
     // Vitals: rhythmic damage, steady regen; casts drain mana.
-    sim.hp = (sim.hp + 4.0 * dt - if (t % 5.0) < 0.05 { 18.0 } else { 0.0 })
-        .clamp(12.0, sim.hp_max);
-    sim.mana = (sim.mana + 3.0 * dt - if (t % 7.0) < 0.05 { 20.0 } else { 0.0 })
-        .clamp(0.0, sim.mana_max);
+    sim.hp =
+        (sim.hp + 4.0 * dt - if (t % 5.0) < 0.05 { 18.0 } else { 0.0 }).clamp(12.0, sim.hp_max);
+    sim.mana =
+        (sim.mana + 3.0 * dt - if (t % 7.0) < 0.05 { 20.0 } else { 0.0 }).clamp(0.0, sim.mana_max);
 
     // XP + level-ups.
     sim.xp += 3.5 * dt;
@@ -302,7 +302,11 @@ fn simulate(time: Res<Time>, mut sim: ResMut<Sim>, vm: Res<VmHandle>) {
         m.hp_text = format!("{:.0} / {:.0}", hp, hp_max);
         m.mana_text = format!("{:.0} / {:.0}", mana, mana_max);
         m.xp_text = format!("Level {level}  -  {xp:.0} / {xp_max:.0} XP");
-        m.quest_a = format!("[{}] Slay ash wolves ({}/8)", if kills >= 8 { "x" } else { " " }, kills.min(8));
+        m.quest_a = format!(
+            "[{}] Slay ash wolves ({}/8)",
+            if kills >= 8 { "x" } else { " " },
+            kills.min(8)
+        );
         m.quest_b = "[ ] Report to Elder Maren".to_string();
         m.npc_line =
             "The road ahead burns, child. Take this ward - and mind the wolves.".to_string();
@@ -352,7 +356,11 @@ fn paint_bars(
     if let Some(toast) = ui.by_name("Toast")
         && let Ok(mut n) = nodes.get_mut(toast)
     {
-        n.display = if sim.toast_timer > 0.0 { Display::Flex } else { Display::None };
+        n.display = if sim.toast_timer > 0.0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
     if sim.toast_timer > 0.0
         && let Some(label) = ui.by_name("ToastText")
@@ -376,6 +384,10 @@ fn paint_bars(
     if let Some(npc) = ui.by_name("NpcBox")
         && let Ok(mut n) = nodes.get_mut(npc)
     {
-        n.display = if sim.dialog_timer > 6.0 { Display::Flex } else { Display::None };
+        n.display = if sim.dialog_timer > 6.0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
 }

@@ -36,7 +36,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 fn bg_alpha(app: &App, e: Entity) -> f32 {
@@ -109,12 +113,30 @@ fn color_animation_with_stop_reverts_to_base() {
     let card = named(&app, root, "Card");
     app.update();
     advance(&mut app, 0.5);
-    let mid = app.world().get::<BackgroundColor>(card).unwrap().0.to_srgba();
-    assert!(mid.red > 0.3 && mid.red < 0.7, "mid-blend red, got {}", mid.red);
+    let mid = app
+        .world()
+        .get::<BackgroundColor>(card)
+        .unwrap()
+        .0
+        .to_srgba();
+    assert!(
+        mid.red > 0.3 && mid.red < 0.7,
+        "mid-blend red, got {}",
+        mid.red
+    );
 
     advance(&mut app, 1.0);
-    let after = app.world().get::<BackgroundColor>(card).unwrap().0.to_srgba();
-    assert!(after.red < 0.05, "Stop reverts to the black base, got {}", after.red);
+    let after = app
+        .world()
+        .get::<BackgroundColor>(card)
+        .unwrap()
+        .0
+        .to_srgba();
+    assert!(
+        after.red < 0.05,
+        "Stop reverts to the black base, got {}",
+        after.red
+    );
     let store = app.world().get::<bevy_pf::PfPropertyStore>(card).unwrap();
     assert_ne!(
         store.effective_source(PropertyTarget::Background),
@@ -163,7 +185,9 @@ fn keyed_storyboard_with_target_name_via_rust_api() {
     advance(&mut app, 0.5);
     let boxx = named(&app, root, "Box");
     let node = app.world().get::<Node>(boxx).unwrap();
-    let Val::Px(w) = node.width else { panic!("px width") };
+    let Val::Px(w) = node.width else {
+        panic!("px width")
+    };
     assert!((w - 150.0).abs() < 12.0, "midway width ≈150, got {w}");
 
     advance(&mut app, 1.0);
@@ -262,21 +286,43 @@ fn visual_states_drive_hover_and_revert() {
         .template_root;
     app.update(); // enter Normal
     advance(&mut app, 0.2);
-    let rest = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
-    assert!((rest.red - 0.882).abs() < 0.02, "Normal keeps the template value");
+    let rest = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
+    assert!(
+        (rest.red - 0.882).abs() < 0.02,
+        "Normal keeps the template value"
+    );
 
     // Hover: MouseOver state animates the chrome.
-    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Hovered);
     advance(&mut app, 0.05); // state switch + animation start
     advance(&mut app, 0.2); // finish the 0.1s transition
-    let hover = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let hover = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(hover.blue > 0.95, "MouseOver brush, got {hover:?}");
 
     // Press: switching states stops+reverts the old before the new runs.
-    app.world_mut().entity_mut(button).insert(Interaction::Pressed);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Pressed);
     advance(&mut app, 0.05); // state switch + animation start
     advance(&mut app, 0.2); // transition completes
-    let pressed = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let pressed = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(
         (pressed.red - 0.769).abs() < 0.03,
         "Pressed brush, got {pressed:?}"
@@ -287,7 +333,12 @@ fn visual_states_drive_hover_and_revert() {
     app.world_mut().entity_mut(button).insert(Interaction::None);
     advance(&mut app, 0.05);
     advance(&mut app, 0.2);
-    let back = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let back = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!((back.red - 0.882).abs() < 0.02, "reverted, got {back:?}");
 
     // GoToState from Rust.
@@ -338,10 +389,18 @@ fn keyframe_animation_walks_its_track() {
     app.update(); // Loaded begins (duration defaults to the last key: 3s)
 
     advance(&mut app, 0.5); // mid first segment: base(0) -> 100 linear
-    assert!((width(&app) - 50.0).abs() < 8.0, "linear mid ≈50, got {}", width(&app));
+    assert!(
+        (width(&app) - 50.0).abs() < 8.0,
+        "linear mid ≈50, got {}",
+        width(&app)
+    );
 
     advance(&mut app, 1.0); // t=1.5: discrete segment holds the PREVIOUS value
-    assert!((width(&app) - 100.0).abs() < 3.0, "discrete holds 100, got {}", width(&app));
+    assert!(
+        (width(&app) - 100.0).abs() < 3.0,
+        "discrete holds 100, got {}",
+        width(&app)
+    );
 
     advance(&mut app, 0.6); // t=2.1: discrete fired at 2.0 -> 300; spline seg begins
     let w = width(&app);
@@ -379,8 +438,15 @@ fn transform_field_animation_scales_and_reverts() {
     app.update();
 
     advance(&mut app, 0.5);
-    let tf = app.world().get::<bevy::ui::UiTransform>(chip).expect("transform inserted");
-    assert!((tf.scale.x - 1.5).abs() < 0.15, "mid-scale ≈1.5, got {}", tf.scale.x);
+    let tf = app
+        .world()
+        .get::<bevy::ui::UiTransform>(chip)
+        .expect("transform inserted");
+    assert!(
+        (tf.scale.x - 1.5).abs() < 0.15,
+        "mid-scale ≈1.5, got {}",
+        tf.scale.x
+    );
     assert!(
         (tf.rotation.as_degrees() - 22.5).abs() < 5.0,
         "mid-rotation ≈22.5°, got {}",
@@ -389,7 +455,11 @@ fn transform_field_animation_scales_and_reverts() {
 
     advance(&mut app, 1.0); // past the end
     let tf = app.world().get::<bevy::ui::UiTransform>(chip).unwrap();
-    assert!((tf.scale.x - 1.0).abs() < 0.01, "Stop restored scale, got {}", tf.scale.x);
+    assert!(
+        (tf.scale.x - 1.0).abs() < 0.01,
+        "Stop restored scale, got {}",
+        tf.scale.x
+    );
     assert!(
         (tf.rotation.as_degrees() - 45.0).abs() < 0.5,
         "HoldEnd kept rotation, got {}",
@@ -439,13 +509,20 @@ fn trigger_enter_exit_actions_run_the_wpf_sample_pattern() {
     let b = named(&app, root, "B");
     app.update();
     advance(&mut app, 0.1);
-    assert!((bg_alpha(&app, b) - 0.25).abs() < 0.03, "styled rest opacity");
+    assert!(
+        (bg_alpha(&app, b) - 0.25).abs() < 0.03,
+        "styled rest opacity"
+    );
 
     // Hover: EnterActions animate toward 1.
     app.world_mut().entity_mut(b).insert(Interaction::Hovered);
     advance(&mut app, 0.05);
     advance(&mut app, 1.2);
-    assert!((bg_alpha(&app, b) - 1.0).abs() < 0.03, "faded in, got {}", bg_alpha(&app, b));
+    assert!(
+        (bg_alpha(&app, b) - 1.0).abs() < 0.03,
+        "faded in, got {}",
+        bg_alpha(&app, b)
+    );
 
     // Leave: ExitActions animate back to 0.25.
     app.world_mut().entity_mut(b).insert(Interaction::None);
@@ -505,16 +582,28 @@ fn visual_transitions_cross_fade_and_animate_back() {
     advance(&mut app, 0.1);
 
     // Hover: the 0-duration snap is stretched over the 1s transition.
-    app.world_mut().entity_mut(button).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(button)
+        .insert(Interaction::Hovered);
     advance(&mut app, 0.01); // state switch, animation starts
     advance(&mut app, 0.5);
-    let mid = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let mid = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(
         mid.red > 0.2 && mid.red < 0.8,
         "mid-fade should be between black and white, got {mid:?}"
     );
     advance(&mut app, 0.7);
-    let done = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let done = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(done.red > 0.95, "fade completed, got {done:?}");
 
     // Unhover: Normal has no storyboard — the transition animates BACK
@@ -522,13 +611,23 @@ fn visual_transitions_cross_fade_and_animate_back() {
     app.world_mut().entity_mut(button).insert(Interaction::None);
     advance(&mut app, 0.01);
     advance(&mut app, 0.5);
-    let back_mid = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let back_mid = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(
         back_mid.red > 0.2 && back_mid.red < 0.8,
         "return fade should be mid-way, got {back_mid:?}"
     );
     advance(&mut app, 0.7);
-    let back = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let back = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(back.red < 0.05, "returned to template black, got {back:?}");
     // And the Animation tier is cleared (structural revert, not a held value).
     let store = app
@@ -584,7 +683,12 @@ fn focus_states_follow_input_focus() {
         .template_root;
     app.update();
     advance(&mut app, 0.1);
-    let rest = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let rest = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(rest.red < 0.05, "unfocused keeps template value");
 
     // Focus the control.
@@ -592,7 +696,12 @@ fn focus_states_follow_input_focus() {
         .insert_resource(bevy::input_focus::InputFocus::from_entity(button));
     advance(&mut app, 0.01);
     advance(&mut app, 0.2);
-    let focused = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let focused = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(focused.red > 0.95, "Focused state ran, got {focused:?}");
 
     // Clear focus -> Unfocused reverts.
@@ -600,7 +709,12 @@ fn focus_states_follow_input_focus() {
         .insert_resource(bevy::input_focus::InputFocus::default());
     advance(&mut app, 0.01);
     advance(&mut app, 0.2);
-    let back = app.world().get::<BackgroundColor>(chrome).unwrap().0.to_srgba();
+    let back = app
+        .world()
+        .get::<BackgroundColor>(chrome)
+        .unwrap()
+        .0
+        .to_srgba();
     assert!(back.red < 0.05, "Unfocused reverted, got {back:?}");
 }
 

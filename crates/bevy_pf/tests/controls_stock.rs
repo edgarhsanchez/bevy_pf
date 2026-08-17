@@ -30,7 +30,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 fn children_of(app: &App, e: Entity) -> Vec<Entity> {
@@ -90,8 +94,14 @@ fn listview_gridview_generates_columned_rows() {
     let mut app = test_app();
     let vm = Bindable::new(Vm {
         rows: vec![
-            Row { name: "alpha".into(), size: 1 },
-            Row { name: "beta".into(), size: 2 },
+            Row {
+                name: "alpha".into(),
+                size: 1,
+            },
+            Row {
+                name: "beta".into(),
+                size: 2,
+            },
         ],
     });
     let root = spawn(
@@ -179,7 +189,10 @@ fn popup_element_opens_and_anchors_to_parent() {
     assert!(popup_state.open);
     app.update(); // resolve_popup_sources runs
     assert_eq!(
-        app.world().get::<bevy_pf::PfPopup>(source.popup).unwrap().anchor,
+        app.world()
+            .get::<bevy_pf::PfPopup>(source.popup)
+            .unwrap()
+            .anchor,
         host
     );
     assert_eq!(children_of(&app, source.popup).len(), 1);
@@ -269,10 +282,7 @@ fn calendar_builds_month_and_selects() {
     assert_eq!((state.year, state.month), (2026, 7));
     assert_eq!(state.selected, Some((2026, 7, 9)));
     assert_eq!(children_of(&app, state.days_host).len(), 31);
-    assert_eq!(
-        app.world().get::<Text>(state.title).unwrap().0,
-        "July 2026"
-    );
+    assert_eq!(app.world().get::<Text>(state.title).unwrap().0, "July 2026");
 
     bevy_pf::instantiate::calendar_shift_month(app.world_mut(), cal, 1);
     let state = app
@@ -333,7 +343,12 @@ fn date_picker_selection_updates_display_and_closes() {
         app.world().get::<Text>(state.display).unwrap().0,
         "2026-07-20"
     );
-    assert!(!app.world().get::<bevy_pf::PfPopup>(state.popup).unwrap().open);
+    assert!(
+        !app.world()
+            .get::<bevy_pf::PfPopup>(state.popup)
+            .unwrap()
+            .open
+    );
 }
 
 #[test]
@@ -369,7 +384,10 @@ fn item_template_resolves_page_scoped_resources() {
     // bare default environment.
     let mut app = test_app();
     let vm = Bindable::new(Vm {
-        rows: vec![Row { name: "alpha".into(), size: 1 }],
+        rows: vec![Row {
+            name: "alpha".into(),
+            size: 1,
+        }],
     });
     let root = spawn(
         &mut app,

@@ -47,7 +47,10 @@ impl Plugin for PfUiPlugin {
         // only creates it lazily, so an app that never fades anything must
         // still find it or the system fails parameter validation.
         app.init_resource::<crate::provider::PfOpacityCount>();
-        if !app.world().contains_resource::<crate::binding::PfConverters>() {
+        if !app
+            .world()
+            .contains_resource::<crate::binding::PfConverters>()
+        {
             app.insert_resource(crate::binding::builtin_converters());
         }
         app.add_systems(
@@ -73,20 +76,22 @@ impl Plugin for PfUiPlugin {
             .init_resource::<crate::triggers::LastTriggerGen>()
             .add_systems(
                 Update,
-                (crate::asset::queue_xaml_views, crate::asset::apply_xaml_views).chain(),
+                (
+                    crate::asset::queue_xaml_views,
+                    crate::asset::apply_xaml_views,
+                )
+                    .chain(),
             )
             .add_systems(
                 Update,
-                crate::dynamic::refresh_dynamic_resources
-                    .after(crate::asset::apply_xaml_views),
+                crate::dynamic::refresh_dynamic_resources.after(crate::asset::apply_xaml_views),
             );
         // Following the OS appearance needs a window to read it from; a
         // headless app has none, and must set the theme itself.
         if app.is_plugin_added::<bevy::window::WindowPlugin>() {
             app.add_systems(
                 Update,
-                crate::app_theme::track_os_theme
-                    .before(crate::dynamic::refresh_dynamic_resources),
+                crate::app_theme::track_os_theme.before(crate::dynamic::refresh_dynamic_resources),
             );
         }
         // The headless widget plugins need input/focus infrastructure; only
@@ -102,9 +107,7 @@ impl Plugin for PfUiPlugin {
             if !app.is_plugin_added::<bevy::ui_widgets::EditableTextInputPlugin>() {
                 app.add_plugins(bevy::ui_widgets::EditableTextInputPlugin);
             }
-            if !app
-                .is_plugin_added::<bevy::input_focus::tab_navigation::TabNavigationPlugin>()
-            {
+            if !app.is_plugin_added::<bevy::input_focus::tab_navigation::TabNavigationPlugin>() {
                 app.add_plugins(bevy::input_focus::tab_navigation::TabNavigationPlugin);
             }
         }
@@ -175,8 +178,7 @@ impl Plugin for PfUiPlugin {
         app.add_systems(
             PostUpdate,
             (
-                crate::shapes::rasterize_shapes
-                    .in_set(crate::shapes::PfShapeSystems::Rasterize),
+                crate::shapes::rasterize_shapes.in_set(crate::shapes::PfShapeSystems::Rasterize),
                 viewbox_scale.after(bevy::ui::UiSystems::Layout),
             ),
         );
@@ -185,8 +187,7 @@ impl Plugin for PfUiPlugin {
         #[cfg(feature = "native_shapes")]
         app.add_systems(
             PostUpdate,
-            crate::shapes::style_native_shapes
-                .in_set(crate::shapes::PfShapeSystems::Claim),
+            crate::shapes::style_native_shapes.in_set(crate::shapes::PfShapeSystems::Claim),
         );
         // GPU shape backend, when compiled in: claims what it can render and
         // leaves the rest to the CPU rasterizer above.
@@ -224,11 +225,7 @@ impl Plugin for PfUiPlugin {
 /// same count, shifted timing).
 fn repeat_buttons(
     time: Res<Time<Virtual>>,
-    mut buttons: Query<(
-        Entity,
-        &mut crate::components::PfRepeatButton,
-        &Interaction,
-    )>,
+    mut buttons: Query<(Entity, &mut crate::components::PfRepeatButton, &Interaction)>,
     windows: Query<Entity, With<bevy::window::Window>>,
     mut commands: Commands,
 ) {
@@ -256,10 +253,10 @@ fn repeat_buttons(
         let Some(window) = windows.iter().next() else {
             continue;
         };
-        let Some(target) = bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(
-            window,
-        ))
-        .normalize(None) else {
+        let Some(target) =
+            bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(window))
+                .normalize(None)
+        else {
             continue;
         };
         commands.queue(move |world: &mut World| {
@@ -478,10 +475,10 @@ fn keyboard_interaction(
                 let Some(window) = windows.iter().next() else {
                     return;
                 };
-                let Some(target) = bevy::camera::RenderTarget::Window(
-                    bevy::window::WindowRef::Entity(window),
-                )
-                .normalize(None) else {
+                let Some(target) =
+                    bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(window))
+                        .normalize(None)
+                else {
                     return;
                 };
                 commands.queue(move |world: &mut World| {
@@ -606,9 +603,7 @@ fn scroll_on_wheel(
     }
     const LINE_HEIGHT: f32 = 20.0;
     let (dx, dy) = match ev.unit {
-        bevy::input::mouse::MouseScrollUnit::Line => {
-            (ev.x * LINE_HEIGHT, ev.y * LINE_HEIGHT)
-        }
+        bevy::input::mouse::MouseScrollUnit::Line => (ev.x * LINE_HEIGHT, ev.y * LINE_HEIGHT),
         bevy::input::mouse::MouseScrollUnit::Pixel => (ev.x, ev.y),
     };
     let mut cursor = ev.entity;
@@ -632,11 +627,7 @@ fn scroll_on_wheel(
 /// Size and place the ScrollBar thumb: proportional to ViewportSize, at
 /// the value's fraction of the track (WPF Track arrangement math).
 fn scrollbar_thumb_sync(
-    bars: Query<(
-        &crate::components::PfScrollBar,
-        &SliderValue,
-        &SliderRange,
-    )>,
+    bars: Query<(&crate::components::PfScrollBar, &SliderValue, &SliderRange)>,
     mut nodes: Query<&mut Node>,
 ) {
     for (sb, value, range) in &bars {
@@ -668,7 +659,10 @@ fn toolkit_control_sync(
     children_q: Query<&Children>,
     switches: Query<(Entity, &crate::components::PfToggleSwitch)>,
     checked: Query<Has<bevy::ui::Checked>>,
-    numerics: Query<&crate::components::PfNumericUpDown, Changed<crate::components::PfNumericUpDown>>,
+    numerics: Query<
+        &crate::components::PfNumericUpDown,
+        Changed<crate::components::PfNumericUpDown>,
+    >,
     ratings: Query<&crate::components::PfRatingBar, Changed<crate::components::PfRatingBar>>,
     busys: Query<&crate::components::PfBusyIndicator, Changed<crate::components::PfBusyIndicator>>,
     ranges: Query<&crate::components::PfRangeSlider, Changed<crate::components::PfRangeSlider>>,
@@ -697,7 +691,11 @@ fn toolkit_control_sync(
                 n.padding = padding;
             }
             if let Some(has_text) = has_text {
-                let target = if has_text { Display::None } else { Display::Flex };
+                let target = if has_text {
+                    Display::None
+                } else {
+                    Display::Flex
+                };
                 if n.display != target {
                     n.display = target;
                 }
@@ -713,7 +711,11 @@ fn toolkit_control_sync(
             }
         }
         if let Ok(mut c) = colors.get_mut(switch.track) {
-            let target = if on { control_theme.accent } else { control_theme.track };
+            let target = if on {
+                control_theme.accent
+            } else {
+                control_theme.track
+            };
             if c.0 != target {
                 c.0 = target;
             }
@@ -752,7 +754,11 @@ fn toolkit_control_sync(
     }
     for busy in &busys {
         if let Ok(mut n) = nodes.get_mut(busy.overlay) {
-            n.display = if busy.busy { Display::Flex } else { Display::None };
+            n.display = if busy.busy {
+                Display::Flex
+            } else {
+                Display::None
+            };
         }
     }
 }
@@ -775,7 +781,11 @@ type ButtonChrome<'w, 's> = Query<
 type ChangedSliders<'w, 's> = Query<
     'w,
     's,
-    (&'static SliderValue, &'static SliderRange, &'static PfSliderVisual),
+    (
+        &'static SliderValue,
+        &'static SliderRange,
+        &'static PfSliderVisual,
+    ),
     Or<(Changed<SliderValue>, Changed<SliderRange>)>,
 >;
 
@@ -783,7 +793,12 @@ type ChangedSliders<'w, 's> = Query<
 type HoveredListItems<'w, 's> = Query<
     'w,
     's,
-    (Entity, &'static Interaction, &'static ChildOf, &'static mut BackgroundColor),
+    (
+        Entity,
+        &'static Interaction,
+        &'static ChildOf,
+        &'static mut BackgroundColor,
+    ),
     (With<PfListBoxItem>, Changed<Interaction>),
 >;
 
@@ -844,9 +859,14 @@ fn checked_visual_sync(
             };
         }
         if visual.accent_fills_box
-            && let Ok(mut bg) = bg_q.get_mut(visual.box_node) {
-                bg.0 = if checked { control_theme.accent } else { control_theme.control_face };
-            }
+            && let Ok(mut bg) = bg_q.get_mut(visual.box_node)
+        {
+            bg.0 = if checked {
+                control_theme.accent
+            } else {
+                control_theme.control_face
+            };
+        }
     };
     for visual in &added {
         apply(visual, true);
@@ -954,7 +974,11 @@ fn expander_sync(
 ) {
     let mut apply = |exp: &PfExpander, expanded: bool| {
         if let Ok(mut node) = nodes.get_mut(exp.content) {
-            node.display = if expanded { Display::Flex } else { Display::None };
+            node.display = if expanded {
+                Display::Flex
+            } else {
+                Display::None
+            };
         }
         if let Ok(mut text) = texts.get_mut(exp.arrow) {
             text.0 = if expanded { "−" } else { "+" }.to_string();
@@ -1025,9 +1049,10 @@ fn combo_popup_sync(
 ) {
     for combo in &combos {
         if let Ok(mut popup) = popups.get_mut(combo.popup)
-            && popup.open != combo.open {
-                popup.open = combo.open;
-            }
+            && popup.open != combo.open
+        {
+            popup.open = combo.open;
+        }
     }
 }
 
@@ -1067,11 +1092,7 @@ pub trait PfCommandsExt {
     fn spawn_xaml(&mut self, scene: XamlScene) -> Entity;
 
     /// Spawn a XAML scene with a data context for its `{Binding}`s.
-    fn spawn_xaml_bound(
-        &mut self,
-        scene: XamlScene,
-        context: crate::binding::Bindable,
-    ) -> Entity;
+    fn spawn_xaml_bound(&mut self, scene: XamlScene, context: crate::binding::Bindable) -> Entity;
 }
 
 impl PfCommandsExt for Commands<'_, '_> {
@@ -1093,11 +1114,7 @@ impl PfCommandsExt for Commands<'_, '_> {
         root
     }
 
-    fn spawn_xaml_bound(
-        &mut self,
-        scene: XamlScene,
-        context: crate::binding::Bindable,
-    ) -> Entity {
+    fn spawn_xaml_bound(&mut self, scene: XamlScene, context: crate::binding::Bindable) -> Entity {
         let root = self.spawn_xaml(scene);
         self.entity(root)
             .insert(crate::binding::DataContext(context));
@@ -1108,7 +1125,10 @@ impl PfCommandsExt for Commands<'_, '_> {
 /// Refilter AutoSuggestBox dropdowns when their text changes.
 fn auto_suggest_watch(
     changed: Query<
-        (&crate::components::PfAutoSuggestInput, Ref<bevy::text::EditableText>),
+        (
+            &crate::components::PfAutoSuggestInput,
+            Ref<bevy::text::EditableText>,
+        ),
         Changed<bevy::text::EditableText>,
     >,
     mut commands: Commands,
@@ -1127,7 +1147,10 @@ fn auto_suggest_watch(
 /// Apply typed `#RRGGBB` hex values to the owning ColorPicker.
 fn color_hex_watch(
     changed: Query<
-        (&crate::components::PfColorHexInput, Ref<bevy::text::EditableText>),
+        (
+            &crate::components::PfColorHexInput,
+            Ref<bevy::text::EditableText>,
+        ),
         Changed<bevy::text::EditableText>,
     >,
     mut commands: Commands,
@@ -1153,7 +1176,10 @@ fn color_hex_watch(
 /// middle is the insertion (the classic masked-input diff).
 fn password_watch(
     changed: Query<
-        (&crate::components::PfPasswordInput, Ref<bevy::text::EditableText>),
+        (
+            &crate::components::PfPasswordInput,
+            Ref<bevy::text::EditableText>,
+        ),
         Changed<bevy::text::EditableText>,
     >,
     mut commands: Commands,
@@ -1165,7 +1191,9 @@ fn password_watch(
         let shown = editable.editor().text().to_string();
         let owner = marker.owner;
         commands.queue(move |world: &mut World| {
-            let Some(pb) = world.get::<crate::components::PfPasswordBox>(owner).cloned()
+            let Some(pb) = world
+                .get::<crate::components::PfPasswordBox>(owner)
+                .cloned()
             else {
                 return;
             };
@@ -1196,8 +1224,7 @@ fn password_watch(
                 .chain(old_chars[old_chars.len() - suffix..].iter())
                 .collect();
 
-            let masked: String =
-                std::iter::repeat_n(mask, new_password.chars().count()).collect();
+            let masked: String = std::iter::repeat_n(mask, new_password.chars().count()).collect();
             if let Some(mut pb) = world.get_mut::<crate::components::PfPasswordBox>(owner) {
                 pb.password = new_password;
             }

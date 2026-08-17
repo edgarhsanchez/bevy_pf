@@ -45,21 +45,39 @@ struct Vm {
 }
 
 fn expense(t: &str, amount: &str) -> Expense {
-    Expense { expense_type: t.into(), expense_amount: amount.into() }
+    Expense {
+        expense_type: t.into(),
+        expense_amount: amount.into(),
+    }
 }
 
 /// The sample's `XmlDataProvider` dataset, verbatim.
 fn dataset() -> Vec<Person> {
     vec![
-        Person { name: "Mike".into(), department: "Legal".into(),
-                 expenses: vec![expense("Lunch", "50"), expense("Transportation", "50")] },
-        Person { name: "Lisa".into(), department: "Marketing".into(),
-                 expenses: vec![expense("Document printing", "50"), expense("Gift", "125")] },
-        Person { name: "John".into(), department: "Engineering".into(),
-                 expenses: vec![expense("Magazine subscription", "50"),
-                                expense("New machine", "600"), expense("Software", "500")] },
-        Person { name: "Mary".into(), department: "Finance".into(),
-                 expenses: vec![expense("Dinner", "100")] },
+        Person {
+            name: "Mike".into(),
+            department: "Legal".into(),
+            expenses: vec![expense("Lunch", "50"), expense("Transportation", "50")],
+        },
+        Person {
+            name: "Lisa".into(),
+            department: "Marketing".into(),
+            expenses: vec![expense("Document printing", "50"), expense("Gift", "125")],
+        },
+        Person {
+            name: "John".into(),
+            department: "Engineering".into(),
+            expenses: vec![
+                expense("Magazine subscription", "50"),
+                expense("New machine", "600"),
+                expense("Software", "500"),
+            ],
+        },
+        Person {
+            name: "Mary".into(),
+            department: "Finance".into(),
+            expenses: vec![expense("Dinner", "100")],
+        },
     ]
 }
 
@@ -196,14 +214,20 @@ fn setup(mut commands: Commands) {
     // Application.Resources <- Styles.xaml (App.xaml's merged dictionary).
     commands.queue(|world: &mut World| {
         let doc = bevy_pf_xaml::parse(STYLES).expect("styles parse");
-        let warnings =
-            bevy_pf::instantiate::set_application_resources(world, &doc, &bevy_pf::XamlEnv::default());
+        let warnings = bevy_pf::instantiate::set_application_resources(
+            world,
+            &doc,
+            &bevy_pf::XamlEnv::default(),
+        );
         for w in warnings {
             warn!("ExpenseIt styles: {w}");
         }
     });
 
-    let vm = Bindable::new(Vm { people: dataset(), ..Default::default() });
+    let vm = Bindable::new(Vm {
+        people: dataset(),
+        ..Default::default()
+    });
     commands.spawn_xaml_bound(
         xaml!(
             r##"<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -219,18 +243,17 @@ fn setup(mut commands: Commands) {
 
 /// Recreates the sample's code-behind: `Button_Click` reads the ListBox
 /// selection and navigates to the report page with that person as context.
-fn wire_pages(
-    mut navigated: MessageReader<PfNavigated>,
-    ui: PfQuery,
-    mut commands: Commands,
-) {
+fn wire_pages(mut navigated: MessageReader<PfNavigated>, ui: PfQuery, mut commands: Commands) {
     for nav in navigated.read() {
         if nav.source != "ExpenseItHome.xaml" {
             continue;
         }
-        let Some(button) = ui.by_name("ViewButton") else { continue };
-        commands.entity(button).observe(
-            |_: On<Pointer<Click>>, mut commands: Commands| {
+        let Some(button) = ui.by_name("ViewButton") else {
+            continue;
+        };
+        commands
+            .entity(button)
+            .observe(|_: On<Pointer<Click>>, mut commands: Commands| {
                 commands.queue(|world: &mut World| {
                     // Selected index = the selected row's position in the list.
                     let Some((list, selected)) = world
@@ -266,7 +289,6 @@ fn wire_pages(
                         bevy_pf::navigation::navigate(world, frame, "ExpenseReportPage.xaml");
                     }
                 });
-            },
-        );
+            });
     }
 }

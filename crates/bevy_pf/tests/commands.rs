@@ -27,7 +27,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 #[derive(bevy::reflect::Reflect, Default)]
@@ -41,7 +45,9 @@ fn registered_command_runs_with_resolved_parameter() {
     let hits = Arc::new(AtomicU32::new(0));
     let seen = Arc::new(std::sync::Mutex::new(None::<String>));
 
-    let vm = Bindable::new(Vm { selected: "alpha".into() });
+    let vm = Bindable::new(Vm {
+        selected: "alpha".into(),
+    });
     let (h, s) = (hits.clone(), seen.clone());
     vm.on_command("save", move |_world, param| {
         h.fetch_add(1, Ordering::SeqCst);
@@ -63,7 +69,11 @@ fn registered_command_runs_with_resolved_parameter() {
 
     // The buttons carry the command spec.
     let save = named(&app, root, "Save");
-    let cmd = app.world().get::<bevy_pf::components::PfCommand>(save).unwrap().clone();
+    let cmd = app
+        .world()
+        .get::<bevy_pf::components::PfCommand>(save)
+        .unwrap()
+        .clone();
     assert_eq!(cmd.name, "save");
 
     // Activation resolves the bound parameter against the DataContext.
@@ -73,7 +83,11 @@ fn registered_command_runs_with_resolved_parameter() {
 
     // Literal name + literal parameter.
     let lit = named(&app, root, "Lit");
-    let cmd = app.world().get::<bevy_pf::components::PfCommand>(lit).unwrap().clone();
+    let cmd = app
+        .world()
+        .get::<bevy_pf::components::PfCommand>(lit)
+        .unwrap()
+        .clone();
     bevy_pf::binding::invoke_command(app.world_mut(), lit, &cmd.name, cmd.parameter.as_ref());
     assert_eq!(hits.load(Ordering::SeqCst), 2);
     assert_eq!(seen.lock().unwrap().as_deref(), Some("fixed"));
@@ -93,7 +107,11 @@ fn unregistered_command_still_writes_the_message() {
         .entity_mut(root)
         .insert(DataContext(Bindable::new(Vm::default())));
     let b = named(&app, root, "B");
-    let cmd = app.world().get::<bevy_pf::components::PfCommand>(b).unwrap().clone();
+    let cmd = app
+        .world()
+        .get::<bevy_pf::components::PfCommand>(b)
+        .unwrap()
+        .clone();
     bevy_pf::binding::invoke_command(app.world_mut(), b, &cmd.name, cmd.parameter.as_ref());
 
     let msgs: Vec<_> = app
@@ -120,6 +138,9 @@ fn menu_item_carries_command() {
            </Menu>"##,
     );
     let item = named(&app, root, "SaveItem");
-    let cmd = app.world().get::<bevy_pf::components::PfCommand>(item).unwrap();
+    let cmd = app
+        .world()
+        .get::<bevy_pf::components::PfCommand>(item)
+        .unwrap();
     assert_eq!(cmd.name, "save");
 }

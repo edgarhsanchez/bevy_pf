@@ -95,9 +95,7 @@ pub fn run_actions(world: &mut World, host: Entity, actions: &[PfAction]) {
                     continue;
                 };
                 let Some(prop) = crate::provider::property_target_for(property) else {
-                    warn!(
-                        "bevy_pf: ChangePropertyAction `{property}` is not a writable property"
-                    );
+                    warn!("bevy_pf: ChangePropertyAction `{property}` is not a writable property");
                     continue;
                 };
                 crate::provider::set_local(
@@ -243,18 +241,41 @@ pub fn key_from_name(name: &str) -> Option<KeyCode> {
         single if single.len() == 1 => {
             let c = single.chars().next().unwrap().to_ascii_uppercase();
             match c {
-                'A' => KeyCode::KeyA, 'B' => KeyCode::KeyB, 'C' => KeyCode::KeyC,
-                'D' => KeyCode::KeyD, 'E' => KeyCode::KeyE, 'F' => KeyCode::KeyF,
-                'G' => KeyCode::KeyG, 'H' => KeyCode::KeyH, 'I' => KeyCode::KeyI,
-                'J' => KeyCode::KeyJ, 'K' => KeyCode::KeyK, 'L' => KeyCode::KeyL,
-                'M' => KeyCode::KeyM, 'N' => KeyCode::KeyN, 'O' => KeyCode::KeyO,
-                'P' => KeyCode::KeyP, 'Q' => KeyCode::KeyQ, 'R' => KeyCode::KeyR,
-                'S' => KeyCode::KeyS, 'T' => KeyCode::KeyT, 'U' => KeyCode::KeyU,
-                'V' => KeyCode::KeyV, 'W' => KeyCode::KeyW, 'X' => KeyCode::KeyX,
-                'Y' => KeyCode::KeyY, 'Z' => KeyCode::KeyZ,
-                '0' => KeyCode::Digit0, '1' => KeyCode::Digit1, '2' => KeyCode::Digit2,
-                '3' => KeyCode::Digit3, '4' => KeyCode::Digit4, '5' => KeyCode::Digit5,
-                '6' => KeyCode::Digit6, '7' => KeyCode::Digit7, '8' => KeyCode::Digit8,
+                'A' => KeyCode::KeyA,
+                'B' => KeyCode::KeyB,
+                'C' => KeyCode::KeyC,
+                'D' => KeyCode::KeyD,
+                'E' => KeyCode::KeyE,
+                'F' => KeyCode::KeyF,
+                'G' => KeyCode::KeyG,
+                'H' => KeyCode::KeyH,
+                'I' => KeyCode::KeyI,
+                'J' => KeyCode::KeyJ,
+                'K' => KeyCode::KeyK,
+                'L' => KeyCode::KeyL,
+                'M' => KeyCode::KeyM,
+                'N' => KeyCode::KeyN,
+                'O' => KeyCode::KeyO,
+                'P' => KeyCode::KeyP,
+                'Q' => KeyCode::KeyQ,
+                'R' => KeyCode::KeyR,
+                'S' => KeyCode::KeyS,
+                'T' => KeyCode::KeyT,
+                'U' => KeyCode::KeyU,
+                'V' => KeyCode::KeyV,
+                'W' => KeyCode::KeyW,
+                'X' => KeyCode::KeyX,
+                'Y' => KeyCode::KeyY,
+                'Z' => KeyCode::KeyZ,
+                '0' => KeyCode::Digit0,
+                '1' => KeyCode::Digit1,
+                '2' => KeyCode::Digit2,
+                '3' => KeyCode::Digit3,
+                '4' => KeyCode::Digit4,
+                '5' => KeyCode::Digit5,
+                '6' => KeyCode::Digit6,
+                '7' => KeyCode::Digit7,
+                '8' => KeyCode::Digit8,
                 '9' => KeyCode::Digit9,
                 _ => return None,
             }
@@ -273,8 +294,7 @@ pub(crate) fn run_key_triggers(world: &mut World) {
         return;
     }
     let mut q = world.query::<(Entity, &PfKeyTriggers)>();
-    let hosts: Vec<(Entity, PfKeyTriggers)> =
-        q.iter(world).map(|(e, t)| (e, t.clone())).collect();
+    let hosts: Vec<(Entity, PfKeyTriggers)> = q.iter(world).map(|(e, t)| (e, t.clone())).collect();
     let focused = world
         .get_resource::<bevy::input_focus::InputFocus>()
         .and_then(|f| f.get());
@@ -286,13 +306,15 @@ pub(crate) fn run_key_triggers(world: &mut World) {
             // ActiveOnFocus: only while the host (or a descendant, e.g. a
             // TextBox's inner editable) holds keyboard focus.
             if *active_on_focus {
-                let in_scope = focused.is_some_and(|mut f| loop {
-                    if f == host {
-                        break true;
-                    }
-                    match world.get::<ChildOf>(f) {
-                        Some(p) => f = p.parent(),
-                        None => break false,
+                let in_scope = focused.is_some_and(|mut f| {
+                    loop {
+                        if f == host {
+                            break true;
+                        }
+                        match world.get::<ChildOf>(f) {
+                            Some(p) => f = p.parent(),
+                            None => break false,
+                        }
                     }
                 });
                 if !in_scope {

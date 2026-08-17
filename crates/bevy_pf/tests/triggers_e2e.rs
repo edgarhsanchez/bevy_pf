@@ -19,8 +19,8 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
     let doc = bevy_pf_xaml::parse(xaml).expect("parses");
     let world = app.world_mut();
     let root = world.spawn_empty().id();
-    let result = instantiate_document_env(world, root, &doc, &XamlEnv::default())
-        .expect("instantiates");
+    let result =
+        instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
     assert!(
         result.warnings.is_empty(),
         "expected clean instantiation: {:?}",
@@ -206,7 +206,9 @@ fn data_trigger_follows_view_model() {
              <Border x:Name="B"/>
            </StackPanel>"#,
     );
-    app.world_mut().entity_mut(root).insert(DataContext(vm.clone()));
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
     app.update();
     let b = named(&app, root, "B");
     assert_eq!(bg(&app, b), Color::srgba_u8(0, 128, 0, 255));
@@ -352,9 +354,18 @@ fn data_triggers_inside_scoped_item_template() {
     let mut app = test_app();
     let vm = Bindable::new(CitiesVm {
         places: vec![
-            City { name: "Seattle".into(), state: "WA".into() },
-            City { name: "Portland".into(), state: "OR".into() },
-            City { name: "San Jose".into(), state: "CA".into() },
+            City {
+                name: "Seattle".into(),
+                state: "WA".into(),
+            },
+            City {
+                name: "Portland".into(),
+                state: "OR".into(),
+            },
+            City {
+                name: "San Jose".into(),
+                state: "CA".into(),
+            },
         ],
     });
     let root = spawn(
@@ -392,9 +403,7 @@ fn data_triggers_inside_scoped_item_template() {
              </ItemsControl>
            </StackPanel>"##,
     );
-    app.world_mut()
-        .entity_mut(root)
-        .insert(DataContext(vm));
+    app.world_mut().entity_mut(root).insert(DataContext(vm));
     app.update(); // generate items
     app.update(); // evaluate triggers
 

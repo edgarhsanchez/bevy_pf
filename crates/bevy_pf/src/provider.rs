@@ -34,9 +34,24 @@ pub enum ValueSource {
     ParentTemplate = 9,
     ParentTemplateTrigger = 10,
     Local = 11,
+    /// MAUI `<VisualState.Setters>`: ABOVE a local value, unlike every
+    /// other trigger tier.
+    ///
+    /// The whole point of a visual state is to restyle a control that has
+    /// already been styled — a Pressed state exists to override the
+    /// Background the button was authored with. At the ordinary trigger
+    /// tiers it loses to that inline value, which is not a subtle
+    /// mis-ordering: it makes the feature do nothing at all in the case
+    /// everyone writes first. MAUI puts visual states above local values
+    /// and so does this.
+    ///
+    /// Still below `Animation`, so a running storyboard wins — a state
+    /// that carries BOTH setters and a storyboard therefore resolves the
+    /// way WPF would, with the animation on top.
+    VisualState = 12,
     /// The animation layer: composes ABOVE every base tier (WPF: an active
     /// animation beats even a local value; clearing it reverts structurally).
-    Animation = 12,
+    Animation = 13,
 }
 
 /// The properties the store manages (the dynamically-writable set).
@@ -128,10 +143,7 @@ impl PfPropertyStore {
 
     /// The effective value: highest tier wins.
     pub fn effective(&self, target: PropertyTarget) -> Option<&(ValueSource, StoredValue)> {
-        self.entries
-            .get(&target)?
-            .iter()
-            .max_by_key(|(s, _)| *s)
+        self.entries.get(&target)?.iter().max_by_key(|(s, _)| *s)
     }
 
     /// The tier of the effective value, if any.
@@ -159,12 +171,7 @@ impl PfPropertyStore {
 /// resources keep their values in lower tiers, so they revert correctly if
 /// the local value is later cleared. Call from an exclusive system or via
 /// `commands.queue(move |world| ...)`.
-pub fn set_local(
-    world: &mut World,
-    entity: Entity,
-    target: PropertyTarget,
-    value: PfValue,
-) {
+pub fn set_local(world: &mut World, entity: Entity, target: PropertyTarget, value: PfValue) {
     store_and_apply(world, entity, target, ValueSource::Local, Some(value));
 }
 
@@ -241,7 +248,13 @@ fn forward_template_dependents(world: &mut World, entity: Entity, target: Proper
         }
         match &value {
             Some(stored) => {
-                store_and_apply(world, child, dst, ValueSource::ParentTemplate, stored.clone());
+                store_and_apply(
+                    world,
+                    child,
+                    dst,
+                    ValueSource::ParentTemplate,
+                    stored.clone(),
+                );
             }
             None => {
                 if let Some(mut store) = world.get_mut::<PfPropertyStore>(child) {
@@ -389,7 +402,9 @@ fn unset_subtree_opacity(world: &mut World, root: Entity) {
         if world.get_entity(e).is_err() {
             continue;
         }
-        if let (Some(alpha), Some(mut bg)) = (orig.bg, world.get_mut::<bevy::ui::BackgroundColor>(e)) {
+        if let (Some(alpha), Some(mut bg)) =
+            (orig.bg, world.get_mut::<bevy::ui::BackgroundColor>(e))
+        {
             set_alpha(&mut bg.0, alpha);
         }
         if let Some(sides) = orig.border
@@ -400,7 +415,9 @@ fn unset_subtree_opacity(world: &mut World, root: Entity) {
             set_alpha(&mut border.bottom, sides[2]);
             set_alpha(&mut border.left, sides[3]);
         }
-        if let (Some(alpha), Some(mut text)) = (orig.text, world.get_mut::<bevy::text::TextColor>(e)) {
+        if let (Some(alpha), Some(mut text)) =
+            (orig.text, world.get_mut::<bevy::text::TextColor>(e))
+        {
             set_alpha(&mut text.0, alpha);
         }
     }
@@ -427,7 +444,10 @@ fn rescale_after_color_writes(world: &mut World, entity: Entity, changed: &[Enti
             None => return,
         }
     }
-    let value = world.get::<PfOpacity>(holder).map(|o| o.value).unwrap_or(1.0);
+    let value = world
+        .get::<PfOpacity>(holder)
+        .map(|o| o.value)
+        .unwrap_or(1.0);
     // Recapture the freshly written (unscaled) channels.
     if let Some(mut state) = world.entity_mut(holder).take::<PfOpacity>() {
         for e in changed {
@@ -443,9 +463,7 @@ fn rescale_after_color_writes(world: &mut World, entity: Entity, changed: &[Enti
 /// effective value changes on this entity, forward it to `(child, dst)` at
 /// the `ParentTemplate` tier.
 #[derive(Component, Debug, Default)]
-pub struct PfTemplateBindingDependents(
-    pub Vec<(PropertyTarget, Entity, PropertyTarget)>,
-);
+pub struct PfTemplateBindingDependents(pub Vec<(PropertyTarget, Entity, PropertyTarget)>);
 
 /// Properties whose rendering a `ControlTemplate` takes over: on a templated
 /// control they reach the visuals only through TemplateBinding, never by
@@ -500,7 +518,12 @@ pub(crate) fn mark_background_assigned(world: &mut World, entity: Entity, assign
 
 /// Apply a concrete value to components (the single component-writer for
 /// store-managed properties).
-pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTarget, value: &PfValue) {
+pub(crate) fn apply_value(
+    world: &mut World,
+    entity: Entity,
+    target: PropertyTarget,
+    value: &PfValue,
+) {
     if template_suppressed(world, entity, target) {
         return;
     }
@@ -554,9 +577,7 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
         PropertyTarget::BorderBrush => {
             if let Some(v::PfBrush::Solid(c)) = as_brush() {
                 let color = convert::color(c);
-                if let Some(mut visual) =
-                    world.get_mut::<crate::components::ButtonVisual>(entity)
-                {
+                if let Some(mut visual) = world.get_mut::<crate::components::ButtonVisual>(entity) {
                     visual.normal_border = color;
                 }
                 world.entity_mut(entity).insert(BorderColor::all(color));
@@ -564,9 +585,10 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
         }
         PropertyTarget::BorderThickness => {
             if let Some(t) = as_thickness()
-                && let Some(mut node) = world.get_mut::<Node>(entity) {
-                    node.border = convert::thickness(t);
-                }
+                && let Some(mut node) = world.get_mut::<Node>(entity)
+            {
+                node.border = convert::thickness(t);
+            }
         }
         PropertyTarget::Fill => {
             if let Some(brush) = as_brush() {
@@ -610,15 +632,17 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
         }
         PropertyTarget::Margin => {
             if let Some(t) = as_thickness()
-                && let Some(mut node) = world.get_mut::<Node>(entity) {
-                    node.margin = convert::thickness(t);
-                }
+                && let Some(mut node) = world.get_mut::<Node>(entity)
+            {
+                node.margin = convert::thickness(t);
+            }
         }
         PropertyTarget::Padding => {
             if let Some(t) = as_thickness()
-                && let Some(mut node) = world.get_mut::<Node>(entity) {
-                    node.padding = convert::thickness(t);
-                }
+                && let Some(mut node) = world.get_mut::<Node>(entity)
+            {
+                node.padding = convert::thickness(t);
+            }
         }
         PropertyTarget::CornerRadius => {
             let radius = match value {
@@ -628,9 +652,10 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
                 _ => None,
             };
             if let Some(r) = radius
-                && let Some(mut node) = world.get_mut::<Node>(entity) {
-                    node.border_radius = convert::corner_radius(r);
-                }
+                && let Some(mut node) = world.get_mut::<Node>(entity)
+            {
+                node.border_radius = convert::corner_radius(r);
+            }
         }
         PropertyTarget::Width | PropertyTarget::Height => {
             let Some(px) = as_f32() else { return };
@@ -882,10 +907,17 @@ mod tests {
             ValueSource::StyleTrigger,
             Some(PfValue::Double(1.0)),
         );
-        store.set(PropertyTarget::Height, ValueSource::Local, Some(PfValue::Double(2.0)));
+        store.set(
+            PropertyTarget::Height,
+            ValueSource::Local,
+            Some(PfValue::Double(2.0)),
+        );
         let mut affected = store.clear_tier(ValueSource::StyleTrigger);
         affected.sort_by_key(|t| format!("{t:?}"));
         assert_eq!(affected.len(), 2);
-        assert_eq!(store.effective_source(PropertyTarget::Height), Some(ValueSource::Local));
+        assert_eq!(
+            store.effective_source(PropertyTarget::Height),
+            Some(ValueSource::Local)
+        );
     }
 }

@@ -108,8 +108,15 @@ fn message_dialog_keeps_buttons_inside_panel() {
         if let Some(st) = style {
             eprintln!(
                 "DIAG {}{kind} x {:.0}..{:.0} y {:.0}..{:.0} | align_self {:?} justify_self {:?} margin.l {:?} w {:?}",
-                "  ".repeat(depth), min.x, max.x, min.y, max.y,
-                st.align_self, st.justify_self, st.margin.left, st.width
+                "  ".repeat(depth),
+                min.x,
+                max.x,
+                min.y,
+                max.y,
+                st.align_self,
+                st.justify_self,
+                st.margin.left,
+                st.width
             );
         }
         if depth < 4
@@ -172,8 +179,14 @@ fn scroll_viewer_stretches_generated_rows_to_viewport_width() {
 
     let vm = Bindable::new(DeckVm {
         rows: vec![
-            DeckRow { name: "BLACKSITE".into(), count: "01".into() },
-            DeckRow { name: "DELTA".into(), count: "02".into() },
+            DeckRow {
+                name: "BLACKSITE".into(),
+                count: "01".into(),
+            },
+            DeckRow {
+                name: "DELTA".into(),
+                count: "02".into(),
+            },
         ],
         deck_visible: true,
     });
@@ -224,7 +237,13 @@ fn scroll_viewer_stretches_generated_rows_to_viewport_width() {
         assert_eq!(wrappers.len(), 2, "{label}: two generated rows");
         for &wrapper in &wrappers {
             // The template's Grid root and its trailing Auto column.
-            let grid = app.world().get::<Children>(wrapper).unwrap().iter().next().unwrap();
+            let grid = app
+                .world()
+                .get::<Children>(wrapper)
+                .unwrap()
+                .iter()
+                .next()
+                .unwrap();
             let (gmin, gmax) = rect_of(app.world(), grid);
             assert!(
                 gmax.x - gmin.x >= sv_width - 0.5,
@@ -301,16 +320,33 @@ fn border_child_respects_padding_probes() {
     }
     let names = app.world().get::<XamlNames>(root).unwrap();
     let probes = [
-        ("Fixed", names.get("Fixed").unwrap(), names.get("FixedChild").unwrap()),
-        ("Maxed", names.get("Maxed").unwrap(), names.get("MaxedChild").unwrap()),
-        ("InGrid", names.get("InGrid").unwrap(), names.get("InGridChild").unwrap()),
+        (
+            "Fixed",
+            names.get("Fixed").unwrap(),
+            names.get("FixedChild").unwrap(),
+        ),
+        (
+            "Maxed",
+            names.get("Maxed").unwrap(),
+            names.get("MaxedChild").unwrap(),
+        ),
+        (
+            "InGrid",
+            names.get("InGrid").unwrap(),
+            names.get("InGridChild").unwrap(),
+        ),
     ];
     for (label, border, child) in probes {
         let (bmin, bmax) = rect_of(app.world(), border);
         let (cmin, cmax) = rect_of(app.world(), child);
         eprintln!(
             "PROBE {label}: border {:.0}..{:.0} ({:.0} wide), child {:.0}..{:.0} ({:.0} wide)",
-            bmin.x, bmax.x, bmax.x - bmin.x, cmin.x, cmax.x, cmax.x - cmin.x
+            bmin.x,
+            bmax.x,
+            bmax.x - bmin.x,
+            cmin.x,
+            cmax.x,
+            cmax.x - cmin.x
         );
         // KNOWN ENGINE BUG (taffy 0.10 grid sizing): a GRID item with
         // Min/MaxWidth + Padding hands its child the outer width instead

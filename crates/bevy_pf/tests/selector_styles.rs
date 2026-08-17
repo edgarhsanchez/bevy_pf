@@ -26,7 +26,12 @@ fn spawn(app: &mut App, xaml: &str) -> (Entity, Vec<String>) {
 }
 
 fn background(app: &App, root: Entity, name: &str) -> Option<String> {
-    let e = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+    let e = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap();
     app.world()
         .get::<BackgroundColor>(e)
         .map(|c| bevy_pf::instantiate::color_to_hex(c.0))
@@ -315,12 +320,27 @@ fn a_pseudo_class_follows_the_interaction_state() {
     );
     app.update();
     assert_eq!(warnings, Vec::<String>::new());
-    let border = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
-    assert_eq!(background(&app, root, "B"), Some("#111111".into()), "at rest");
+    let border = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
+    assert_eq!(
+        background(&app, root, "B"),
+        Some("#111111".into()),
+        "at rest"
+    );
 
-    app.world_mut().entity_mut(border).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(border)
+        .insert(Interaction::Hovered);
     app.update();
-    assert_eq!(background(&app, root, "B"), Some("#FF0000".into()), "hovered");
+    assert_eq!(
+        background(&app, root, "B"),
+        Some("#FF0000".into()),
+        "hovered"
+    );
 
     app.world_mut().entity_mut(border).insert(Interaction::None);
     app.update();
@@ -343,12 +363,26 @@ fn a_class_and_a_pseudo_class_must_both_hold() {
     );
     app.update();
     assert_eq!(warnings, Vec::<String>::new());
-    let plain = app.world().get::<XamlNames>(root).unwrap().get("Plain").unwrap();
-    let danger = app.world().get::<XamlNames>(root).unwrap().get("Danger").unwrap();
+    let plain = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Plain")
+        .unwrap();
+    let danger = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Danger")
+        .unwrap();
 
     // Hovering the one WITHOUT the class must not style it.
-    app.world_mut().entity_mut(plain).insert(Interaction::Hovered);
-    app.world_mut().entity_mut(danger).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(plain)
+        .insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(danger)
+        .insert(Interaction::Hovered);
     app.update();
     assert_ne!(background(&app, root, "Plain"), Some("#FF0000".into()));
     assert_eq!(background(&app, root, "Danger"), Some("#FF0000".into()));
@@ -370,7 +404,12 @@ fn adding_a_class_at_runtime_restyles_the_element() {
     assert_eq!(warnings, Vec::<String>::new());
     assert_ne!(background(&app, root, "B"), Some("#FF0000".into()));
 
-    let border = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let border = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     app.world_mut()
         .entity_mut(border)
         .insert(bevy_pf::components::PfClasses(vec!["danger".into()]));

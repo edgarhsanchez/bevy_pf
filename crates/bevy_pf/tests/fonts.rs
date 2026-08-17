@@ -27,7 +27,12 @@ fn text_font_of(app: &mut App, xaml_attrs: &str) -> TextFont {
     let world = app.world_mut();
     let root = world.spawn_empty().id();
     instantiate_document_env(world, root, &doc, &XamlEnv::default()).unwrap();
-    let t = app.world().get::<XamlNames>(root).unwrap().get("T").unwrap();
+    let t = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("T")
+        .unwrap();
     // The text lives on the TextBlock's text child (or the element itself).
     let target = if app.world().get::<TextFont>(t).is_some() {
         t

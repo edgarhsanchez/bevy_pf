@@ -33,7 +33,10 @@ struct Roster {
 }
 
 fn player(name: &str, score: u32) -> Player {
-    Player { name: name.into(), score }
+    Player {
+        name: name.into(),
+        score,
+    }
 }
 
 fn roster() -> Bindable {
@@ -47,7 +50,10 @@ fn roster() -> Bindable {
 #[test]
 fn a_selected_object_is_located_by_value() {
     let vm = roster();
-    assert_eq!(vm.selection_match("players", "selected", None), SelectionMatch::Null);
+    assert_eq!(
+        vm.selection_match("players", "selected", None),
+        SelectionMatch::Null
+    );
 
     vm.update(|r: &mut Roster| r.selected = Some(player("bo", 20)));
     assert_eq!(
@@ -72,11 +78,20 @@ fn null_is_a_selection_not_a_failure() {
     // "Nothing selected" and "the value could not be located" must not be
     // the same answer: one clears, the other is a diagnosis.
     let vm = roster();
-    assert_eq!(vm.selection_match("players", "selected", None), SelectionMatch::Null);
+    assert_eq!(
+        vm.selection_match("players", "selected", None),
+        SelectionMatch::Null
+    );
     vm.update(|r: &mut Roster| r.selected = Some(player("ana", 10)));
-    assert_eq!(vm.selection_match("players", "selected", None), SelectionMatch::Index(0));
+    assert_eq!(
+        vm.selection_match("players", "selected", None),
+        SelectionMatch::Index(0)
+    );
     vm.update(|r: &mut Roster| r.selected = None);
-    assert_eq!(vm.selection_match("players", "selected", None), SelectionMatch::Null);
+    assert_eq!(
+        vm.selection_match("players", "selected", None),
+        SelectionMatch::Null
+    );
 }
 
 #[test]
@@ -128,7 +143,10 @@ fn identity_survives_a_reorder_where_an_index_would_not() {
     // object is at a different index; matching by value follows it.
     let vm = roster();
     vm.update(|r: &mut Roster| r.selected = Some(player("ana", 10)));
-    assert_eq!(vm.selection_match("players", "selected", None), SelectionMatch::Index(0));
+    assert_eq!(
+        vm.selection_match("players", "selected", None),
+        SelectionMatch::Index(0)
+    );
 
     vm.update(|r: &mut Roster| r.players.reverse());
     assert_eq!(
@@ -145,7 +163,10 @@ fn a_same_shaped_value_of_another_type_is_not_the_same_item() {
     let vm = Bindable::new(Roster {
         players: vec![player("ana", 10), player("bo", 20)],
         selected: None,
-        intruder: Some(Enemy { name: "ana".into(), score: 10 }),
+        intruder: Some(Enemy {
+            name: "ana".into(),
+            score: 10,
+        }),
     });
     assert_eq!(
         vm.selection_match("players", "intruder", None),
@@ -168,7 +189,10 @@ fn selecting_writes_the_object_back() {
         "the OBJECT is written back, not a display string or an index"
     );
     // ...and it round-trips: what was written is now locatable.
-    assert_eq!(vm.selection_match("players", "selected", None), SelectionMatch::Index(2));
+    assert_eq!(
+        vm.selection_match("players", "selected", None),
+        SelectionMatch::Index(2)
+    );
 }
 
 #[test]
@@ -177,7 +201,10 @@ fn clearing_writes_none() {
     vm.update(|r: &mut Roster| r.selected = Some(player("bo", 20)));
     assert!(vm.set_null("selected"));
     assert_eq!(vm.read(|r: &Roster| r.selected.clone()), Some(None));
-    assert_eq!(vm.selection_match("players", "selected", None), SelectionMatch::Null);
+    assert_eq!(
+        vm.selection_match("players", "selected", None),
+        SelectionMatch::Null
+    );
 }
 
 #[test]
@@ -185,7 +212,11 @@ fn a_write_bumps_the_version_so_dependents_refresh() {
     let vm = roster();
     let before = vm.version();
     vm.set_from("selected", "players[1]");
-    assert_ne!(vm.version(), before, "bindings reading `selected` must be told");
+    assert_ne!(
+        vm.version(),
+        before,
+        "bindings reading `selected` must be told"
+    );
 }
 
 #[test]
@@ -200,8 +231,14 @@ fn writing_a_non_option_destination_still_works() {
         current: player("ana", 10),
     });
     assert!(vm.set_from("current", "players[1]"));
-    assert_eq!(vm.read(|p: &Plain| p.current.clone()), Some(player("bo", 20)));
-    assert_eq!(vm.selection_match("players", "current", None), SelectionMatch::Index(1));
+    assert_eq!(
+        vm.read(|p: &Plain| p.current.clone()),
+        Some(player("bo", 20))
+    );
+    assert_eq!(
+        vm.selection_match("players", "current", None),
+        SelectionMatch::Index(1)
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -228,7 +265,12 @@ fn list_app(vm: Bindable) -> (App, Entity) {
     let root = world.spawn(DataContext(vm)).id();
     let result = instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("builds");
     assert_eq!(result.warnings, Vec::<String>::new(), "clean instantiation");
-    let list = app.world().get::<XamlNames>(root).unwrap().get("L").unwrap();
+    let list = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("L")
+        .unwrap();
     (app, list)
 }
 
@@ -328,7 +370,13 @@ fn clicking_a_row_writes_the_object_back() {
 
     // Simulate the control selecting its second row.
     let container = bevy_pf::items::items_container(app.world(), list);
-    let row = app.world().get::<Children>(container).unwrap().iter().nth(1).unwrap();
+    let row = app
+        .world()
+        .get::<Children>(container)
+        .unwrap()
+        .iter()
+        .nth(1)
+        .unwrap();
     app.world_mut()
         .get_mut::<bevy_pf::components::PfListBox>(list)
         .unwrap()

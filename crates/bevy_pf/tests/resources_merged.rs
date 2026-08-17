@@ -42,14 +42,29 @@ fn merged_dictionaries_resolve_across_files() {
 
     let names = world.get::<XamlNames>(root).unwrap().clone_map();
     // Two levels deep: main -> themes/theme.xaml -> ../colors.xaml.
-    assert_eq!(bg(&world, &names, "FromColors"), Color::srgba_u8(0, 128, 128, 255)); // Teal
-    assert_eq!(bg(&world, &names, "FromTheme"), Color::srgba_u8(255, 215, 0, 255)); // Gold
+    assert_eq!(
+        bg(&world, &names, "FromColors"),
+        Color::srgba_u8(0, 128, 128, 255)
+    ); // Teal
+    assert_eq!(
+        bg(&world, &names, "FromTheme"),
+        Color::srgba_u8(255, 215, 0, 255)
+    ); // Gold
     // Own entry beats merged: theme.xaml overrides colors.xaml's Red with Green.
-    assert_eq!(bg(&world, &names, "Overridden"), Color::srgba_u8(0, 128, 0, 255));
+    assert_eq!(
+        bg(&world, &names, "Overridden"),
+        Color::srgba_u8(0, 128, 0, 255)
+    );
     // Element-local entry.
-    assert_eq!(bg(&world, &names, "Local"), Color::srgba_u8(128, 0, 128, 255)); // Purple
+    assert_eq!(
+        bg(&world, &names, "Local"),
+        Color::srgba_u8(128, 0, 128, 255)
+    ); // Purple
     // StaticResource inside a merged file (brush referencing a color).
-    assert_eq!(bg(&world, &names, "Accent"), Color::srgba_u8(0x00, 0x78, 0xD7, 255));
+    assert_eq!(
+        bg(&world, &names, "Accent"),
+        Color::srgba_u8(0x00, 0x78, 0xD7, 255)
+    );
     // x:Double through the chain.
     let sized = names.get("Sized").unwrap();
     assert_eq!(
@@ -125,9 +140,15 @@ fn application_resources_are_the_fallback_tier() {
     let (root, warnings) = spawn_env(&mut world, xaml, &XamlEnv::default());
     assert!(warnings.is_empty(), "{warnings:?}");
     let names = world.get::<XamlNames>(root).unwrap().clone_map();
-    assert_eq!(bg(&world, &names, "FromApp"), Color::srgba_u8(0xDC, 0x14, 0x3C, 255));
+    assert_eq!(
+        bg(&world, &names, "FromApp"),
+        Color::srgba_u8(0xDC, 0x14, 0x3C, 255)
+    );
     // Element scope shadows the app tier.
-    assert_eq!(bg(&world, &names, "Shadowed"), Color::srgba_u8(255, 255, 255, 255));
+    assert_eq!(
+        bg(&world, &names, "Shadowed"),
+        Color::srgba_u8(255, 255, 255, 255)
+    );
 }
 
 #[test]
@@ -184,7 +205,10 @@ fn dynamic_resource_reresolves_on_theme_swap() {
     app.update();
 
     let names = app.world().get::<XamlNames>(root).unwrap().clone_map();
-    assert_eq!(bg(app.world(), &names, "B"), Color::srgba_u8(255, 255, 255, 255));
+    assert_eq!(
+        bg(app.world(), &names, "B"),
+        Color::srgba_u8(255, 255, 255, 255)
+    );
 
     // Theme swap: replace the app dictionary; the brush re-resolves.
     let mut dark = bevy_pf::resources::ResourceDictionary::new();
@@ -444,9 +468,18 @@ fn dynamic_foreground_reaches_content_control_text() {
 
     let names = app.world().get::<XamlNames>(root).unwrap().clone_map();
     let button = names.get("B").unwrap();
-    let text_child = app.world().get::<Children>(button).unwrap().iter().next().unwrap();
+    let text_child = app
+        .world()
+        .get::<Children>(button)
+        .unwrap()
+        .iter()
+        .next()
+        .unwrap();
     assert_eq!(
-        app.world().get::<bevy::text::TextColor>(text_child).unwrap().0,
+        app.world()
+            .get::<bevy::text::TextColor>(text_child)
+            .unwrap()
+            .0,
         Color::srgba_u8(10, 20, 30, 255)
     );
 
@@ -462,16 +495,16 @@ fn dynamic_foreground_reaches_content_control_text() {
     set_application_resources_dict(app.world_mut(), swapped);
     app.update();
     assert_eq!(
-        app.world().get::<bevy::text::TextColor>(text_child).unwrap().0,
+        app.world()
+            .get::<bevy::text::TextColor>(text_child)
+            .unwrap()
+            .0,
         Color::srgba_u8(200, 100, 50, 255)
     );
 }
 
 fn tempfile_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "bevy_pf_test_{}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("bevy_pf_test_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

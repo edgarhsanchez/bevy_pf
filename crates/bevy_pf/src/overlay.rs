@@ -125,7 +125,10 @@ pub(crate) fn position_popups(
 ) {
     // Logical size of the window the overlay covers — the parent every popup
     // must stay inside.
-    let viewport = windows.iter().next().map(|window| Vec2::new(window.width(), window.height()));
+    let viewport = windows
+        .iter()
+        .next()
+        .map(|window| Vec2::new(window.width(), window.height()));
 
     for (popup, mut node, popup_computed, pointer_anchor) in &mut popups {
         if !popup.open {
@@ -232,10 +235,11 @@ pub(crate) fn tooltip_system(world: &mut World) {
                 let popup = spawn_tooltip_popup(world, owner, &text);
                 world.resource_mut::<PfActiveTooltip>().0 = Some((owner, popup));
             } else if let Some((active_owner, popup)) = active
-                && active_owner != owner {
-                    world.entity_mut(popup).despawn();
-                    world.resource_mut::<PfActiveTooltip>().0 = None;
-                }
+                && active_owner != owner
+            {
+                world.entity_mut(popup).despawn();
+                world.resource_mut::<PfActiveTooltip>().0 = None;
+            }
         }
         None => {
             state.0 = HoverState::default();

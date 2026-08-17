@@ -978,19 +978,41 @@ fn setup(mut commands: Commands) {
         misc: "0".into(),
         savings: 3000.0,
         items_for_sale: vec![
-            SaleItem { description: "Snowboard".into(), price: 120.0 },
-            SaleItem { description: "Fishing rod".into(), price: 27.13 },
-            SaleItem { description: "Sailboat".into(), price: 8000.0 },
-            SaleItem { description: "Kayak".into(), price: 249.99 },
+            SaleItem {
+                description: "Snowboard".into(),
+                price: 120.0,
+            },
+            SaleItem {
+                description: "Fishing rod".into(),
+                price: 27.13,
+            },
+            SaleItem {
+                description: "Sailboat".into(),
+                price: 8000.0,
+            },
+            SaleItem {
+                description: "Kayak".into(),
+                price: 249.99,
+            },
         ],
         places: [
-            ("Bellevue", "WA"), ("Gold Beach", "OR"), ("Kirkland", "WA"),
-            ("Los Angeles", "CA"), ("Portland", "ME"), ("Portland", "OR"),
-            ("Redmond", "WA"), ("San Diego", "CA"), ("San Francisco", "CA"),
-            ("San Jose", "CA"), ("Seattle", "WA"),
+            ("Bellevue", "WA"),
+            ("Gold Beach", "OR"),
+            ("Kirkland", "WA"),
+            ("Los Angeles", "CA"),
+            ("Portland", "ME"),
+            ("Portland", "OR"),
+            ("Redmond", "WA"),
+            ("San Diego", "CA"),
+            ("San Francisco", "CA"),
+            ("San Jose", "CA"),
+            ("Seattle", "WA"),
         ]
         .into_iter()
-        .map(|(name, state)| Place { name: name.into(), state: state.into() })
+        .map(|(name, state)| Place {
+            name: name.into(),
+            state: state.into(),
+        })
         .collect(),
         friends: [
             ("Michael", "Alexander", "Bellevue"),
@@ -1011,9 +1033,18 @@ fn setup(mut commands: Commands) {
             home_town: "Bellevue".into(),
         },
         bids: vec![
-            BidItem { bid_item_name: "Perseus Vase".into(), bid_item_price: 24.95 },
-            BidItem { bid_item_name: "Hercules Statue".into(), bid_item_price: 16.05 },
-            BidItem { bid_item_name: "Odysseus Painting".into(), bid_item_price: 100.0 },
+            BidItem {
+                bid_item_name: "Perseus Vase".into(),
+                bid_item_price: 24.95,
+            },
+            BidItem {
+                bid_item_name: "Hercules Statue".into(),
+                bid_item_price: 16.05,
+            },
+            BidItem {
+                bid_item_name: "Odysseus Painting".into(),
+                bid_item_price: 100.0,
+            },
         ],
         ..Default::default()
     });
@@ -1088,22 +1119,26 @@ fn wire_pages(
         if nav.source == "DynamicLayout.xaml"
             && let Some(button) = ui.by_name("Button1")
         {
-            commands.entity(button).observe(
-                |_: On<Pointer<Click>>, vm: Res<VmHandle>| {
+            commands
+                .entity(button)
+                .observe(|_: On<Pointer<Click>>, vm: Res<VmHandle>| {
                     vm.0.update(|m: &mut Vm| {
                         let n = m.lines.len() + 1;
                         m.lines.push(format!("You clicked the button! ({n})"));
                     });
-                },
-            );
+                });
         }
         // MergedResources: dictionary #3 creation + BodyBrush=Green add.
         if nav.source == "MergedResources.xaml"
-            && let (Some(new_d), Some(add_d), Some(status)) =
-                (ui.by_name("NewD"), ui.by_name("Add2NewD"), ui.by_name("RdStatus"))
+            && let (Some(new_d), Some(add_d), Some(status)) = (
+                ui.by_name("NewD"),
+                ui.by_name("Add2NewD"),
+                ui.by_name("RdStatus"),
+            )
         {
-            commands.entity(new_d).observe(
-                move |_: On<Pointer<Click>>, mut commands: Commands| {
+            commands
+                .entity(new_d)
+                .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
                     commands.queue(move |world: &mut World| {
                         bevy_pf::instantiate::set_text(
                             world,
@@ -1111,10 +1146,10 @@ fn wire_pages(
                             "dictionary #3 ready (empty)".into(),
                         );
                     });
-                },
-            );
-            commands.entity(add_d).observe(
-                move |_: On<Pointer<Click>>, mut commands: Commands| {
+                });
+            commands
+                .entity(add_d)
+                .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
                     commands.queue(move |world: &mut World| {
                         let mut entries = bevy_pf::resources::ResourceDictionary::new();
                         entries.insert(
@@ -1129,18 +1164,20 @@ fn wire_pages(
                         bevy_pf::instantiate::set_text(
                             world,
                             status,
-                            "BodyBrush=Green added; DynamicResource re-resolved the Background".into(),
+                            "BodyBrush=Green added; DynamicResource re-resolved the Background"
+                                .into(),
                         );
                     });
-                },
-            );
+                });
         }
         // HeightProperties: ClipToBounds buttons (the lists have a system).
         if nav.source == "HeightProperties.xaml"
             && let Some(canvas) = ui.by_name("myCanvas")
         {
             for (name, clip) in [("ClipBtn", true), ("UnclipBtn", false)] {
-                let Some(button) = ui.by_name(name) else { continue };
+                let Some(button) = ui.by_name(name) else {
+                    continue;
+                };
                 commands.entity(button).observe(
                     move |_: On<Pointer<Click>>, mut nodes: Query<&mut Node>| {
                         if let Ok(mut node) = nodes.get_mut(canvas) {
@@ -1165,10 +1202,20 @@ fn wire_pages(
         {
             for (button, state, note) in [
                 ("btn1", "Visible", "Visibility is now Visible."),
-                ("btn2", "Hidden", "Visibility is now Hidden. It occupies layout space."),
-                ("btn3", "Collapsed", "Visibility is now Collapsed. It occupies no layout space."),
+                (
+                    "btn2",
+                    "Hidden",
+                    "Visibility is now Hidden. It occupies layout space.",
+                ),
+                (
+                    "btn3",
+                    "Collapsed",
+                    "Visibility is now Collapsed. It occupies no layout space.",
+                ),
             ] {
-                let Some(button) = ui.by_name(button) else { continue };
+                let Some(button) = ui.by_name(button) else {
+                    continue;
+                };
                 commands.entity(button).observe(
                     move |_: On<Pointer<Click>>, mut commands: Commands| {
                         commands.queue(move |world: &mut World| {
@@ -1188,16 +1235,16 @@ fn wire_pages(
         if nav.source == "DirectionalBinding.xaml"
             && let Some(button) = ui.by_name("RaiseRent")
         {
-            commands.entity(button).observe(
-                |_: On<Pointer<Click>>, vm: Res<VmHandle>| {
+            commands
+                .entity(button)
+                .observe(|_: On<Pointer<Click>>, vm: Res<VmHandle>| {
                     vm.0.update(|m: &mut Vm| {
                         m.rent = (m.rent * 1.05).round();
                         let food: f64 = m.food.trim().parse().unwrap_or(0.0);
                         let misc: f64 = m.misc.trim().parse().unwrap_or(0.0);
                         m.savings = m.total_income - m.rent - food - misc;
                     });
-                },
-            );
+                });
         }
     }
 }
@@ -1269,58 +1316,88 @@ fn wire_calculator(ui: &PfQuery, commands: &mut Commands) {
     });
 
     let digits = [
-        ("B0", '0'), ("B1", '1'), ("B2", '2'), ("B3", '3'), ("B4", '4'),
-        ("B5", '5'), ("B6", '6'), ("B7", '7'), ("B8", '8'), ("B9", '9'),
+        ("B0", '0'),
+        ("B1", '1'),
+        ("B2", '2'),
+        ("B3", '3'),
+        ("B4", '4'),
+        ("B5", '5'),
+        ("B6", '6'),
+        ("B7", '7'),
+        ("B8", '8'),
+        ("B9", '9'),
         ("BPeriod", '.'),
     ];
     for (name, digit) in digits {
-        let Some(button) = ui.by_name(name) else { continue };
-        commands.entity(button).observe(
-            move |_: On<Pointer<Click>>, mut commands: Commands| {
+        let Some(button) = ui.by_name(name) else {
+            continue;
+        };
+        commands
+            .entity(button)
+            .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
                 commands.queue(move |world: &mut World| {
                     let calc = &mut *world.resource_mut::<Calc>();
                     if calc.fresh {
-                        calc.display = if digit == '.' { "0.".into() } else { digit.to_string() };
+                        calc.display = if digit == '.' {
+                            "0.".into()
+                        } else {
+                            digit.to_string()
+                        };
                         calc.fresh = false;
                     } else if digit != '.' || !calc.display.contains('.') {
                         calc.display.push(digit);
                     }
                     calc_render(world, display, paper, mem_box);
                 });
-            },
-        );
+            });
     }
 
     let opers = [
-        ("BPlus", "+"), ("BMinus", "-"), ("BMultiply", "*"), ("BDevide", "/"),
-        ("BPercent", "%"), ("BEqual", "="), ("BPM", "±"), ("BSqrt", "sqrt"),
-        ("BOneOver", "1/x"), ("BC", "C"), ("BCE", "CE"),
-        ("BMemClear", "MC"), ("BMemRecall", "MR"), ("BMemSave", "MS"), ("BMemPlus", "M+"),
+        ("BPlus", "+"),
+        ("BMinus", "-"),
+        ("BMultiply", "*"),
+        ("BDevide", "/"),
+        ("BPercent", "%"),
+        ("BEqual", "="),
+        ("BPM", "±"),
+        ("BSqrt", "sqrt"),
+        ("BOneOver", "1/x"),
+        ("BC", "C"),
+        ("BCE", "CE"),
+        ("BMemClear", "MC"),
+        ("BMemRecall", "MR"),
+        ("BMemSave", "MS"),
+        ("BMemPlus", "M+"),
     ];
     for (name, op) in opers {
-        let Some(button) = ui.by_name(name) else { continue };
-        commands.entity(button).observe(
-            move |_: On<Pointer<Click>>, mut commands: Commands| {
+        let Some(button) = ui.by_name(name) else {
+            continue;
+        };
+        commands
+            .entity(button)
+            .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
                 commands.queue(move |world: &mut World| {
                     calc_operate(world, op);
                     calc_render(world, display, paper, mem_box);
                 });
-            },
-        );
+            });
     }
 
     // Menu: Exit (native only), Standard view toggle, About dialog.
     if let Some(exit) = ui.by_name("CalcExit") {
-        commands.entity(exit).observe(
-            |_: On<Pointer<Click>>, mut commands: Commands| {
+        commands
+            .entity(exit)
+            .observe(|_: On<Pointer<Click>>, mut commands: Commands| {
                 commands.queue(|world: &mut World| {
                     #[cfg(not(target_arch = "wasm32"))]
                     world.write_message(bevy::app::AppExit::Success);
                     #[cfg(target_arch = "wasm32")]
-                    bevy_pf::toast::show(world, "Exit closes the native window; on the web, just close the tab.");
+                    bevy_pf::toast::show(
+                        world,
+                        "Exit closes the native window; on the web, just close the tab.",
+                    );
                 });
-            },
-        );
+            });
     }
     if let (Some(standard), Some(tape)) = (ui.by_name("StandardMenu"), ui.by_name("PaperBox")) {
         commands.entity(standard).observe(
@@ -1335,8 +1412,9 @@ fn wire_calculator(ui: &PfQuery, commands: &mut Commands) {
         );
     }
     if let Some(about) = ui.by_name("CalcAbout") {
-        commands.entity(about).observe(
-            |_: On<Pointer<Click>>, mut commands: Commands| {
+        commands
+            .entity(about)
+            .observe(|_: On<Pointer<Click>>, mut commands: Commands| {
                 commands.queue(|world: &mut World| {
                     bevy_pf::dialog::show_message(
                         world,
@@ -1347,8 +1425,7 @@ fn wire_calculator(ui: &PfQuery, commands: &mut Commands) {
                         &["OK"],
                     );
                 });
-            },
-        );
+            });
     }
 }
 
@@ -1358,7 +1435,12 @@ fn calc_operate(world: &mut World, op: &str) {
     match op {
         "C" => {
             let memory = calc.memory;
-            *calc = Calc { display: "0".into(), fresh: true, memory, ..Default::default() };
+            *calc = Calc {
+                display: "0".into(),
+                fresh: true,
+                memory,
+                ..Default::default()
+            };
         }
         "CE" => {
             calc.display = "0".into();
@@ -1372,13 +1454,18 @@ fn calc_operate(world: &mut World, op: &str) {
             }
         }
         "sqrt" => {
-            calc.tape.push(format!("sqrt({}) = {}", fmt_num(entry), fmt_num(entry.sqrt())));
+            calc.tape.push(format!(
+                "sqrt({}) = {}",
+                fmt_num(entry),
+                fmt_num(entry.sqrt())
+            ));
             calc.display = fmt_num(entry.sqrt());
             calc.fresh = true;
         }
         "1/x" => {
             let r = if entry == 0.0 { f64::NAN } else { 1.0 / entry };
-            calc.tape.push(format!("1/{} = {}", fmt_num(entry), fmt_num(r)));
+            calc.tape
+                .push(format!("1/{} = {}", fmt_num(entry), fmt_num(r)));
             calc.display = fmt_num(r);
             calc.fresh = true;
         }
@@ -1398,7 +1485,11 @@ fn calc_operate(world: &mut World, op: &str) {
                 Some('-') => calc.acc - entry,
                 Some('*') => calc.acc * entry,
                 Some('/') => {
-                    if entry == 0.0 { f64::NAN } else { calc.acc / entry }
+                    if entry == 0.0 {
+                        f64::NAN
+                    } else {
+                        calc.acc / entry
+                    }
                 }
                 Some('%') => calc.acc * entry / 100.0,
                 _ => entry,
@@ -1406,7 +1497,10 @@ fn calc_operate(world: &mut World, op: &str) {
             if let Some(prev) = calc.pending {
                 calc.tape.push(format!(
                     "{} {} {} = {}",
-                    fmt_num(calc.acc), prev, fmt_num(entry), fmt_num(result)
+                    fmt_num(calc.acc),
+                    prev,
+                    fmt_num(entry),
+                    fmt_num(result)
                 ));
             }
             calc.acc = result;
@@ -1468,7 +1562,9 @@ fn sync_height_lists(
             "MaxHeightList" => 2,
             _ => continue,
         };
-        let Some(selected) = list.selected else { continue };
+        let Some(selected) = list.selected else {
+            continue;
+        };
         // The item's label text is the pixel value.
         let mut value = None;
         let mut stack: Vec<Entity> = vec![selected];

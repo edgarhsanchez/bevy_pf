@@ -32,10 +32,26 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     let vm = Bindable::new(Vm {
         files: vec![
-            FileRow { name: "main.rs".into(), size: 1240, kind: "Rust".into() },
-            FileRow { name: "app.xaml".into(), size: 862, kind: "XAML".into() },
-            FileRow { name: "theme.xaml".into(), size: 311, kind: "XAML".into() },
-            FileRow { name: "README.md".into(), size: 5720, kind: "Markdown".into() },
+            FileRow {
+                name: "main.rs".into(),
+                size: 1240,
+                kind: "Rust".into(),
+            },
+            FileRow {
+                name: "app.xaml".into(),
+                size: 862,
+                kind: "XAML".into(),
+            },
+            FileRow {
+                name: "theme.xaml".into(),
+                size: 311,
+                kind: "XAML".into(),
+            },
+            FileRow {
+                name: "README.md".into(),
+                size: 5720,
+                kind: "Markdown".into(),
+            },
         ],
     });
 

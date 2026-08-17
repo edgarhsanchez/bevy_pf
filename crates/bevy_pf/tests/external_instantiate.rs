@@ -33,9 +33,7 @@ fn collect_xaml(root: &std::path::Path, out: &mut Vec<PathBuf>) {
 /// missing properties/elements/resource types.
 fn bucket(warning: &str) -> String {
     match warning.split_once(": ") {
-        Some((prefix, rest))
-            if prefix.chars().all(|c| c.is_ascii_digit() || c == ':') =>
-        {
+        Some((prefix, rest)) if prefix.chars().all(|c| c.is_ascii_digit() || c == ':') => {
             rest.to_string()
         }
         _ => warning.to_string(),
@@ -104,8 +102,7 @@ fn instantiate_external_corpora() {
         }
     }
 
-    let mut ranked: Vec<(usize, String)> =
-        histogram.into_iter().map(|(k, v)| (v, k)).collect();
+    let mut ranked: Vec<(usize, String)> = histogram.into_iter().map(|(k, v)| (v, k)).collect();
     ranked.sort_by_key(|entry| std::cmp::Reverse(entry.0));
 
     eprintln!("\n=== external instantiation sweep ===");
@@ -162,12 +159,16 @@ fn registered_custom_element_builds_from_markup() {
     .expect("parses");
     let world = app.world_mut();
     let root = world.spawn_empty().id();
-    let result =
-        bevy_pf::instantiate_document_env(world, root, &doc, &bevy_pf::XamlEnv::default())
-            .expect("instantiates");
+    let result = bevy_pf::instantiate_document_env(world, root, &doc, &bevy_pf::XamlEnv::default())
+        .expect("instantiates");
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
 
-    let gauge = app.world().get::<bevy_pf::XamlNames>(root).unwrap().get("G").unwrap();
+    let gauge = app
+        .world()
+        .get::<bevy_pf::XamlNames>(root)
+        .unwrap()
+        .get("G")
+        .unwrap();
     // The builder ran with the custom attribute...
     assert_eq!(app.world().get::<Gauge>(gauge).unwrap().level, 7.0);
     // ...and the framework handled the common surface: layout, paint,

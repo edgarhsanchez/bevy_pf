@@ -162,8 +162,7 @@ mod tests {
         assert_eq!(u.path, "Themes/Styles.xaml");
         assert!(u.root_relative);
 
-        let u =
-            PfUri::parse("pack://application:,,,/MyLib;component/A/B.xaml").unwrap();
+        let u = PfUri::parse("pack://application:,,,/MyLib;component/A/B.xaml").unwrap();
         assert_eq!(u.assembly.as_deref(), Some("MyLib"));
         assert_eq!(u.path, "A/B.xaml");
     }

@@ -101,7 +101,9 @@ pub fn show_with(world: &mut World, message: &str, severity: Severity, secs: f32
                 ..Default::default()
             },
             BackgroundColor(bg),
-            PfToast { expires_at: now + secs.max(0.5) },
+            PfToast {
+                expires_at: now + secs.max(0.5),
+            },
         ))
         .id();
     world.entity_mut(toast).add_children(&[label]);

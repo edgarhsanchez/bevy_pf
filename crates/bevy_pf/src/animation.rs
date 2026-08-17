@@ -1063,12 +1063,39 @@ pub(crate) fn drive_visual_states(world: &mut World) {
         let interaction = world.get::<Interaction>(control).copied();
         let checked = world.get::<bevy::ui::Checked>(control).is_some();
 
+        // WPF spells the hover state `MouseOver`; MAUI spells it
+        // `PointerOver`. Both dialects call the group `CommonStates`, so this
+        // is the one place the two genuinely collide — everywhere else they
+        // are told apart structurally.
+        //
+        // Neither spelling is privileged. The state is resolved against the
+        // names the author actually DECLARED on this control, so a MAUI
+        // author gets PointerOver, a WPF author gets MouseOver, and neither
+        // has to know the other exists. Hardcoding one silently no-ops the
+        // other: the state parses, is stored, and is then never entered.
+        let declares = |name: &str| {
+            world.get::<PfVisualStates>(control).is_some_and(|vs| {
+                vs.groups
+                    .iter()
+                    .any(|g| g.states.iter().any(|s| s.name == name))
+            })
+        };
+        let hover_state = if declares("PointerOver") {
+            if declares("MouseOver") {
+                warn!(
+                    "CommonStates declares both MouseOver and PointerOver;                      entering PointerOver and leaving MouseOver unreachable"
+                );
+            }
+            "PointerOver"
+        } else {
+            "MouseOver"
+        };
         let common = if disabled {
             "Disabled"
         } else {
             match interaction {
                 Some(Interaction::Pressed) => "Pressed",
-                Some(Interaction::Hovered) => "MouseOver",
+                Some(Interaction::Hovered) => hover_state,
                 _ => "Normal",
             }
         };

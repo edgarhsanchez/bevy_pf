@@ -51,8 +51,8 @@ pub mod navigation;
 pub mod overlay;
 pub mod perf;
 pub mod plugin;
-pub mod query;
 pub mod provider;
+pub mod query;
 pub mod resources;
 pub mod selector;
 pub mod shapes;
@@ -70,46 +70,48 @@ pub use bevy_pf_macros::{Bindable, include_xaml, xaml};
 pub use bevy_pf_xaml as xaml_ast;
 
 pub use app_theme::{AppTheme, PfAppTheme, PfAppThemeRefs, app_theme, set_user_app_theme};
-pub use device::{DeviceIdiom, DevicePlatform, PfDevice};
 pub use asset::{XamlAsset, XamlView};
-pub use binding::{Bindable, BoundValue, DataContext, DataContextScope, PfBindings, SelectionMatch};
+pub use binding::{
+    Bindable, BoundValue, DataContext, DataContextScope, PfBindings, SelectionMatch,
+};
 pub use components::{ButtonVisual, PfAttachedProps, PfElementKind, PfName, XamlNames};
+pub use device::{DeviceIdiom, DevicePlatform, PfDevice};
 pub use dynamic::{
     PfApplicationResources, PfDynamicResources, PfResources, merge_application_resources,
     set_application_resources_dict,
 };
 pub use error::PfError;
 pub use events::{PfEventAppExt, PfEventHandlers, PfPointerInfo};
+pub use hit_test::{PfHitFilter, PfHitTest, PfHitTestVisible};
 pub use instantiate::{
     InstantiateResult, XamlEnv, instantiate_document, instantiate_document_env,
     set_application_resources,
 };
-pub use plugin::{PfCommandsExt, PfUiPlugin};
-pub use hit_test::{PfHitFilter, PfHitTest, PfHitTestVisible};
 pub use items::PfItemsSource;
 pub use overlay::{PfPlacement, PfPopup, PfToolTip};
+pub use plugin::{PfCommandsExt, PfUiPlugin};
 pub use provider::{PfPropertyStore, PropertyTarget, ValueSource};
 pub use triggers::PfTriggers;
 
 pub mod prelude {
     pub use crate::app_theme::{AppTheme, PfAppTheme, set_user_app_theme};
-    pub use crate::device::{DeviceIdiom, DevicePlatform, PfDevice};
     pub use crate::asset::{XamlAsset, XamlView};
-    pub use bevy_pf_macros::Bindable;
     pub use crate::behaviors::{clear_focus, find_editable_in, focus_control};
     pub use crate::binding::{
         Bindable, DataContext, DataContextScope, PfConverterAppExt, PfMultiValueConverter,
         PfValueConverter,
     };
-    pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
-    pub use crate::events::{PfEventAppExt, PfPointerInfo};
-    pub use crate::instantiate::PfElementAppExt;
-    pub use crate::navigation::{PfNavigationAppExt, PfNavigated};
-    pub use crate::hit_test::{PfHitFilter, PfHitTest, PfHitTestVisible};
-    pub use crate::query::PfQuery;
     pub use crate::components::PfControlTheme;
+    pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
+    pub use crate::device::{DeviceIdiom, DevicePlatform, PfDevice};
+    pub use crate::events::{PfEventAppExt, PfPointerInfo};
+    pub use crate::hit_test::{PfHitFilter, PfHitTest, PfHitTestVisible};
+    pub use crate::instantiate::PfElementAppExt;
+    pub use crate::navigation::{PfNavigated, PfNavigationAppExt};
     pub use crate::plugin::{PfCommandsExt, PfFocusRingColor, PfUiPlugin};
+    pub use crate::query::PfQuery;
     pub use crate::{XamlScene, include_xaml, xaml};
+    pub use bevy_pf_macros::Bindable;
 }
 
 /// A validated XAML scene, ready to be spawned into a Bevy world.

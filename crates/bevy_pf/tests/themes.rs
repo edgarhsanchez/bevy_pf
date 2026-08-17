@@ -54,7 +54,12 @@ fn themed_button_recolors_when_theme_changes() {
     let result = instantiate_document_env(world, root, &doc, &XamlEnv::default()).unwrap();
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
 
-    let button = app.world().get::<XamlNames>(root).unwrap().get("B").unwrap();
+    let button = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("B")
+        .unwrap();
     // Nord control face: nord2 #434C5E.
     assert_eq!(
         app.world().get::<BackgroundColor>(button).unwrap().0,

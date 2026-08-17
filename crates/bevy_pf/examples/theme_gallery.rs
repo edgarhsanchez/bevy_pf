@@ -114,11 +114,26 @@ fn setup(mut commands: Commands) {
     });
     let vm = Bindable::new(Vm {
         rows: vec![
-            Row { name: "fluent-light".into(), kind: "light".into() },
-            Row { name: "nord".into(), kind: "dark".into() },
-            Row { name: "dracula".into(), kind: "dark".into() },
-            Row { name: "catppuccin-mocha".into(), kind: "dark".into() },
-            Row { name: "solarized-light".into(), kind: "light".into() },
+            Row {
+                name: "fluent-light".into(),
+                kind: "light".into(),
+            },
+            Row {
+                name: "nord".into(),
+                kind: "dark".into(),
+            },
+            Row {
+                name: "dracula".into(),
+                kind: "dark".into(),
+            },
+            Row {
+                name: "catppuccin-mocha".into(),
+                kind: "dark".into(),
+            },
+            Row {
+                name: "solarized-light".into(),
+                kind: "light".into(),
+            },
         ],
     });
     let scene = XamlScene::parse(scene()).expect("gallery scene is valid XAML");

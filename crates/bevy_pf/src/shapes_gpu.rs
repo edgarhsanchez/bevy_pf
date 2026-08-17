@@ -32,9 +32,7 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, RenderTarget};
 use bevy::image::{TextureAtlas, TextureAtlasLayout};
 use bevy::prelude::*;
-use bevy::render::render_resource::{
-    Extent3d, TextureDimension, TextureFormat, TextureUsages,
-};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::ui::ComputedNode;
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy_pf_vector::{
@@ -224,9 +222,8 @@ fn setup_atlas(
         TextureFormat::Rgba8UnormSrgb,
         bevy::asset::RenderAssetUsages::RENDER_WORLD,
     );
-    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
-        | TextureUsages::COPY_DST
-        | TextureUsages::RENDER_ATTACHMENT;
+    image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
     let image = images.add(image);
     let layout = layouts.add(TextureAtlasLayout::new_empty(UVec2::splat(ATLAS_SIZE)));
 
@@ -260,7 +257,7 @@ fn setup_atlas(
         layout,
         cursor: UVec2::ZERO,
         shelf_height: 0,
-            free: Default::default(),
+        free: Default::default(),
     });
 }
 
@@ -297,7 +294,11 @@ fn to_brush(brush: &v::PfBrush, size: Vec2) -> Brush {
     match brush {
         v::PfBrush::Solid(c) => Brush::Solid(to_color(*c)),
         // WPF gradient coordinates are fractions of the shape's box.
-        v::PfBrush::LinearGradient { start, end, stops: s } => Brush::Linear {
+        v::PfBrush::LinearGradient {
+            start,
+            end,
+            stops: s,
+        } => Brush::Linear {
             start: to_local(start.x * size.x, start.y * size.y, size),
             end: to_local(end.x * size.x, end.y * size.y, size),
             stops: stops(s),
@@ -461,7 +462,11 @@ pub fn shape_to_vector(shape: &PfShape, px: UVec2) -> Option<(Vec<PathCommand>, 
     let size = Vec2::new(px.x as f32, px.y as f32);
     let (w, h) = (size.x, size.y);
     let st = shape.stroke_thickness;
-    let inset = if shape.stroke.is_some() { st * 0.5 } else { 0.0 };
+    let inset = if shape.stroke.is_some() {
+        st * 0.5
+    } else {
+        0.0
+    };
 
     let (mut commands, rule) = match &shape.geometry {
         ShapeGeometry::Rectangle { radius_x, radius_y } => {
@@ -648,7 +653,10 @@ fn spawn_draws(
     origin: UVec2,
 ) -> (Entity, Option<Entity>) {
     let centre = slot_center_world(origin, px).extend(0.0);
-    let transform = || HudTransform { translation: centre, ..default() };
+    let transform = || HudTransform {
+        translation: centre,
+        ..default()
+    };
 
     if let Some((size, radius)) = as_rounded_box(shape, px) {
         let fill = shape.fill.as_ref().and_then(solid);
@@ -697,10 +705,14 @@ fn spawn_draws(
         }
     }
 
-    let (path, style) = shape_to_vector(shape, px).unwrap_or_else(|| (Vec::new(), PathStyle::fill(LinearRgba::NONE)));
+    let (path, style) = shape_to_vector(shape, px)
+        .unwrap_or_else(|| (Vec::new(), PathStyle::fill(LinearRgba::NONE)));
     let draw = commands
         .spawn((
-            VectorShape { commands: path, style },
+            VectorShape {
+                commands: path,
+                style,
+            },
             transform(),
             RenderLayers::layer(SHAPE_LAYER),
             Name::new("PfShapeDraw"),
@@ -743,7 +755,12 @@ fn sync_gpu_shapes(
         };
         let previous_draw: Vec<Entity> = gpu
             .as_ref()
-            .map(|g| [Some(g.draw), g.draw_stroke].into_iter().flatten().collect())
+            .map(|g| {
+                [Some(g.draw), g.draw_stroke]
+                    .into_iter()
+                    .flatten()
+                    .collect()
+            })
             .unwrap_or_default();
 
         // Copied before the fast path moves `gpu`: if this shape ends up
@@ -819,7 +836,9 @@ fn sync_gpu_shapes(
                 draw,
                 draw_stroke,
             },
-            PfShapeClaim { backend: "vector_gpu" },
+            PfShapeClaim {
+                backend: "vector_gpu",
+            },
         ));
         // The CPU backend's cache marker is meaningless once this backend owns
         // the node; drop it so the two never fight over the `ImageNode`.

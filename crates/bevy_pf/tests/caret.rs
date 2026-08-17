@@ -30,7 +30,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
     let root = world.spawn_empty().id();
     let result =
         instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
-    assert!(result.warnings.is_empty(), "warnings: {:?}", result.warnings);
+    assert!(
+        result.warnings.is_empty(),
+        "warnings: {:?}",
+        result.warnings
+    );
     root
 }
 

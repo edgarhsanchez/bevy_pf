@@ -33,7 +33,22 @@ pub enum ResolvedCondition {
     /// rather than being decided once at instantiation.
     HasClass(String),
     /// DataTrigger: `DataContext` path compared (string form) to a value.
-    Data { path: String, expected: String },
+    Data {
+        path: String,
+        expected: String,
+    },
+    /// MAUI `<VisualState.Setters>`: true while `group` sits in `state`.
+    ///
+    /// The state itself is decided by `animation::drive_visual_states` (or an
+    /// explicit `GoToState`), so this condition only READS the current state
+    /// rather than recomputing hover/press for itself. That keeps one answer
+    /// to "which state am I in" for both dialects: a storyboard state and a
+    /// setter state entered at the same moment agree, because they are the
+    /// same entry.
+    VisualState {
+        group: String,
+        state: String,
+    },
 }
 
 /// A trigger setter value: resolved statically at instantiation, or a
@@ -132,6 +147,13 @@ fn eval_condition(world: &World, entity: Entity, cond: &ResolvedCondition) -> bo
                 });
             focused == *expected
         }
+        ResolvedCondition::VisualState { group, state } => world
+            .get::<crate::animation::PfVisualStates>(entity)
+            .and_then(|vs| {
+                let gi = vs.groups.iter().position(|g| &g.name == group)?;
+                vs.current.get(gi).cloned().flatten()
+            })
+            .is_some_and(|current| &current == state),
         ResolvedCondition::Selected(expected) => {
             // The item's parent is the ListBox itself, or its ItemsPanel.
             let list = world.get::<ChildOf>(entity).map(|p| {
@@ -202,7 +224,11 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
 
         let new_active: Vec<bool> = list
             .iter()
-            .map(|t| t.conditions.iter().all(|c| eval_condition(world, entity, c)))
+            .map(|t| {
+                t.conditions
+                    .iter()
+                    .all(|c| eval_condition(world, entity, c))
+            })
             .collect();
         if new_active == old_active && !refreshed {
             continue;
@@ -261,7 +287,10 @@ pub(crate) fn evaluate_triggers(world: &mut World) {
                     // triggers hang off it, and only its own template children
                     // are reachable as `dest`.
                     TriggerValue::TemplatedParent(src) => {
-                        match world.get::<PfPropertyStore>(entity).and_then(|s| s.effective(*src)) {
+                        match world
+                            .get::<PfPropertyStore>(entity)
+                            .and_then(|s| s.effective(*src))
+                        {
                             // Already a StoredValue: a parent masked to
                             // {x:Null} masks the target too, exactly as it
                             // would if the value were forwarded live.

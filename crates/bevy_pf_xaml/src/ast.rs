@@ -186,7 +186,11 @@ impl XamlPropertyElement {
     pub fn single_element(&self) -> Option<&XamlNode> {
         let mut iter = self.values.iter().filter_map(XamlChild::as_element);
         let first = iter.next()?;
-        if iter.next().is_some() { None } else { Some(first) }
+        if iter.next().is_some() {
+            None
+        } else {
+            Some(first)
+        }
     }
 
     pub fn elements(&self) -> impl Iterator<Item = &XamlNode> {

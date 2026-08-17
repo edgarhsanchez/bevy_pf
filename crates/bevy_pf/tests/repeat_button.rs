@@ -53,13 +53,17 @@ fn repeat_button_fires_after_delay_then_every_interval() {
         .unwrap();
 
     let counter = app.world().resource::<Clicks>().0.clone();
-    app.world_mut().entity_mut(button).observe(
-        move |_: On<Pointer<Click>>| {
+    app.world_mut()
+        .entity_mut(button)
+        .observe(move |_: On<Pointer<Click>>| {
             counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        },
-    );
-    let clicks =
-        |app: &App| app.world().resource::<Clicks>().0.load(std::sync::atomic::Ordering::SeqCst);
+        });
+    let clicks = |app: &App| {
+        app.world()
+            .resource::<Clicks>()
+            .0
+            .load(std::sync::atomic::Ordering::SeqCst)
+    };
 
     // Held, but before the delay elapses: no repeats.
     app.world_mut()
@@ -79,9 +83,7 @@ fn repeat_button_fires_after_delay_then_every_interval() {
     assert_eq!(clicks(&app), 3, "one repeat per interval");
 
     // Release resets; no more fires while idle.
-    app.world_mut()
-        .entity_mut(button)
-        .insert(Interaction::None);
+    app.world_mut().entity_mut(button).insert(Interaction::None);
     advance(&mut app, 200);
     assert_eq!(clicks(&app), 3, "release stops repeats");
 

@@ -39,7 +39,9 @@ fn run<T: 'static, S, M>(app: &mut App, system: S) -> T
 where
     S: IntoSystem<(), T, M>,
 {
-    app.world_mut().run_system_once(system).expect("system runs")
+    app.world_mut()
+        .run_system_once(system)
+        .expect("system runs")
 }
 
 use bevy::ecs::system::RunSystemOnce;
@@ -72,10 +74,7 @@ fn ids_become_queryable_components() {
     // ...and through raw component queries, no framework API needed.
     assert_eq!(app.world().get::<PfName>(go).unwrap().0, "Go");
     assert_eq!(app.world().get::<PfUid>(title).unwrap().0, "title.uid");
-    assert_eq!(
-        app.world().get::<PfAutomationId>(go).unwrap().0,
-        "GoButton"
-    );
+    assert_eq!(app.world().get::<PfAutomationId>(go).unwrap().0, "GoButton");
 
     // Kind query sees both buttons; scope_root walks back to the scene root.
     let (buttons, scope) = run(&mut app, move |ui: PfQuery| {
@@ -125,7 +124,12 @@ fn systems_can_rewrite_found_elements() {
         go,
         bevy_pf::PropertyTarget::Background,
         bevy_pf::resources::PfValue::Brush(bevy_pf::xaml_ast::value::PfBrush::Solid(
-            bevy_pf::xaml_ast::value::PfColor { r: 255, g: 0, b: 0, a: 255 },
+            bevy_pf::xaml_ast::value::PfColor {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
         )),
     );
     assert_eq!(

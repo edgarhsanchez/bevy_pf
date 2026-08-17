@@ -208,7 +208,11 @@ mod tests {
                 other => ThemeArm::Value(Some(crate::resources::PfValue::String(other.into()))),
             })
         };
-        ThemeArms { light: arm(light), dark: arm(dark), default: arm(default) }
+        ThemeArms {
+            light: arm(light),
+            dark: arm(dark),
+            default: arm(default),
+        }
     }
 
     fn picked(arms: &ThemeArms, theme: AppTheme) -> Option<Option<String>> {
@@ -234,9 +238,15 @@ mod tests {
     #[test]
     fn a_missing_arm_falls_back_to_default_and_never_to_the_other_theme() {
         let no_dark = arms(Some("day"), None, Some("fallback"));
-        assert_eq!(picked(&no_dark, AppTheme::Dark), Some(Some("fallback".into())));
+        assert_eq!(
+            picked(&no_dark, AppTheme::Dark),
+            Some(Some("fallback".into()))
+        );
         let no_light = arms(None, Some("night"), Some("fallback"));
-        assert_eq!(picked(&no_light, AppTheme::Light), Some(Some("fallback".into())));
+        assert_eq!(
+            picked(&no_light, AppTheme::Light),
+            Some(Some("fallback".into()))
+        );
 
         // With no Default there is nothing to fall back TO: the result is
         // "no arm", which the caller writes as a null (masking lower tiers),
@@ -265,7 +275,11 @@ mod tests {
         assert_eq!((theme.requested(), theme.generation()), (AppTheme::Dark, 1));
 
         theme.set_user(AppTheme::Dark);
-        assert_eq!(theme.generation(), 1, "setting the same theme must not fire");
+        assert_eq!(
+            theme.generation(),
+            1,
+            "setting the same theme must not fire"
+        );
 
         // The OS says Light while the user insists on Dark: nothing changes.
         theme.set_platform(AppTheme::Light);
@@ -273,6 +287,9 @@ mod tests {
 
         // Handing control back to the OS reveals the platform theme.
         theme.set_user(AppTheme::Unspecified);
-        assert_eq!((theme.requested(), theme.generation()), (AppTheme::Light, 2));
+        assert_eq!(
+            (theme.requested(), theme.generation()),
+            (AppTheme::Light, 2)
+        );
     }
 }

@@ -239,9 +239,8 @@ impl FromStr for PfColor {
 
 fn parse_hex_color(orig: &str, hex: &str) -> XamlResult<PfColor> {
     let bad = || XamlError::convert(orig, "Color", "invalid hex color");
-    let nib = |c: u8| -> XamlResult<u8> {
-        (c as char).to_digit(16).map(|d| d as u8).ok_or_else(bad)
-    };
+    let nib =
+        |c: u8| -> XamlResult<u8> { (c as char).to_digit(16).map(|d| d as u8).ok_or_else(bad) };
     let b = hex.as_bytes();
     match b.len() {
         3 => {
@@ -712,9 +711,7 @@ fn parse_timespan(t: &str) -> Option<std::time::Duration> {
     let (days, rest) = match t.split_once('.') {
         // "1.02:03:04" — but "0:0:0.5" also contains '.': only treat the
         // prefix as days if it comes before the first ':'.
-        Some((d, rest)) if !d.contains(':') && rest.contains(':') => {
-            (d.parse::<u64>().ok()?, rest)
-        }
+        Some((d, rest)) if !d.contains(':') && rest.contains(':') => (d.parse::<u64>().ok()?, rest),
         _ => (0, t),
     };
     let parts: Vec<&str> = rest.split(':').collect();
@@ -727,8 +724,7 @@ fn parse_timespan(t: &str) -> Option<std::time::Duration> {
     if secs_f < 0.0 {
         return None;
     }
-    let total =
-        (days * 86_400 + h * 3_600 + m * 60) as f64 + secs_f;
+    let total = (days * 86_400 + h * 3_600 + m * 60) as f64 + secs_f;
     Some(std::time::Duration::from_secs_f64(total))
 }
 
@@ -828,23 +824,98 @@ macro_rules! xaml_enum {
     };
 }
 
-xaml_enum!(PenLineCap { Flat, Square, Round, Triangle });
-xaml_enum!(PenLineJoin { Miter, Bevel, Round });
-xaml_enum!(HorizontalAlignment { Left, Center, Right, Stretch });
-xaml_enum!(VerticalAlignment { Top, Center, Bottom, Stretch });
-xaml_enum!(Orientation { Horizontal, Vertical });
-xaml_enum!(Visibility { Visible, Hidden, Collapsed });
-xaml_enum!(TextAlignment { Left, Center, Right, Justify });
-xaml_enum!(TextWrapping { NoWrap, Wrap, WrapWithOverflow });
-xaml_enum!(TextTrimming { None, CharacterEllipsis, WordEllipsis });
-xaml_enum!(Stretch { None, Fill, Uniform, UniformToFill });
-xaml_enum!(Dock { Left, Top, Right, Bottom });
-xaml_enum!(ScrollBarVisibility { Disabled, Auto, Hidden, Visible });
-xaml_enum!(FlowDirection { LeftToRight, RightToLeft });
-xaml_enum!(FontStyleKind { Normal, Italic, Oblique });
-xaml_enum!(BindingMode { OneWay, TwoWay, OneTime, OneWayToSource, Default });
-xaml_enum!(ClickMode { Release, Press, Hover });
-xaml_enum!(SelectionMode { Single, Multiple, Extended });
+xaml_enum!(PenLineCap {
+    Flat,
+    Square,
+    Round,
+    Triangle
+});
+xaml_enum!(PenLineJoin {
+    Miter,
+    Bevel,
+    Round
+});
+xaml_enum!(HorizontalAlignment {
+    Left,
+    Center,
+    Right,
+    Stretch
+});
+xaml_enum!(VerticalAlignment {
+    Top,
+    Center,
+    Bottom,
+    Stretch
+});
+xaml_enum!(Orientation {
+    Horizontal,
+    Vertical
+});
+xaml_enum!(Visibility {
+    Visible,
+    Hidden,
+    Collapsed
+});
+xaml_enum!(TextAlignment {
+    Left,
+    Center,
+    Right,
+    Justify
+});
+xaml_enum!(TextWrapping {
+    NoWrap,
+    Wrap,
+    WrapWithOverflow
+});
+xaml_enum!(TextTrimming {
+    None,
+    CharacterEllipsis,
+    WordEllipsis
+});
+xaml_enum!(Stretch {
+    None,
+    Fill,
+    Uniform,
+    UniformToFill
+});
+xaml_enum!(Dock {
+    Left,
+    Top,
+    Right,
+    Bottom
+});
+xaml_enum!(ScrollBarVisibility {
+    Disabled,
+    Auto,
+    Hidden,
+    Visible
+});
+xaml_enum!(FlowDirection {
+    LeftToRight,
+    RightToLeft
+});
+xaml_enum!(FontStyleKind {
+    Normal,
+    Italic,
+    Oblique
+});
+xaml_enum!(BindingMode {
+    OneWay,
+    TwoWay,
+    OneTime,
+    OneWayToSource,
+    Default
+});
+xaml_enum!(ClickMode {
+    Release,
+    Press,
+    Hover
+});
+xaml_enum!(SelectionMode {
+    Single,
+    Multiple,
+    Extended
+});
 
 // The enum comes out of `xaml_enum!`, which cannot attach `#[default]` to a
 // variant, so the derive suggestion does not apply.
@@ -1007,7 +1078,10 @@ mod tests {
                 86_400 + 2 * 3_600 + 3 * 60 + 4
             ))
         );
-        assert_eq!("Forever".parse::<PfDuration>().unwrap(), PfDuration::Forever);
+        assert_eq!(
+            "Forever".parse::<PfDuration>().unwrap(),
+            PfDuration::Forever
+        );
         assert_eq!(
             "Automatic".parse::<PfDuration>().unwrap(),
             PfDuration::Automatic
@@ -1026,18 +1100,30 @@ mod tests {
     #[test]
     fn unit_suffixes_parse() {
         // LengthConverter.cs:187-212 — px/in/cm/pt, case-insensitive.
-        assert_eq!("96px".parse::<Thickness>().unwrap(), Thickness::uniform(96.0));
-        assert_eq!("1in".parse::<Thickness>().unwrap(), Thickness::uniform(96.0));
+        assert_eq!(
+            "96px".parse::<Thickness>().unwrap(),
+            Thickness::uniform(96.0)
+        );
+        assert_eq!(
+            "1in".parse::<Thickness>().unwrap(),
+            Thickness::uniform(96.0)
+        );
         assert_eq!(
             "2.54cm".parse::<Thickness>().unwrap(),
             Thickness::uniform(96.0)
         );
-        assert_eq!("72PT".parse::<Thickness>().unwrap(), Thickness::uniform(96.0));
+        assert_eq!(
+            "72PT".parse::<Thickness>().unwrap(),
+            Thickness::uniform(96.0)
+        );
         assert_eq!(
             "1in,2,3,4".parse::<Thickness>().unwrap(),
             Thickness::new(96.0, 2.0, 3.0, 4.0)
         );
-        assert_eq!("1in".parse::<GridLength>().unwrap(), GridLength::Pixel(96.0));
+        assert_eq!(
+            "1in".parse::<GridLength>().unwrap(),
+            GridLength::Pixel(96.0)
+        );
         // Bare unit: LengthConverter quirk -> 0.0 for lengths...
         assert_eq!("px".parse::<Thickness>().unwrap(), Thickness::uniform(0.0));
         // ...but an error for GridLength.
@@ -1098,7 +1184,10 @@ mod tests {
             "horizontal".parse::<Orientation>().unwrap(),
             Orientation::Horizontal
         );
-        assert_eq!("TwoWay".parse::<BindingMode>().unwrap(), BindingMode::TwoWay);
+        assert_eq!(
+            "TwoWay".parse::<BindingMode>().unwrap(),
+            BindingMode::TwoWay
+        );
         assert!("Diagonal".parse::<Orientation>().is_err());
     }
 }

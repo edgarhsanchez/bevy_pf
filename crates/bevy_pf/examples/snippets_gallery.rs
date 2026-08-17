@@ -42,11 +42,13 @@ const RECIPES: &[Recipe] = &[
   <Button Content="Click me" Command="bump" Width="140"/>
   <TextBlock Text="{Binding count, StringFormat='{}clicked {0} times'}"/>
 </StackPanel>"##,
-        rust: Some(r##"let vm = Bindable::new(Vm::default());
+        rust: Some(
+            r##"let vm = Bindable::new(Vm::default());
 vm.on_command("bump", {
     let vm = vm.clone();
     move |_world, _param| { vm.update(|m: &mut Vm| m.count += 1.0); }
-});"##),
+});"##,
+        ),
     },
     Recipe {
         title: "RepeatButton",
@@ -133,11 +135,13 @@ vm.on_command("bump", {
     </Style>
   </ListBox.ItemContainerStyle>
 </ListBox>"##,
-        rust: Some(r##"let vm = Bindable::new(Vm {
+        rust: Some(
+            r##"let vm = Bindable::new(Vm {
     items: vec!["Ada".into(), "Grace".into(), "Edsger".into(),
                 "Barbara".into(), "Tony".into()],
     ..Default::default()
-});"##),
+});"##,
+        ),
     },
     Recipe {
         title: "ContentControl + DataTemplate",

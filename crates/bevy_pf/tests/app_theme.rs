@@ -26,7 +26,11 @@ fn spawn(app: &mut App, xaml: &str) -> (Entity, Vec<String>) {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 /// The painted background, or `None` when the property is unset/cleared.
@@ -82,12 +86,20 @@ fn unspecified_resolves_as_light() {
 fn a_missing_arm_falls_back_to_default_only() {
     // Dark is absent, so Dark takes Default — NOT Light.
     assert_eq!(
-        under(AppTheme::Dark, "{AppThemeBinding Light=#FF0000, Default=#00FF00}").0,
+        under(
+            AppTheme::Dark,
+            "{AppThemeBinding Light=#FF0000, Default=#00FF00}"
+        )
+        .0,
         Some("#00FF00".into())
     );
     // ...and symmetrically.
     assert_eq!(
-        under(AppTheme::Light, "{AppThemeBinding Dark=#0000FF, Default=#00FF00}").0,
+        under(
+            AppTheme::Light,
+            "{AppThemeBinding Dark=#0000FF, Default=#00FF00}"
+        )
+        .0,
         Some("#00FF00".into())
     );
 }
@@ -123,8 +135,16 @@ fn no_matching_arm_and_no_default_clears_rather_than_reverting() {
     app.update();
     assert_eq!(warnings, Vec::<String>::new());
     let painted = background(&app, named(&app, root, "B"));
-    assert_ne!(painted, Some("#FFFF00".into()), "must NOT fall back to the style value");
-    assert_ne!(painted, Some("#0000FF".into()), "must NOT take the Dark arm under Light");
+    assert_ne!(
+        painted,
+        Some("#FFFF00".into()),
+        "must NOT fall back to the style value"
+    );
+    assert_ne!(
+        painted,
+        Some("#0000FF".into()),
+        "must NOT take the Dark arm under Light"
+    );
 }
 
 #[test]
@@ -148,7 +168,10 @@ fn an_arm_written_as_null_is_supplied_and_stops_the_fallback() {
 fn a_theme_flip_repaints_without_rebuilding() {
     let mut app = test_app();
     set_user_app_theme(app.world_mut(), AppTheme::Light);
-    let (root, _) = spawn(&mut app, &page("{AppThemeBinding Light=#FF0000, Dark=#0000FF}"));
+    let (root, _) = spawn(
+        &mut app,
+        &page("{AppThemeBinding Light=#FF0000, Dark=#0000FF}"),
+    );
     app.update();
     let border = named(&app, root, "B");
     assert_eq!(background(&app, border), Some("#FF0000".into()));
@@ -178,14 +201,20 @@ fn setting_the_theme_already_in_effect_changes_nothing() {
 #[test]
 fn a_user_choice_beats_the_platform_and_unspecified_hands_control_back() {
     let mut app = test_app();
-    let (root, _) = spawn(&mut app, &page("{AppThemeBinding Light=#FF0000, Dark=#0000FF}"));
+    let (root, _) = spawn(
+        &mut app,
+        &page("{AppThemeBinding Light=#FF0000, Dark=#0000FF}"),
+    );
     let border = named(&app, root, "B");
 
     // Pretend the OS reports dark while the user has asked for light.
     set_user_app_theme(app.world_mut(), AppTheme::Light);
     app.update();
     assert_eq!(background(&app, border), Some("#FF0000".into()));
-    assert_eq!(app.world().resource::<PfAppTheme>().requested(), AppTheme::Light);
+    assert_eq!(
+        app.world().resource::<PfAppTheme>().requested(),
+        AppTheme::Light
+    );
 
     set_user_app_theme(app.world_mut(), AppTheme::Dark);
     app.update();
@@ -195,7 +224,10 @@ fn a_user_choice_beats_the_platform_and_unspecified_hands_control_back() {
 #[test]
 fn applying_a_builtin_theme_drives_the_binding() {
     let mut app = test_app();
-    let (root, _) = spawn(&mut app, &page("{AppThemeBinding Light=#FF0000, Dark=#0000FF}"));
+    let (root, _) = spawn(
+        &mut app,
+        &page("{AppThemeBinding Light=#FF0000, Dark=#0000FF}"),
+    );
     let border = named(&app, root, "B");
 
     bevy_pf::themes::apply_theme(app.world_mut(), "fluent-dark").unwrap();
@@ -273,7 +305,9 @@ fn a_trigger_setter_repicks_while_the_trigger_is_already_active() {
     app.update();
     assert_eq!(background(&app, border), Some("#101010".into()));
 
-    app.world_mut().entity_mut(border).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(border)
+        .insert(Interaction::Hovered);
     app.update();
     assert_eq!(background(&app, border), Some("#FF0000".into()));
 
@@ -288,7 +322,11 @@ fn a_trigger_setter_repicks_while_the_trigger_is_already_active() {
 
     app.world_mut().entity_mut(border).insert(Interaction::None);
     app.update();
-    assert_eq!(background(&app, border), Some("#101010".into()), "still reverts");
+    assert_eq!(
+        background(&app, border),
+        Some("#101010".into()),
+        "still reverts"
+    );
 }
 
 #[test]
@@ -317,7 +355,9 @@ fn a_dynamic_resource_trigger_setter_also_refreshes_while_active() {
     );
     assert_eq!(warnings, Vec::<String>::new());
     let border = named(&app, root, "B");
-    app.world_mut().entity_mut(border).insert(Interaction::Hovered);
+    app.world_mut()
+        .entity_mut(border)
+        .insert(Interaction::Hovered);
     app.update();
     let nord = background(&app, border);
     assert_ne!(nord, Some("#101010".into()), "the trigger fired");
@@ -349,7 +389,10 @@ fn arms_can_be_static_resources() {
     );
     app.update();
     assert_eq!(warnings, Vec::<String>::new());
-    assert_eq!(background(&app, named(&app, root, "B")), Some("#0000FF".into()));
+    assert_eq!(
+        background(&app, named(&app, root, "B")),
+        Some("#0000FF".into())
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -362,7 +405,9 @@ fn an_extension_with_no_value_is_rejected() {
     for markup in ["{AppThemeBinding}", "{AppThemeBinding Light={x:Null}}"] {
         let (_, warnings) = under(AppTheme::Light, markup);
         assert!(
-            warnings.iter().any(|w| w.contains("at least one theme or Default")),
+            warnings
+                .iter()
+                .any(|w| w.contains("at least one theme or Default")),
             "{markup} should be rejected, got {warnings:?}"
         );
     }

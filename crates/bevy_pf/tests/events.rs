@@ -28,7 +28,11 @@ fn spawn(app: &mut App, xaml: &str) -> Entity {
 }
 
 fn named(app: &App, root: Entity, name: &str) -> Entity {
-    app.world().get::<XamlNames>(root).unwrap().get(name).unwrap()
+    app.world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get(name)
+        .unwrap()
 }
 
 /// A window-backed pointer location (the picking backend normally fills
@@ -56,12 +60,11 @@ fn pointer_events_route_to_named_handlers() {
     app.init_resource::<Fired>();
     let record = |name: &'static str| {
         move |world: &mut World, _e: Entity, info: bevy_pf::PfPointerInfo| {
-            world
-                .resource::<Fired>()
-                .0
-                .lock()
-                .unwrap()
-                .push((name.into(), info.position, info.delta));
+            world.resource::<Fired>().0.lock().unwrap().push((
+                name.into(),
+                info.position,
+                info.delta,
+            ));
         }
     };
     app.on_ui_event("OnPick", record("OnPick"))
@@ -120,7 +123,11 @@ fn pointer_events_route_to_named_handlers() {
     let fired = app.world().resource::<Fired>().0.lock().unwrap().clone();
     let names: Vec<&str> = fired.iter().map(|(n, _, _)| n.as_str()).collect();
     assert_eq!(names, vec!["OnPick", "OnEnter", "OnLeave"]);
-    assert_eq!(fired[0].1, Vec2::new(40.0, 60.0), "position reaches handler");
+    assert_eq!(
+        fired[0].1,
+        Vec2::new(40.0, 60.0),
+        "position reaches handler"
+    );
 }
 
 #[test]
@@ -128,12 +135,11 @@ fn drag_event_carries_delta() {
     let mut app = test_app();
     app.init_resource::<Fired>();
     app.on_ui_event("OnMove", |world, _e, info| {
-        world
-            .resource::<Fired>()
-            .0
-            .lock()
-            .unwrap()
-            .push(("OnMove".into(), info.position, info.delta));
+        world.resource::<Fired>().0.lock().unwrap().push((
+            "OnMove".into(),
+            info.position,
+            info.delta,
+        ));
     });
 
     let root = spawn(
@@ -162,5 +168,9 @@ fn drag_event_carries_delta() {
     let fired = app.world().resource::<Fired>().0.lock().unwrap().clone();
     assert_eq!(fired.len(), 1);
     assert_eq!(fired[0].1, Vec2::new(200.0, 120.0));
-    assert_eq!(fired[0].2, Vec2::new(3.0, -2.0), "drag delta reaches handler");
+    assert_eq!(
+        fired[0].2,
+        Vec2::new(3.0, -2.0),
+        "drag delta reaches handler"
+    );
 }

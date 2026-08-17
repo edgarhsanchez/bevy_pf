@@ -38,10 +38,7 @@ pub struct MarkupExtension {
 
 impl MarkupExtension {
     pub fn arg(&self, name: &str) -> Option<&MarkupValue> {
-        self.named
-            .iter()
-            .find(|(k, _)| k == name)
-            .map(|(_, v)| v)
+        self.named.iter().find(|(k, _)| k == name).map(|(_, v)| v)
     }
 
     /// The first positional argument as a string, if any.
@@ -234,10 +231,7 @@ impl<'a> Parser<'a> {
                     // Positional argument. WPF rejects positionals after any
                     // named argument (`MePullParser` states 296-330).
                     if !ext.named.is_empty() {
-                        return Err(err(
-                            self.input,
-                            "positional argument after named argument",
-                        ));
+                        return Err(err(self.input, "positional argument after named argument"));
                     }
                     if token.nested.is_none() && !token.quoted && token.text.is_empty() {
                         return Err(err(self.input, "empty argument"));
@@ -531,8 +525,7 @@ mod tests {
 
     #[test]
     fn parses_nested_extension() {
-        let e =
-            parse_extension("{Binding Path=Name, Converter={StaticResource conv}}").unwrap();
+        let e = parse_extension("{Binding Path=Name, Converter={StaticResource conv}}").unwrap();
         let conv = e.arg("Converter").unwrap();
         match conv {
             MarkupValue::Extension(inner) => {
@@ -624,10 +617,7 @@ mod tests {
         let e = parse_extension("{Binding Path=(Grid.Row)}").unwrap();
         assert_eq!(e.arg("Path"), Some(&s("(Grid.Row)")));
         let e = parse_extension(r#"{local:BCMarkup Animals("poodle,doodle")}"#).unwrap();
-        assert_eq!(
-            e.positional,
-            vec![s(r#"Animals("poodle,doodle")"#)]
-        );
+        assert_eq!(e.positional, vec![s(r#"Animals("poodle,doodle")"#)]);
     }
 
     #[test]
@@ -728,8 +718,8 @@ mod tests {
 
     #[test]
     fn relative_source_shorthand() {
-        let e = parse_extension("{Binding RelativeSource={RelativeSource Self}, Path=Width}")
-            .unwrap();
+        let e =
+            parse_extension("{Binding RelativeSource={RelativeSource Self}, Path=Width}").unwrap();
         let MarkupValue::Extension(rs) = e.arg("RelativeSource").unwrap() else {
             panic!()
         };
@@ -753,7 +743,10 @@ mod tests {
 
         // An UNescaped leading brace must still nest.
         let e = parse_extension("{Binding Converter={StaticResource C}}").unwrap();
-        assert!(matches!(e.arg("Converter"), Some(MarkupValue::Extension(_))));
+        assert!(matches!(
+            e.arg("Converter"),
+            Some(MarkupValue::Extension(_))
+        ));
 
         // And `{}` escaping still works.
         let e = parse_extension("{Binding Age, StringFormat='{}{0} years'}").unwrap();
@@ -762,5 +755,4 @@ mod tests {
             Some("{0} years")
         );
     }
-
 }
