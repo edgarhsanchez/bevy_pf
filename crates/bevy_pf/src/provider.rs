@@ -49,6 +49,11 @@ pub enum PropertyTarget {
     /// Shape fill brush (Path/Ellipse/Rectangle/...): writes repaint the
     /// rasterized image at the current size.
     Fill,
+    /// Shape stroke brush. The sibling of [`PropertyTarget::Fill`] — without
+    /// it a template could bind a shape's fill to the templated parent but
+    /// not its outline, so `Stroke="{TemplateBinding BorderBrush}"` silently
+    /// dropped the outline and the shape rendered unstroked.
+    Stroke,
     FontSize,
     Margin,
     Padding,
@@ -68,6 +73,7 @@ pub fn property_target_for(property: &str) -> Option<PropertyTarget> {
         "BorderThickness" => PropertyTarget::BorderThickness,
         "Foreground" => PropertyTarget::Foreground,
         "Fill" => PropertyTarget::Fill,
+        "Stroke" => PropertyTarget::Stroke,
         "FontSize" => PropertyTarget::FontSize,
         "Margin" => PropertyTarget::Margin,
         "Padding" => PropertyTarget::Padding,
@@ -574,6 +580,16 @@ pub(crate) fn apply_value(world: &mut World, entity: Entity, target: PropertyTar
                 }
             }
         }
+        PropertyTarget::Stroke => {
+            if let Some(brush) = as_brush() {
+                let brush = brush.clone();
+                let mut e = world.entity_mut(entity);
+                if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+                    shape.stroke = Some(brush);
+                    e.remove::<crate::shapes::PfShapeRendered>();
+                }
+            }
+        }
         PropertyTarget::Foreground => {
             if let Some(v::PfBrush::Solid(c)) = as_brush() {
                 let color = convert::color(c);
@@ -715,6 +731,13 @@ fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
             let mut e = world.entity_mut(entity);
             if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
                 shape.fill = None;
+                e.remove::<crate::shapes::PfShapeRendered>();
+            }
+        }
+        PropertyTarget::Stroke => {
+            let mut e = world.entity_mut(entity);
+            if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+                shape.stroke = None;
                 e.remove::<crate::shapes::PfShapeRendered>();
             }
         }

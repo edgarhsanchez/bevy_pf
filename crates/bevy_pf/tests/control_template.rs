@@ -1800,3 +1800,123 @@ fn other_binding_flavours_in_a_setter_are_still_reported() {
         "expected the warning to point at the one supported flavour, got {warnings:?}"
     );
 }
+
+/// `{TemplateBinding Tag}` carries one piece of per-instance data into a
+/// template.
+///
+/// Tag is WPF's per-instance scratch property, and binding it into a
+/// template is how a single template shows a per-button keyboard hint or
+/// badge without the button carrying a second control to hold it. It is not
+/// store-managed, so it forwards ONCE — which is all a Tag needs, since
+/// nothing writes it after construction.
+#[test]
+fn tag_forwards_into_a_template() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <StackPanel.Resources>
+       <Style x:Key="Hinted" TargetType="Button">
+         <Setter Property="Template">
+           <Setter.Value>
+             <ControlTemplate TargetType="Button">
+               <Grid>
+                 <TextBlock x:Name="hint" Text="{TemplateBinding Tag}"/>
+               </Grid>
+             </ControlTemplate>
+           </Setter.Value>
+         </Setter>
+       </Style>
+     </StackPanel.Resources>
+     <Button x:Name="A" Style="{StaticResource Hinted}" Tag="F1"/>
+     <Button x:Name="B" Style="{StaticResource Hinted}" Tag="ESC"/>
+     <Button x:Name="C" Style="{StaticResource Hinted}"/>
+   </StackPanel>"##,
+    );
+    app.update();
+    assert_eq!(warnings, Vec::<String>::new());
+
+    let hint_of = |app: &App, name: &str| -> Option<String> {
+        let button = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+        let parts = app.world().get::<bevy_pf::components::PfTemplateParts>(button)?;
+        let hint = parts.get("hint")?;
+        app.world()
+            .get::<bevy::ui::widget::Text>(hint)
+            .map(|t| t.0.clone())
+    };
+    assert_eq!(hint_of(&app, "A").as_deref(), Some("F1"));
+    assert_eq!(
+        hint_of(&app, "B").as_deref(),
+        Some("ESC"),
+        "the SAME template shows each instance's own tag"
+    );
+    assert_ne!(
+        hint_of(&app, "C").as_deref(),
+        Some("F1"),
+        "a button with no Tag must not inherit a sibling's"
+    );
+}
+
+/// A shape's Stroke is store-managed, so a template can bind it.
+///
+/// `Fill` always was, and `Stroke` was not — so a ControlTemplate could take
+/// its fill from the templated parent but not its OUTLINE, and
+/// `Stroke="{TemplateBinding BorderBrush}"` was dropped with a warning while
+/// the fill beside it worked. The shape rendered unstroked, which reads as
+/// "the border is missing" rather than "a binding was skipped".
+#[test]
+fn a_shape_stroke_binds_to_the_templated_parent() {
+    let mut app = test_app();
+    let (root, warnings) = spawn_collect_warnings(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+     <StackPanel.Resources>
+       <Style x:Key="Slab" TargetType="Button">
+         <Setter Property="BorderBrush" Value="#00FFD4"/>
+         <Setter Property="Template">
+           <Setter.Value>
+             <ControlTemplate TargetType="Button">
+               <Grid>
+                 <Path x:Name="frame" Width="40" Height="20" Stretch="Fill"
+                       Fill="{TemplateBinding Background}"
+                       Stroke="{TemplateBinding BorderBrush}" StrokeThickness="1"
+                       Data="M 0,0 L 40,0 L 40,20 L 0,20 Z"/>
+               </Grid>
+             </ControlTemplate>
+           </Setter.Value>
+         </Setter>
+       </Style>
+       <Style x:Key="Amber" TargetType="Button" BasedOn="{StaticResource Slab}">
+         <Setter Property="BorderBrush" Value="#FFB454"/>
+       </Style>
+     </StackPanel.Resources>
+     <Button x:Name="Teal" Style="{StaticResource Slab}"/>
+     <Button x:Name="Amber" Style="{StaticResource Amber}"/>
+   </StackPanel>"##,
+    );
+    app.update();
+    assert_eq!(warnings, Vec::<String>::new(), "the stroke binding must not warn");
+
+    let stroke_of = |app: &App, name: &str| -> Option<String> {
+        let button = app.world().get::<XamlNames>(root).unwrap().get(name).unwrap();
+        let frame = app
+            .world()
+            .get::<bevy_pf::components::PfTemplateParts>(button)?
+            .get("frame")?;
+        let shape = app.world().get::<bevy_pf::shapes::PfShape>(frame)?;
+        match shape.stroke.as_ref()? {
+            bevy_pf_xaml::value::PfBrush::Solid(c) => {
+                Some(format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b))
+            }
+            _ => None,
+        }
+    };
+    assert_eq!(stroke_of(&app, "Teal").as_deref(), Some("#00FFD4"));
+    assert_eq!(
+        stroke_of(&app, "Amber").as_deref(),
+        Some("#FFB454"),
+        "one template, each instance's own outline — the point of binding it"
+    );
+}

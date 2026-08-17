@@ -2050,7 +2050,9 @@ impl<'w> Ctx<'w> {
     ) -> Result<PfValue, PfError> {
         use crate::provider::PropertyTarget as T;
         Ok(match target {
-            T::Background | T::BorderBrush | T::Foreground | T::Fill => PfValue::Brush(s.parse()?),
+            T::Background | T::BorderBrush | T::Foreground | T::Fill | T::Stroke => {
+                PfValue::Brush(s.parse()?)
+            }
             T::BorderThickness | T::Margin | T::Padding => PfValue::Thickness(s.parse()?),
             T::CornerRadius => PfValue::CornerRadius(s.parse()?),
             T::Width | T::Height | T::FontSize | T::Opacity => {
@@ -2849,10 +2851,43 @@ impl<'w> Ctx<'w> {
             // Bindings are recorded by `apply_xaml_value`/content handling;
             // reaching here means the caller just needs "no literal value".
             "Binding" | "x:Bind" | "CompiledBinding" => Ok(None),
+            // Reached by the paths that resolve an attribute to a VALUE
+            // rather than routing it through the property store — Text= is
+            // the common one. Those cannot forward live, so the templated
+            // parent is read once here, which is right for the properties
+            // that actually get bound this way.
             "TemplateBinding" => {
+                let Some(tc) = self.template_ctx.last() else {
+                    self.warn(
+                        "{TemplateBinding} outside a ControlTemplate; property skipped".to_string(),
+                    );
+                    return Ok(None);
+                };
+                let parent = tc.templated_parent;
+                let Some(src) = ext.first_positional_str() else {
+                    self.warn("TemplateBinding needs a source property".to_string());
+                    return Ok(None);
+                };
+                // Tag: WPF's per-instance scratch property, and the standard
+                // way to pass one small piece of data into a template.
+                if src == "Tag" {
+                    return Ok(self
+                        .world
+                        .get::<crate::components::PfTag>(parent)
+                        .map(|t| Resolved::Value(PfValue::String(t.0.clone()))));
+                }
+                // Anything the store manages can be read at its current value.
+                if let Some(target) = crate::provider::property_target_for(src)
+                    && let Some(value) = self
+                        .world
+                        .get::<crate::provider::PfPropertyStore>(parent)
+                        .and_then(|store| store.effective(target))
+                        .and_then(|(_, v)| v.clone())
+                {
+                    return Ok(Some(Resolved::Value(value)));
+                }
                 self.warn(format!(
-                    "`{{{}}}` is not supported yet; property skipped",
-                    ext.name
+                    "TemplateBinding `{src}` is not readable here; property skipped"
                 ));
                 Ok(None)
             }
@@ -3771,7 +3806,28 @@ impl<'w> Ctx<'w> {
                 }
             }
             "Stroke" if kind == ElemKind::Shape => {
-                self.pending.shape.stroke = Some(value.to_brush()?)
+                let brush = value.to_brush()?;
+                self.pending.shape.stroke = Some(brush.clone());
+                // Seeded at the declaring tier for the same reason Fill is:
+                // so a trigger writing Stroke reverts to THIS brush rather
+                // than to unset when it deactivates.
+                let tier = self.tier;
+                let mut e = self.world.entity_mut(entity);
+                if let Some(mut store) = e.get_mut::<crate::provider::PfPropertyStore>() {
+                    store.set(
+                        crate::provider::PropertyTarget::Stroke,
+                        tier,
+                        Some(PfValue::Brush(brush)),
+                    );
+                } else {
+                    let mut store = crate::provider::PfPropertyStore::default();
+                    store.set(
+                        crate::provider::PropertyTarget::Stroke,
+                        tier,
+                        Some(PfValue::Brush(brush)),
+                    );
+                    e.insert(store);
+                }
             }
             "StrokeThickness" => self.pending.shape.stroke_thickness = Some(value.to_f32()?),
             // Consumed by the Image builder (Source loads the asset, Slice
@@ -4421,6 +4477,31 @@ impl<'w> Ctx<'w> {
                                 ui_node.height = Val::Px(size.y);
                             }
                         }
+                        let mut shape = shape;
+                        // The store may already hold Fill/Stroke: a
+                        // {TemplateBinding} resolves before the shape is
+                        // built, and writing into a component that does not
+                        // exist yet loses the value silently.
+                        if let Some(store) = self
+                            .world
+                            .get::<crate::provider::PfPropertyStore>(entity)
+                        {
+                            for (target, slot) in [
+                                (crate::provider::PropertyTarget::Fill, 0),
+                                (crate::provider::PropertyTarget::Stroke, 1),
+                            ] {
+                                if let Some((_, Some(PfValue::Brush(brush)))) =
+                                    store.effective(target)
+                                {
+                                    let brush = brush.clone();
+                                    if slot == 0 {
+                                        shape.fill = Some(brush);
+                                    } else {
+                                        shape.stroke = Some(brush);
+                                    }
+                                }
+                            }
+                        }
                         self.world
                             .entity_mut(entity)
                             .insert((shape, crate::shapes::PfShapeRendered::default()));
@@ -4775,6 +4856,38 @@ impl<'w> Ctx<'w> {
             self.warn("TemplateBinding needs a source property".to_string());
             return;
         };
+        // `Tag` is WPF's per-instance scratch property, and binding it into a
+        // template is the standard way to pass one small piece of data in —
+        // a keyboard hint, a badge count — without giving the template a
+        // second control to carry it. It is not store-managed (it lives as
+        // PfTag), so it cannot forward LIVE; it is read once here, which is
+        // all a Tag ever needs since nothing writes it after construction.
+        if src_name == "Tag" {
+            let tag = self.world.get::<crate::components::PfTag>(parent).map(|t| t.0.clone());
+            match tag {
+                Some(tag) => {
+                    let kind = self
+                        .world
+                        .get::<crate::components::PfElementKind>(entity)
+                        .map(|k| ElemKind::from_name(&k.0))
+                        .unwrap_or(ElemKind::Unknown);
+                    if let Err(e) = self.apply_property(
+                        entity,
+                        kind,
+                        ParentKind::Grid,
+                        None,
+                        dst_name,
+                        &Resolved::Str(&tag),
+                    ) {
+                        self.warn(format!("TemplateBinding Tag -> {dst_name}: {e}"));
+                    }
+                }
+                // No Tag on the control: leave the destination alone rather
+                // than writing an empty string over the template's own value.
+                None => {}
+            }
+            return;
+        }
         let src = crate::provider::property_target_for(src_name);
         let dst = crate::provider::property_target_for(dst_name);
         let (Some(src), Some(dst)) = (src, dst) else {
