@@ -152,6 +152,37 @@ fn specimens() -> Vec<(&'static str, PfShape)> {
     path.stroke_thickness = 2.0;
     out.push(("path", path));
 
+    // A SQUARE ellipse and a TINY one. Both matter and neither was covered:
+    // `as_rounded_box` sends a square ellipse down the SDF fast path (radius
+    // = half the side, i.e. a circle) while a non-square one stays
+    // tessellated — and the only ellipse specimen here was oval, so the SDF
+    // path was never rendered by this gallery at all. The game's status dot
+    // is a 4x4 ellipse and came out square.
+    let mut round = PfShape::new(ShapeGeometry::Ellipse);
+    round.fill = Some(rgb(0x4F, 0xD8, 0xFF));
+    out.push(("circle-sdf", round));
+
+    let mut dot = PfShape::new(ShapeGeometry::Ellipse);
+    dot.fill = Some(rgb(0x7F, 0xFF, 0xD4));
+    out.push(("dot-tiny", dot));
+
+    // A very low alpha fill, which is what the game's button interiors use
+    // (0x02 over the scene) — fitted because bevy composites in linear
+    // space. It vanished entirely on the GPU path.
+    let mut faint = PfShape::new(ShapeGeometry::Rectangle {
+        radius_x: 0.0,
+        radius_y: 0.0,
+    });
+    faint.fill = Some(v::PfBrush::Solid(v::PfColor {
+        r: 0x00,
+        g: 0xFF,
+        b: 0xD4,
+        a: 0x40,
+    }));
+    faint.stroke = Some(rgb(0x00, 0xFF, 0xD4));
+    faint.stroke_thickness = 1.0;
+    out.push(("faint-fill", faint));
+
     // Stroke-only + Stretch=Fill: what the obsidian chrome's bevel passes
     // are (BevelMid/BevelBloom). Regression specimen — these vanished once
     // the GPU backend took over.
@@ -214,11 +245,18 @@ fn setup(mut commands: Commands) {
                         ..default()
                     })
                     .with_children(|cell| {
+                        let (w, h) = match label {
+                            // Square, so the SDF path is taken.
+                            "circle-sdf" => (96.0, 96.0),
+                            // The game's status dot, to the pixel.
+                            "dot-tiny" => (4.0, 4.0),
+                            _ => (120.0, 96.0),
+                        };
                         cell.spawn((
                             shape,
                             Node {
-                                width: Val::Px(120.0),
-                                height: Val::Px(96.0),
+                                width: Val::Px(w),
+                                height: Val::Px(h),
                                 ..default()
                             },
                         ));

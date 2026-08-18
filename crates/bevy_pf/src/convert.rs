@@ -97,14 +97,28 @@ pub fn visibility(vis: v::Visibility) -> (Visibility, Option<Display>) {
     }
 }
 
-/// Convert a brush into UI background components. Returns the solid color (if
-/// solid) or a gradient component value.
-pub fn brush_to_background(
-    brush: &v::PfBrush,
-) -> Result<BackgroundColor, bevy::ui::BackgroundGradient> {
-    use bevy::ui::{ColorStop, Gradient, LinearGradient, RadialGradient};
+/// A brush as bevy_ui gradient stages, or None when it is a plain colour.
+///
+/// Split out from [`brush_to_background`] because a BorderBrush needs the
+/// very same stages in a different wrapper: bevy_ui models the two as
+/// `BackgroundGradient` and `BorderGradient`, both `Vec<Gradient>`, and its
+/// renderer draws either one respecting border_radius and per-side widths.
+/// Building them twice would have been the only reason a gradient could
+/// paint a fill but not an outline.
+pub fn brush_to_gradients(brush: &v::PfBrush) -> Option<Vec<bevy::ui::Gradient>> {
+    use bevy::ui::{ColorStop, Gradient, InterpolationColorSpace, LinearGradient, RadialGradient};
+    // SRGB, NOT bevy_ui's OkLab default.
+    //
+    // WPF interpolates gradient stops in sRGB unless told otherwise, and the
+    // difference is not subtle: blue -> yellow through OkLab takes a visibly
+    // different path through the hues than the same brush rasterized by
+    // tiny-skia on the shape backends. Leaving the default in place meant one
+    // document could show three different midtones depending on whether the
+    // brush landed on a Border, on a Rectangle's Fill, or on that same Fill
+    // with `vector_gpu` compiled in.
+    let space = InterpolationColorSpace::Srgba;
     match brush {
-        v::PfBrush::Solid(c) => Ok(BackgroundColor(color(*c))),
+        v::PfBrush::Solid(_) => None,
         v::PfBrush::LinearGradient { start, end, stops } => {
             // WPF uses start/end points in a 0..1 relative box; bevy_ui linear
             // gradients use an angle. Derive the angle from the vector.
@@ -117,26 +131,37 @@ pub fn brush_to_background(
                 .iter()
                 .map(|s| ColorStop::new(color(s.color), Val::Percent(s.offset * 100.0)))
                 .collect();
-            Err(bevy::ui::BackgroundGradient(vec![Gradient::Linear(
-                LinearGradient {
-                    angle,
-                    stops,
-                    ..Default::default()
-                },
-            )]))
+            Some(vec![Gradient::Linear(LinearGradient {
+                angle,
+                stops,
+                color_space: space,
+            })])
         }
         v::PfBrush::RadialGradient { stops, .. } => {
             let stops = stops
                 .iter()
                 .map(|s| ColorStop::new(color(s.color), Val::Percent(s.offset * 100.0)))
                 .collect();
-            Err(bevy::ui::BackgroundGradient(vec![Gradient::Radial(
-                RadialGradient {
-                    stops,
-                    ..Default::default()
-                },
-            )]))
+            Some(vec![Gradient::Radial(RadialGradient {
+                stops,
+                color_space: space,
+                ..Default::default()
+            })])
         }
+    }
+}
+
+/// Convert a brush into UI background components. Returns the solid color (if
+/// solid) or a gradient component value.
+pub fn brush_to_background(
+    brush: &v::PfBrush,
+) -> Result<BackgroundColor, bevy::ui::BackgroundGradient> {
+    match brush_to_gradients(brush) {
+        None => match brush {
+            v::PfBrush::Solid(c) => Ok(BackgroundColor(color(*c))),
+            _ => unreachable!("only a solid brush yields no gradient stages"),
+        },
+        Some(stages) => Err(bevy::ui::BackgroundGradient(stages)),
     }
 }
 

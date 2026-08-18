@@ -53,7 +53,14 @@ const ATLAS_SIZE: u32 = 2048;
 
 /// Gap between packed slots so a neighbour's antialiased fringe can never
 /// bleed into this slot when bevy_ui samples it with filtering.
-const SLOT_PADDING: u32 = 2;
+/// Transparent gutter between reservations.
+///
+/// Four, not two. The gutter is the margin of error for a sample that lands
+/// slightly outside its slot; with nearest filtering one texel would do,
+/// but a stretched node can miss by more than a texel and the cost is two
+/// pixels per slot on a 2048² atlas — far cheaper than a neighbour's colour
+/// appearing along an edge.
+const SLOT_PADDING: u32 = 4;
 
 /// Shared atlas, its layout asset, and the shelf allocator that packs it.
 #[derive(Resource)]
@@ -288,6 +295,23 @@ fn setup_atlas(
     );
     image.texture_descriptor.usage =
         TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    // NEAREST, NOT THE DEFAULT LINEAR.
+    //
+    // Every shape shares one texture, so a filtered sample taken at a slot
+    // edge reaches into whatever is packed next door. The camera below is
+    // set up on the assumption that the atlas is sampled 1:1 — and it very
+    // nearly is — but "nearly" is the whole problem: node rects come out of
+    // layout in logical points and are scaled by the display factor, so a
+    // slot lands on fractional texels often enough. Linear filtering then
+    // blends the gutter (a dark fringe along an edge) or, worse, a
+    // neighbouring shape's pixels, which is what "lines and odd colours"
+    // looks like from the outside.
+    //
+    // Nearest costs nothing here. The geometry is antialiased analytically
+    // by the engine before it ever reaches the atlas, so there is no
+    // smoothing to preserve — filtering was only ever blurring a signal
+    // that was already correct.
+    image.sampler = bevy::image::ImageSampler::nearest();
     let image = images.add(image);
     let layout = layouts.add(TextureAtlasLayout::new_empty(UVec2::splat(ATLAS_SIZE)));
 

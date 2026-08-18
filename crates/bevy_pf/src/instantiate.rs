@@ -3390,16 +3390,19 @@ impl<'w> Ctx<'w> {
                 );
             }
             "BorderBrush" => {
+                // Gradients go through the SAME store as solids. This arm used
+                // to refuse them with a warning — the store's BorderBrush
+                // handler only matched Solid, so letting one through would
+                // have drawn nothing. Now it maps onto bevy_ui's
+                // BorderGradient, so the refusal is what has to go: keeping it
+                // would have made a supported feature unreachable from
+                // ordinary markup while working through a Style setter.
                 let brush = value.to_brush()?;
-                if !matches!(brush, v::PfBrush::Solid(_)) {
-                    self.warn("gradient BorderBrush is not supported yet".to_string());
-                } else {
-                    self.store_apply(
-                        entity,
-                        crate::provider::PropertyTarget::BorderBrush,
-                        PfValue::Brush(brush),
-                    );
-                }
+                self.store_apply(
+                    entity,
+                    crate::provider::PropertyTarget::BorderBrush,
+                    PfValue::Brush(brush),
+                );
             }
             "BorderThickness" => {
                 let t = value.to_thickness()?;

@@ -575,12 +575,43 @@ pub(crate) fn apply_value(
             }
         }
         PropertyTarget::BorderBrush => {
-            if let Some(v::PfBrush::Solid(c)) = as_brush() {
-                let color = convert::color(c);
-                if let Some(mut visual) = world.get_mut::<crate::components::ButtonVisual>(entity) {
-                    visual.normal_border = color;
+            // A GRADIENT OUTLINE IS A REAL BRUSH, not an unsupported one.
+            // This arm used to match `Solid` alone, so a LinearGradientBrush
+            // on a Border fell straight through and the outline drew nothing
+            // — no warning, no fallback, the signature of every Aero and
+            // Fluent theme simply absent. bevy_ui already models it:
+            // BorderGradient is the same Vec<Gradient> as BackgroundGradient
+            // and its renderer honours border_radius and per-side widths.
+            match as_brush() {
+                Some(v::PfBrush::Solid(c)) => {
+                    let color = convert::color(c);
+                    if let Some(mut visual) =
+                        world.get_mut::<crate::components::ButtonVisual>(entity)
+                    {
+                        visual.normal_border = color;
+                    }
+                    world
+                        .entity_mut(entity)
+                        // A solid outline and a gradient one are mutually
+                        // exclusive; leaving a stale gradient behind would
+                        // paint over the colour that just replaced it.
+                        .remove::<bevy::ui::BorderGradient>()
+                        .insert(BorderColor::all(color));
                 }
-                world.entity_mut(entity).insert(BorderColor::all(color));
+                Some(brush) => {
+                    if let Some(stages) = convert::brush_to_gradients(&brush) {
+                        world
+                            .entity_mut(entity)
+                            // BorderColor::DEFAULT is transparent: the solid
+                            // layer must get out of the gradient's way rather
+                            // than tint it.
+                            .insert((
+                                BorderColor::all(Color::NONE),
+                                bevy::ui::BorderGradient(stages),
+                            ));
+                    }
+                }
+                None => {}
             }
         }
         PropertyTarget::BorderThickness => {

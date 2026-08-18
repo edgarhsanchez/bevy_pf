@@ -551,13 +551,21 @@ pub fn parse_resource_value(
                 Some(XamlValue::Extension(ext)) => resolve_color_resource(ext, scopes, local)?,
                 None => text.trim().parse::<v::PfColor>()?,
             };
+            let color = match brush_opacity(node) {
+                Some(o) => scale_alpha(color, o),
+                None => color,
+            };
             PfValue::Brush(v::PfBrush::Solid(color))
         }
         "Color" => PfValue::Color(text.trim().parse()?),
         "Thickness" => PfValue::Thickness(text.trim().parse()?),
         "CornerRadius" => PfValue::CornerRadius(text.trim().parse()?),
-        "LinearGradientBrush" => PfValue::Brush(parse_linear_gradient(node, scopes, local)?),
-        "RadialGradientBrush" => PfValue::Brush(parse_radial_gradient(node, scopes, local)?),
+        "LinearGradientBrush" => {
+            PfValue::Brush(parse_linear_gradient(node, scopes, local, warnings)?)
+        }
+        "RadialGradientBrush" => {
+            PfValue::Brush(parse_radial_gradient(node, scopes, local, warnings)?)
+        }
         "Style" => PfValue::Style(Arc::new(parse_style(node, scopes, local, warnings)?)),
         "DataTemplate" => {
             let mut roots = node.child_elements();
@@ -718,17 +726,113 @@ fn parse_gradient_stops(
     Ok(stops)
 }
 
+/// Fold a brush element's `Opacity` into the alpha it paints with.
+///
+/// WPF treats brush Opacity as a multiplier over every colour the brush
+/// produces, so a 40%-opaque black scrim is the standard idiom for overlays,
+/// disabled states and glass panels. It was read by nobody here: the
+/// attribute parsed, was dropped, and the brush painted fully opaque — a
+/// document that looks supported and renders wrong.
+///
+/// Applied at PARSE time rather than carried on PfBrush, so every consumer
+/// gets it for free: bevy_ui backgrounds, tiny-skia rasterization and the
+/// GPU atlas all just see the alpha they should have been given. The cost is
+/// that Opacity is not independently animatable — a storyboard targeting
+/// `(SolidColorBrush.Opacity)` still cannot reach it — which is worth
+/// recording, but it is a far smaller gap than the brush being opaque.
+fn brush_opacity(node: &XamlNode) -> Option<f32> {
+    match node.attribute("Opacity") {
+        Some(XamlValue::Str(s)) => s.trim().parse::<f32>().ok().map(|o| o.clamp(0.0, 1.0)),
+        _ => None,
+    }
+}
+
+fn scale_alpha(color: v::PfColor, opacity: f32) -> v::PfColor {
+    v::PfColor {
+        a: ((color.a as f32) * opacity).round().clamp(0.0, 255.0) as u8,
+        ..color
+    }
+}
+
+/// Gradient stops with the brush's `Opacity` folded into every stop's alpha.
+/// See [`brush_opacity`] for why this happens at parse time.
+fn gradient_stops_with_opacity(
+    node: &XamlNode,
+    scopes: &ResourceScopes,
+    local: &ResourceDictionary,
+) -> Result<Vec<v::GradientStop>, PfError> {
+    let stops = parse_gradient_stops(node, scopes, local)?;
+    let Some(opacity) = brush_opacity(node) else {
+        return Ok(stops);
+    };
+    Ok(stops
+        .into_iter()
+        .map(|s| v::GradientStop {
+            color: scale_alpha(s.color, opacity),
+            ..s
+        })
+        .collect())
+}
+
+/// Say so when a gradient carries WPF attributes this brush model cannot
+/// express.
+///
+/// SILENCE IS THE BUG. Every one of these parses today and is then dropped,
+/// so a document renders wrong while looking entirely supported — the same
+/// failure that hid VisualStateGroups being ignored outside a template and
+/// an exhausted shape atlas erasing chrome. A warning does not implement the
+/// feature, but it turns "why is my gradient flat" into a line of output.
+///
+/// `Opacity` is deliberately NOT in this list: it is folded into stop alpha
+/// at parse time, so it is supported for static markup. Only animating it
+/// is out of reach.
+fn warn_unsupported_gradient_attrs(node: &XamlNode, warnings: &mut Vec<String>) {
+    const DROPPED: [(&str, &str); 5] = [
+        ("SpreadMethod", "Reflect and Repeat render as Pad"),
+        (
+            "MappingMode",
+            "coordinates are always relative to the bounding box",
+        ),
+        (
+            "GradientOrigin",
+            "the radial focal point is ignored; the gradient stays centred",
+        ),
+        ("ColorInterpolationMode", "stops always interpolate in sRGB"),
+        ("RelativeTransform", "brush transforms are not applied"),
+    ];
+    for (attr, effect) in DROPPED {
+        if node.attribute(attr).is_some() {
+            warnings.push(format!("{}: {attr} is not supported — {effect}", node.name));
+        }
+    }
+    // A WPF ellipse gradient collapses to a circle on every backend, so an
+    // author who wrote two different radii should hear about it.
+    let rx = node.attribute("RadiusX");
+    let ry = node.attribute("RadiusY");
+    if let (Some(XamlValue::Str(a)), Some(XamlValue::Str(b))) = (rx, ry)
+        && a.trim() != b.trim()
+    {
+        warnings.push(format!(
+            "{}: RadiusX and RadiusY differ, but an elliptical radial gradient is \
+             rendered as a circle on every backend",
+            node.name
+        ));
+    }
+}
+
 fn parse_linear_gradient(
     node: &XamlNode,
     scopes: &ResourceScopes,
     local: &ResourceDictionary,
+    warnings: &mut Vec<String>,
 ) -> Result<v::PfBrush, PfError> {
+    warn_unsupported_gradient_attrs(node, warnings);
     let start: v::Point = attr_parse(node, "StartPoint")?.unwrap_or(v::Point::new(0.0, 0.0));
     let end: v::Point = attr_parse(node, "EndPoint")?.unwrap_or(v::Point::new(1.0, 1.0));
     Ok(v::PfBrush::LinearGradient {
         start,
         end,
-        stops: parse_gradient_stops(node, scopes, local)?,
+        stops: gradient_stops_with_opacity(node, scopes, local)?,
     })
 }
 
@@ -736,7 +840,9 @@ fn parse_radial_gradient(
     node: &XamlNode,
     scopes: &ResourceScopes,
     local: &ResourceDictionary,
+    warnings: &mut Vec<String>,
 ) -> Result<v::PfBrush, PfError> {
+    warn_unsupported_gradient_attrs(node, warnings);
     let center: v::Point = attr_parse(node, "Center")?.unwrap_or(v::Point::new(0.5, 0.5));
     let radius_x = match node.attribute("RadiusX") {
         Some(XamlValue::Str(s)) => s.trim().parse().unwrap_or(0.5),
@@ -750,7 +856,7 @@ fn parse_radial_gradient(
         center,
         radius_x,
         radius_y,
-        stops: parse_gradient_stops(node, scopes, local)?,
+        stops: gradient_stops_with_opacity(node, scopes, local)?,
     })
 }
 
