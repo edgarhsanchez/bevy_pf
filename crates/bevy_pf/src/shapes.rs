@@ -640,7 +640,12 @@ pub fn rasterize_shape(shape: &PfShape, width: u32, height: u32) -> Option<Vec<u
 /// and compare it against the `vector_gpu` backend on the same workload.
 pub fn rasterize_shapes(
     mut shapes: Query<
-        (Entity, &PfShape, &ComputedNode, Option<&PfShapeRendered>),
+        (
+            Entity,
+            Ref<PfShape>,
+            &ComputedNode,
+            Option<&PfShapeRendered>,
+        ),
         Without<PfShapeClaim>,
     >,
     images: Option<ResMut<Assets<Image>>>,
@@ -653,10 +658,22 @@ pub fn rasterize_shapes(
         if px.x == 0 || px.y == 0 {
             continue;
         }
-        if rendered.is_some_and(|r| r.0 == px) {
+        // SIZE ALONE IS NOT THE CACHE KEY. `PfShapeRendered` records the
+        // pixel size that was rasterized, and gating on that alone means a
+        // brush change never reaches the texture: a hover that repaints a
+        // border, a state setter that swaps a fill, a binding that writes a
+        // new colour all leave the node exactly the same SIZE, so the
+        // rasterizer skipped them and the shape kept its old paint until
+        // something happened to resize it.
+        //
+        // That was survivable while this backend was the fallback of last
+        // resort. It is not now: an over-committed atlas hands its overflow
+        // here permanently, so the shapes most likely to be CPU-drawn are
+        // ordinary chrome with ordinary hover states.
+        if rendered.is_some_and(|r| r.0 == px) && !shape.is_changed() {
             continue;
         }
-        let Some(data) = rasterize_shape(shape, px.x, px.y) else {
+        let Some(data) = rasterize_shape(&shape, px.x, px.y) else {
             continue;
         };
         let image = Image::new(

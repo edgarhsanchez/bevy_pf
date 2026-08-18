@@ -316,6 +316,8 @@ fn stress_across_frames(
     shapes: Query<Entity, With<PfShape>>,
     slotted: Query<Entity, With<bevy_pf::shapes_gpu::PfShapeGpu>>,
     rebuilds: Res<bevy_pf::shapes_gpu::PfAtlasRebuilds>,
+    atlas: Option<Res<bevy_pf::shapes_gpu::PfShapeAtlas>>,
+    layouts: Res<Assets<bevy::image::TextureAtlasLayout>>,
     mut warmup_rebuilds: Local<Option<u32>>,
     mut late_rebuilds: Local<Option<u32>>,
     mut commands: Commands,
@@ -363,10 +365,18 @@ fn stress_across_frames(
         let steady = rebuilds.0.saturating_sub(baseline);
         let frames = TOTAL - WARMUP;
         println!(
-            "stress: frames={frames} shapes={} slotted={} rebuilds_total={} rebuilds_steady={steady}",
+            "stress: frames={frames} shapes={} slotted={} rebuilds_total={} rebuilds_steady={steady} layout_entries={}",
             shapes.iter().count(),
             slotted.iter().count(),
             rebuilds.0,
+            // Unbounded growth here is a LEAK: `layout.add_texture` only ever
+            // pushes, so an entry per re-reservation accumulates for the life
+            // of the process. It should settle near the number of live slots.
+            atlas
+                .as_ref()
+                .and_then(|a| layouts.get(&a.layout))
+                .map(|l| l.textures.len())
+                .unwrap_or(0),
         );
         // THE ASSERTION IS CONVERGENCE, NOT A TOTAL.
         //

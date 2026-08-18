@@ -79,6 +79,22 @@ pub struct PfShapeAtlas {
     /// oscillates cycles through a handful of distinct capacities and reuses
     /// them instead of consuming the atlas.
     free: std::collections::HashMap<UVec2, Vec<UVec2>>,
+    /// Bumped by [`PfShapeAtlas::reset`]. Every reservation is stamped with
+    /// the generation it was made in, and a release carrying an older stamp
+    /// is dropped.
+    ///
+    /// A rebuild resets the packer IMMEDIATELY, but the component removals
+    /// that accompany it are queued commands — so the `on_remove` hook fires
+    /// AFTER the free list has been cleared and pushes every dead origin
+    /// into the fresh one. The next frame then hands those regions out while
+    /// the cursor, also back at zero, is independently handing out the same
+    /// pixels: two shapes own one region and each samples the other's paint.
+    ///
+    /// That is what a console button showing another control's colour was,
+    /// and what put mixed colours down the length of a scrollbar. Ordering
+    /// cannot fix it — the hook has to run after the reset for despawns to
+    /// work at all — so the stamp makes the stale release inert instead.
+    generation: u32,
 }
 
 impl PfShapeAtlas {
@@ -141,8 +157,25 @@ impl PfShapeAtlas {
     }
 
     /// Hand a region back for reuse at the same capacity.
-    fn release(&mut self, capacity: UVec2, origin: UVec2) {
-        self.free.entry(capacity).or_default().push(origin);
+    fn release(&mut self, capacity: UVec2, origin: UVec2, generation: u32) {
+        // A region reserved before the last rebuild does not exist any more;
+        // re-listing it would alias live pixels. See `generation`.
+        if generation != self.generation {
+            return;
+        }
+        let bucket = self.free.entry(capacity).or_default();
+        // BACKSTOP, and it has already caught a real defect once. A duplicate
+        // origin here is always a bug, but dropping it silently is far better
+        // than handing two live shapes the same pixels; the debug assertion is
+        // what makes it a test failure rather than a mystery.
+        debug_assert!(
+            !bucket.contains(&origin),
+            "atlas region {origin:?} released twice in one generation"
+        );
+        if bucket.contains(&origin) {
+            return;
+        }
+        bucket.push(origin);
     }
 
     fn reset(&mut self) {
@@ -150,6 +183,7 @@ impl PfShapeAtlas {
         self.shelf_height = 0;
         // The regions these point at no longer exist after a rebuild.
         self.free.clear();
+        self.generation = self.generation.wrapping_add(1);
     }
 }
 
@@ -186,6 +220,9 @@ pub struct PfShapeGpu {
     /// Second pass for a shape that has BOTH fill and stroke on the SDF
     /// path, where each is its own instance.
     draw_stroke: Option<Entity>,
+    /// Atlas generation this reservation was made in; a release stamped with
+    /// anything else is ignored. See [`PfShapeAtlas::generation`].
+    generation: u32,
 }
 
 /// Hand a departing shape's atlas region back to the packer.
@@ -203,7 +240,7 @@ fn release_slot(
         return;
     };
     if let Some(mut atlas) = world.get_resource_mut::<PfShapeAtlas>() {
-        atlas.release(gpu.capacity, gpu.origin);
+        atlas.release(gpu.capacity, gpu.origin, gpu.generation);
     }
     let mut commands = world.commands();
     commands.entity(gpu.draw).try_despawn();
@@ -224,6 +261,25 @@ fn slot_capacity(px: UVec2) -> UVec2 {
 /// letting the packer fragment.
 #[derive(Resource, Default)]
 struct PfAtlasFull(bool);
+
+/// Frames to wait before another wholesale rebuild is allowed.
+///
+/// A rebuild is only worth doing to DEFRAGMENT. It is actively harmful as a
+/// response to a working set that simply does not fit: every shape loses its
+/// slot, all of them re-register, the ones that overflowed overflow again,
+/// and the atlas rebuilds once more -- measured at better than one rebuild
+/// per frame, with NO shape holding a slot at the end. That is what erased
+/// the console-button chrome while the labels stayed.
+///
+/// Overflow already has a correct answer that costs nothing extra: hand the
+/// shape to the CPU rasterizer. Rate-limiting the rebuild lets that answer
+/// stand, so an over-committed atlas degrades to "the big shapes go through
+/// tiny-skia" instead of "nothing is drawn by anybody".
+#[derive(Resource, Default)]
+struct PfAtlasRebuildCooldown(u32);
+
+/// Frames between permitted wholesale rebuilds.
+const REBUILD_COOLDOWN: u32 = 300;
 
 /// How many wholesale atlas rebuilds have happened.
 ///
@@ -264,6 +320,7 @@ impl Plugin for PfShapeGpuPlugin {
         #[cfg(feature = "native_shapes")]
         let claim = claim.after(crate::shapes::style_native_shapes);
         app.init_resource::<PfAtlasFull>()
+            .init_resource::<PfAtlasRebuildCooldown>()
             .init_resource::<PfAtlasRebuilds>()
             .init_resource::<PfAtlasDirty>()
             .add_systems(Startup, setup_atlas)
@@ -346,6 +403,7 @@ fn setup_atlas(
         cursor: UVec2::ZERO,
         shelf_height: 0,
         free: Default::default(),
+        generation: 0,
     });
 }
 
@@ -732,6 +790,55 @@ fn solid(brush: &v::PfBrush) -> Option<Color> {
     }
 }
 
+/// The SDF instances a rounded-box shape wants, in draw order: the first is
+/// the fill (or the stroke, when there is no fill), the second is the stroke
+/// laid over a fill. `None` means the shape is not SDF-eligible and belongs on
+/// the tessellated path.
+///
+/// Factored out because BOTH `spawn_draws` and the in-place fast path have to
+/// agree on it exactly. When the fast path built its own instances, the two
+/// could disagree about how many entities a shape wants and which one carries
+/// the stroke, and disagreement there is a shape drawn twice or not at all.
+///
+/// THE STROKE INSTANCE TAKES THE FULL SIZE, and that is the whole subtlety.
+/// The CPU backend insets the filled path by half the stroke and then strokes
+/// it CENTRED, so the visible border occupies [0, st] measured inward from the
+/// node edge and the fill starts at st/2. The SDF stroke is inward-only from
+/// whatever size it is handed (`coverage * smoothstep(-aa, aa, dist +
+/// thickness)` keeps `-thickness < dist < 0`), so handing it the inset size
+/// applies that half-inset a SECOND time and floats the border at
+/// [st/2, 3st/2] — half a stroke width adrift, with the outermost half-stroke
+/// of the reserved slot left empty. The fill instance does want the inset
+/// size, which is why the two are computed separately.
+fn sdf_instances(shape: &PfShape, px: UVec2) -> Option<(VectorPrimitive, Option<VectorPrimitive>)> {
+    let (size, radius) = as_rounded_box(shape, px)?;
+    let fill = shape.fill.as_ref().and_then(solid);
+    let stroke = shape.stroke.as_ref().and_then(solid);
+    if fill.is_none() && stroke.is_none() {
+        return None;
+    }
+    let st = shape.stroke_thickness;
+    let stroke_prim = |color: Color| VectorPrimitive::Rect {
+        size,
+        radius,
+        thickness: st.max(0.01),
+        color: color.to_linear(),
+    };
+    let Some(fill) = fill else {
+        // Stroke only: one instance, drawn at the full size.
+        return Some((stroke_prim(stroke.expect("fill or stroke")), None));
+    };
+    // Filled: the fill is inset by half the stroke, matching the CPU path.
+    let inset = if stroke.is_some() { st * 0.5 } else { 0.0 };
+    let fill_prim = VectorPrimitive::Rect {
+        size: (size - Vec2::splat(inset * 2.0)).max(Vec2::splat(0.1)),
+        radius: (radius - inset).max(0.0),
+        thickness: 0.0,
+        color: fill.to_linear(),
+    };
+    Some((fill_prim, stroke.map(stroke_prim)))
+}
+
 /// Spawn the draw entities for a shape into its atlas slot: either SDF
 /// primitives (fast path) or one tessellated `VectorShape`.
 fn spawn_draws(
@@ -746,51 +853,31 @@ fn spawn_draws(
         ..default()
     };
 
-    if let Some((size, radius)) = as_rounded_box(shape, px) {
-        let fill = shape.fill.as_ref().and_then(solid);
-        let stroke = shape.stroke.as_ref().and_then(solid);
-        if fill.is_some() || stroke.is_some() {
-            let st = shape.stroke_thickness;
-            // Inset like the CPU backend: a stroke straddles the edge.
-            let inset = if stroke.is_some() { st * 0.5 } else { 0.0 };
-            let inner = (size - Vec2::splat(inset * 2.0)).max(Vec2::splat(0.1));
-            let inner_radius = (radius - inset).max(0.0);
-
-            let first = commands
+    if let Some((first_prim, second_prim)) = sdf_instances(shape, px) {
+        let first = commands
+            .spawn((
+                first_prim,
+                transform(),
+                RenderLayers::layer(SHAPE_LAYER),
+                Name::new("PfShapeSdf"),
+            ))
+            .id();
+        // Both fill and stroke: the stroke is a second instance over it.
+        let second = second_prim.map(|prim| {
+            commands
                 .spawn((
-                    VectorPrimitive::Rect {
-                        size: inner,
-                        radius: inner_radius,
-                        thickness: if fill.is_some() { 0.0 } else { st.max(0.01) },
-                        color: fill.or(stroke).unwrap().to_linear(),
+                    prim,
+                    HudTransform {
+                        // Above the fill in the slot's local depth.
+                        translation: centre + Vec3::new(0.0, 0.0, 1.0e-4),
+                        ..default()
                     },
-                    transform(),
                     RenderLayers::layer(SHAPE_LAYER),
-                    Name::new("PfShapeSdf"),
+                    Name::new("PfShapeSdfStroke"),
                 ))
-                .id();
-            // Both fill and stroke: the stroke is a second instance over it.
-            let second = (fill.is_some() && stroke.is_some()).then(|| {
-                commands
-                    .spawn((
-                        VectorPrimitive::Rect {
-                            size: inner,
-                            radius: inner_radius,
-                            thickness: st.max(0.01),
-                            color: stroke.unwrap().to_linear(),
-                        },
-                        HudTransform {
-                            // Above the fill in the slot's local depth.
-                            translation: centre + Vec3::new(0.0, 0.0, 1.0e-4),
-                            ..default()
-                        },
-                        RenderLayers::layer(SHAPE_LAYER),
-                        Name::new("PfShapeSdfStroke"),
-                    ))
-                    .id()
-            });
-            return (first, second);
-        }
+                .id()
+        });
+        return (first, second);
     }
 
     let (path, style) = shape_to_vector(shape, px)
@@ -819,16 +906,28 @@ fn sync_gpu_shapes(
         &ComputedNode,
         Option<&mut PfShapeGpu>,
         Option<&PfShapeRendered>,
+        Option<&PfShapeClaim>,
     )>,
-    mut draws: Query<(&mut VectorShape, &mut HudTransform)>,
+    mut draws: Query<(&mut VectorShape, &mut HudTransform), Without<VectorPrimitive>>,
+    // Separate query because SDF draws carry `VectorPrimitive`, not
+    // `VectorShape`. `Without` on each side is what makes the two provably
+    // disjoint, so both may hold `&mut HudTransform`.
+    mut prims: Query<(&mut VectorPrimitive, &mut HudTransform), Without<VectorShape>>,
     atlas: Option<ResMut<PfShapeAtlas>>,
-    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+    // Optional for the same reason `atlas` is: `PfUiPlugin` adds this backend
+    // whenever the feature is compiled in, including into apps that never
+    // registered the atlas-layout asset (anything built on MinimalPlugins
+    // rather than DefaultPlugins). A required `ResMut` there is not a missing
+    // feature, it is a PANIC on the first frame -- which is what took 30 of
+    // this crate's 32 test binaries down the moment `vector_gpu` was on.
+    layouts: Option<ResMut<Assets<TextureAtlasLayout>>>,
     mut full: ResMut<PfAtlasFull>,
     mut dirty: ResMut<PfAtlasDirty>,
     mut commands: Commands,
 ) {
     let Some(mut atlas) = atlas else { return };
-    for (entity, shape, computed, gpu, cpu_rendered) in &mut shapes {
+    let Some(mut layouts) = layouts else { return };
+    for (entity, shape, computed, mut gpu, cpu_rendered, claimed) in &mut shapes {
         let size = computed.size();
         let px = UVec2::new(size.x.round() as u32, size.y.round() as u32);
         if px.x == 0 || px.y == 0 {
@@ -853,12 +952,67 @@ fn sync_gpu_shapes(
 
         // Copied before the fast path moves `gpu`: if this shape ends up
         // re-reserving below, this is the region to hand back.
-        let old_slot = gpu.as_ref().map(|g| (g.capacity, g.origin));
+        let old_slot = gpu.as_ref().map(|g| (g.capacity, g.origin, g.generation));
+        // Another backend got there first -- bevy_ui native styling claims
+        // ahead of this one (see the ordering in `build`) and paints the node
+        // itself. Without this test the ordering was decorative: the GPU
+        // backend re-claimed the shape anyway, overwrote the claim with its
+        // own, and both backends painted the same node.
+        if claimed.is_some_and(|c| c.backend != "vector_gpu") {
+            continue;
+        }
+        // Does THIS backend hold the shape? Only then may the exhaustion arm
+        // below take its components away.
+        let held = gpu.is_some() || claimed.is_some();
 
         // Fast path: the shape still fits its reservation, so the slot, the
         // layout index and the draw entity all stand. A colour-only edit
         // re-tessellates nothing (the engine hashes path content) and uploads
         // no texture — the case this backend exists for.
+        //
+        // THE SDF ARM IS FIRST BECAUSE IT IS THE COMMON ONE. Rects, rounded
+        // rects and square ellipses — nearly all UI chrome — are drawn as SDF
+        // primitives, and their draw entities carry `VectorPrimitive`. The
+        // tessellated arm below asks `draws` for a `VectorShape`, which those
+        // entities do not have, so for a long time this fast path could not be
+        // taken by ANY of the shapes the SDF path was built for. Every colour
+        // change fell through to a full re-reservation, and each one appended
+        // a fresh `layout.add_texture` entry — a vector that only ever grows,
+        // and which the wholesale rebuild used to be the only thing to reset.
+        // Rate-limiting rebuilds turned that from churn into an unbounded leak.
+        if let Some(gpu) = gpu.as_mut()
+            && px.cmple(gpu.capacity).all()
+            && let Some((first, second)) = sdf_instances(&shape, px)
+            // The instance LAYOUT has to match what is already spawned; a
+            // shape that gained or lost its stroke needs a real re-spawn.
+            && second.is_some() == gpu.draw_stroke.is_some()
+            && prims.contains(gpu.draw)
+            && gpu.draw_stroke.is_none_or(|e| prims.contains(e))
+        {
+            let centre = slot_center_world(gpu.origin, px).extend(0.0);
+            if let Ok((mut prim, mut transform)) = prims.get_mut(gpu.draw) {
+                *prim = first;
+                transform.translation = centre;
+            }
+            if let Some(stroke_entity) = gpu.draw_stroke
+                && let Some(second) = second
+                && let Ok((mut prim, mut transform)) = prims.get_mut(stroke_entity)
+            {
+                *prim = second;
+                transform.translation = centre + Vec3::new(0.0, 0.0, 1.0e-4);
+            }
+            dirty.0 = 2;
+            if gpu.size != px {
+                gpu.size = px;
+                if let Some(mut layout) = layouts.get_mut(&atlas.layout)
+                    && let Some(rect) = layout.textures.get_mut(gpu.index)
+                {
+                    *rect = URect::from_corners(gpu.origin, gpu.origin + px);
+                }
+            }
+            continue;
+        }
+
         if let Some(mut gpu) = gpu
             && px.cmple(gpu.capacity).all()
             && gpu.draw_stroke.is_none()
@@ -883,17 +1037,33 @@ fn sync_gpu_shapes(
         }
 
         // Falling through to here means the shape outgrew its reservation.
-        // Give the old region back first, or it is leaked until the atlas
-        // fills and rebuilds wholesale.
-        if let Some((capacity, origin)) = old_slot {
-            atlas.release(capacity, origin);
-        }
+        //
+        // The old region is handed back AFTER the reservation below succeeds,
+        // never before. Releasing first looks harmless -- the shape is about
+        // to take a bigger slot -- but on the FAILURE path the removal of
+        // `PfShapeGpu` fires `release_slot`, which releases the very same
+        // region a second time, in the same generation, so the stamp waves
+        // both through and one origin sits in the free list TWICE. The packer
+        // then hands those identical pixels to two live shapes and each
+        // samples the other's paint.
+        //
+        // Nothing is lost by waiting: this arm is only reached because the
+        // shape OUTGREW its capacity, so the region being released can never
+        // satisfy the reservation being made -- the exact-capacity bucket
+        // wants a different key, and best-fit requires `cap >= size` on both
+        // axes, which the smaller old region fails by construction.
         let wanted = slot_capacity(px);
         // `capacity` is what was actually reserved, which best-fit reuse may
         // widen; storing `wanted` here would release it to the wrong bucket.
         let Some((origin, capacity)) = atlas.allocate(wanted) else {
-            // Out of room: rebuild the whole atlas next.
-            full.0 = true;
+            // Out of room: rebuild the whole atlas next -- but ONLY if a
+            // rebuild could actually help. A shape larger than the atlas
+            // itself never fits however empty it is, and letting it latch
+            // this flag buys a pointless wholesale rebuild every cooldown,
+            // forever.
+            if wanted.x + SLOT_PADDING <= ATLAS_SIZE && wanted.y + SLOT_PADDING <= ATLAS_SIZE {
+                full.0 = true;
+            }
             // AND HAND THE SHAPE BACK. The claim is what tells the CPU
             // rasterizer to keep its hands off (it queries
             // `Without<PfShapeClaim>`), so a shape that is claimed but has
@@ -906,11 +1076,32 @@ fn sync_gpu_shapes(
             // Releasing the claim and the ImageNode puts the shape back in
             // the CPU path's query on the very next frame, so exhaustion
             // costs rasterization time instead of visible chrome.
-            commands
-                .entity(entity)
-                .remove::<(PfShapeGpu, PfShapeClaim, ImageNode)>();
+            //
+            // `PfShapeRendered` goes too, and leaving it out is what made the
+            // promise above a lie. It is the CPU rasterizer's cache marker and
+            // its guard is SIZE-ONLY (`rendered.0 == px` in `rasterize_shapes`):
+            // a shape that was CPU-drawn, then claimed by this backend, then
+            // demoted still carries a marker matching its current size, so the
+            // rasterizer skips it as already-done while the `ImageNode` that
+            // marker refers to has just been taken away. Nobody draws it, and
+            // nobody ever will.
+            //
+            // And only strip a shape THIS backend actually holds. Without that
+            // test the arm re-runs every frame for an already-demoted shape and
+            // removes the `ImageNode` the CPU rasterizer installed one frame
+            // earlier, so the fallback flickers once and then stops.
+            if held {
+                commands
+                    .entity(entity)
+                    .remove::<(PfShapeGpu, PfShapeClaim, ImageNode, PfShapeRendered)>();
+            }
             continue;
         };
+        // Safe now: the reservation stands, so this release cannot be paired
+        // with the hook-driven one on the failure path above.
+        if let Some((capacity, origin, generation)) = old_slot {
+            atlas.release(capacity, origin, generation);
+        }
         let Some(mut layout) = layouts.get_mut(&atlas.layout) else {
             continue;
         };
@@ -939,6 +1130,7 @@ fn sync_gpu_shapes(
                 size: px,
                 draw,
                 draw_stroke,
+                generation: atlas.generation,
             },
             PfShapeClaim {
                 backend: "vector_gpu",
@@ -960,17 +1152,28 @@ fn sync_gpu_shapes(
 fn rebuild_atlas_if_full(
     mut full: ResMut<PfAtlasFull>,
     atlas: Option<ResMut<PfShapeAtlas>>,
-    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
+    layouts: Option<ResMut<Assets<TextureAtlasLayout>>>,
     slots: Query<(Entity, &PfShapeGpu)>,
     mut rebuilds: ResMut<PfAtlasRebuilds>,
+    mut cooldown: ResMut<PfAtlasRebuildCooldown>,
     mut commands: Commands,
 ) {
+    if cooldown.0 > 0 {
+        cooldown.0 -= 1;
+        // Still claimed-but-slotless shapes are already back on the CPU path
+        // (see the exhaustion arm of `sync_gpu_shapes`), so dropping the flag
+        // here loses nothing.
+        full.0 = false;
+        return;
+    }
     if !full.0 {
         return;
     }
     full.0 = false;
+    cooldown.0 = REBUILD_COOLDOWN;
     rebuilds.0 = rebuilds.0.saturating_add(1);
     let Some(mut atlas) = atlas else { return };
+    let Some(mut layouts) = layouts else { return };
     atlas.reset();
     if let Some(mut layout) = layouts.get_mut(&atlas.layout) {
         layout.textures.clear();
@@ -1007,5 +1210,174 @@ fn gate_atlas_camera(
         if !camera.is_active {
             camera.is_active = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn atlas() -> PfShapeAtlas {
+        PfShapeAtlas {
+            image: Handle::default(),
+            layout: Handle::default(),
+            cursor: UVec2::ZERO,
+            shelf_height: 0,
+            free: Default::default(),
+            generation: 0,
+        }
+    }
+
+    fn overlaps(a: (UVec2, UVec2), b: (UVec2, UVec2)) -> bool {
+        let (ao, ac) = a;
+        let (bo, bc) = b;
+        ao.x < bo.x + bc.x && bo.x < ao.x + ac.x && ao.y < bo.y + bc.y && bo.y < ao.y + ac.y
+    }
+
+    /// A rebuild resets the packer immediately, but the component removals it
+    /// queues fire `release_slot` afterwards — so the free list is repopulated
+    /// with origins from the atlas that was just thrown away. Handing those
+    /// out again puts two live shapes on the same pixels, and each samples
+    /// the other's paint.
+    ///
+    /// Measured in the game before the fix: a console button's 4x4 teal dot
+    /// rendered as a hard-edged CYAN bar, sampling a slot that belonged to a
+    /// different control, and scrollbars carried a different colour on each
+    /// stretch of their length.
+    #[test]
+    fn a_release_from_before_a_rebuild_cannot_alias_live_pixels() {
+        let mut atlas = atlas();
+        let live: Vec<(UVec2, UVec2)> = (0..8)
+            .map(|_| {
+                let (origin, cap) = atlas.allocate(UVec2::splat(16)).expect("fresh atlas");
+                (origin, cap)
+            })
+            .collect();
+
+        // The wholesale rebuild: packer reset now, removals queued.
+        atlas.reset();
+
+        // ...and the queued `on_remove` hooks land here, each releasing a
+        // region that belonged to the PREVIOUS atlas.
+        for (origin, capacity) in &live {
+            atlas.release(*capacity, *origin, 0);
+        }
+
+        // Everything re-registers against the rebuilt atlas. MORE slots are
+        // asked for than were released, so the packer must serve some from
+        // the free list and the rest from the cursor -- and the cursor is
+        // back at the origin, which is exactly where those stale entries
+        // point. That is the collision; releasing and re-taking the same
+        // count would quietly hand back the same non-overlapping set.
+        let mut handed_out: Vec<(UVec2, UVec2)> = Vec::new();
+        for _ in 0..16 {
+            let slot = atlas.allocate(UVec2::splat(16)).expect("rebuilt atlas");
+            for previous in &handed_out {
+                assert!(
+                    !overlaps(slot, *previous),
+                    "two shapes were given overlapping atlas regions: \
+                     {:?} overlaps {:?} — one will sample the other's paint",
+                    slot,
+                    previous
+                );
+            }
+            handed_out.push(slot);
+        }
+    }
+
+    /// The SDF stroke is inward-only from the size it is handed, so it must be
+    /// handed the FULL node size. Passing the fill's inset size applies the
+    /// half-stroke inset twice and floats the border half a stroke width
+    /// inward, leaving the outermost half-stroke of the slot empty -- visible
+    /// as a thin gap between a control's edge and its own border.
+    #[test]
+    fn the_sdf_stroke_covers_the_node_edge_not_a_half_stroke_inside_it() {
+        let mut shape = PfShape::new(crate::shapes::ShapeGeometry::Rectangle {
+            radius_x: 0.0,
+            radius_y: 0.0,
+        });
+        shape.fill = Some(v::PfBrush::Solid(v::PfColor {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255,
+        }));
+        shape.stroke = Some(v::PfBrush::Solid(v::PfColor {
+            r: 4,
+            g: 5,
+            b: 6,
+            a: 255,
+        }));
+        shape.stroke_thickness = 4.0;
+
+        let (fill, stroke) = sdf_instances(&shape, UVec2::new(100, 60)).expect("SDF eligible");
+        let VectorPrimitive::Rect {
+            size: stroke_size,
+            thickness,
+            ..
+        } = stroke.expect("fill + stroke means two instances")
+        else {
+            panic!("stroke instance should be a Rect")
+        };
+        assert_eq!(
+            stroke_size,
+            Vec2::new(100.0, 60.0),
+            "the stroke instance must take the FULL size; handing it the inset \
+             size stroked inward from an already-inset edge"
+        );
+        assert_eq!(thickness, 4.0);
+
+        // The fill IS inset by half the stroke, matching the CPU backend.
+        let VectorPrimitive::Rect {
+            size: fill_size,
+            thickness: fill_thickness,
+            ..
+        } = fill
+        else {
+            panic!("fill instance should be a Rect")
+        };
+        assert_eq!(fill_size, Vec2::new(96.0, 56.0));
+        assert_eq!(fill_thickness, 0.0, "a fill is not a stroke");
+    }
+
+    /// A stroke with no fill is one instance, and it too takes the full size.
+    #[test]
+    fn a_stroke_only_shape_is_a_single_full_size_instance() {
+        let mut shape = PfShape::new(crate::shapes::ShapeGeometry::Rectangle {
+            radius_x: 0.0,
+            radius_y: 0.0,
+        });
+        shape.stroke = Some(v::PfBrush::Solid(v::PfColor {
+            r: 4,
+            g: 5,
+            b: 6,
+            a: 255,
+        }));
+        shape.stroke_thickness = 2.0;
+        let (first, second) = sdf_instances(&shape, UVec2::new(40, 40)).expect("SDF eligible");
+        assert!(second.is_none(), "no fill means no second instance");
+        let VectorPrimitive::Rect {
+            size, thickness, ..
+        } = first
+        else {
+            panic!("expected a Rect")
+        };
+        assert_eq!(size, Vec2::new(40.0, 40.0));
+        assert_eq!(thickness, 2.0);
+    }
+
+    /// The stamp must not break ordinary reuse: a shape that outgrows its slot
+    /// inside one generation still hands the region back, or the atlas fills
+    /// and thrashes.
+    #[test]
+    fn a_release_within_the_same_generation_is_still_reused() {
+        let mut atlas = atlas();
+        let (origin, capacity) = atlas.allocate(UVec2::splat(16)).expect("fresh atlas");
+        atlas.release(capacity, origin, atlas.generation);
+        let (reused, _) = atlas.allocate(UVec2::splat(16)).expect("free list");
+        assert_eq!(
+            reused, origin,
+            "a same-generation release should go back into the free list"
+        );
     }
 }
