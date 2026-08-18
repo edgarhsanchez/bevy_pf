@@ -80,15 +80,40 @@ impl PfShapeAtlas {
     /// width. Slots are never freed — a resized shape takes a new slot and
     /// the old one is abandoned — so the atlas is rebuilt wholesale when it
     /// fills rather than fragmenting.
-    fn allocate(&mut self, size: UVec2) -> Option<UVec2> {
-        // Reuse before consuming. Without this, every resize past the current
-        // grain step abandoned its region: five shapes sweeping their size
-        // exhausted a 2048² atlas twelve times in nine seconds, and each
-        // exhaustion drops EVERY reservation for a frame -- the blink.
+    /// Reserve a region, returning where it starts and how big the region
+    /// ACTUALLY is — which may be larger than asked for when an existing
+    /// free region is recycled.
+    ///
+    /// BEST FIT, not exact fit. Exact-match reuse only helps a shape that
+    /// returns to a size it held before; a shape sweeping through sizes
+    /// leaves a trail of regions at capacities nobody asks for again, and
+    /// the cursor marches on regardless. With 176 shapes sweeping together
+    /// that still cost 226 rebuilds over 540 frames even after departing
+    /// shapes started returning their slots. Accepting any free region big
+    /// enough turns that trail back into supply.
+    ///
+    /// The caller must store the returned capacity, not the requested one,
+    /// or the region comes back to the wrong bucket on release and the
+    /// pool corrupts.
+    fn allocate(&mut self, size: UVec2) -> Option<(UVec2, UVec2)> {
         if let Some(origins) = self.free.get_mut(&size)
             && let Some(origin) = origins.pop()
         {
-            return Some(origin);
+            return Some((origin, size));
+        }
+        // Smallest region that still fits, so a 2048-wide leftover is not
+        // spent on a 16px dot while a wide bar waits behind it.
+        let best = self
+            .free
+            .iter()
+            .filter(|(cap, origins)| !origins.is_empty() && cap.x >= size.x && cap.y >= size.y)
+            .min_by_key(|(cap, _)| cap.x as u64 * cap.y as u64)
+            .map(|(cap, _)| *cap);
+        if let Some(cap) = best
+            && let Some(origins) = self.free.get_mut(&cap)
+            && let Some(origin) = origins.pop()
+        {
+            return Some((origin, cap));
         }
         let step = size + UVec2::splat(SLOT_PADDING);
         if step.x > ATLAS_SIZE || step.y > ATLAS_SIZE {
@@ -105,7 +130,7 @@ impl PfShapeAtlas {
         let origin = self.cursor;
         self.cursor.x += step.x;
         self.shelf_height = self.shelf_height.max(step.y);
-        Some(origin)
+        Some((origin, size))
     }
 
     /// Hand a region back for reuse at the same capacity.
@@ -123,7 +148,22 @@ impl PfShapeAtlas {
 
 /// The atlas slot a shape currently occupies, plus the draw entity rendering
 /// into it.
+/// RECLAIMED ON REMOVAL, via the hook below.
+///
+/// Slots used to come back only through a wholesale atlas rebuild. That is
+/// fine while shapes merely resize — the reservation is mutated in place —
+/// but a shape that goes AWAY took its region with it: panels open and
+/// close, templates re-expand, and every departed shape leaked a slot until
+/// the packer ran out and dropped every reservation at once.
+///
+/// It hid at small scale. Five shapes sweeping their size never filled a
+/// 2048² atlas, so the stress harness passed; the game carries ~148 and
+/// exhausted it 1,445 times in 35 seconds, which is what erased the console
+/// button chrome. The harness now runs the specimen set x20 and reproduces
+/// it: 500 rebuilds against a budget of 9, with no shape holding a slot at
+/// the end.
 #[derive(Component, Debug, Clone)]
+#[component(on_remove = release_slot)]
 pub struct PfShapeGpu {
     /// Index into the atlas layout. Its rect is mutated in place when the
     /// shape resizes within its slot, so the `ImageNode` never gets rebuilt.
@@ -139,6 +179,30 @@ pub struct PfShapeGpu {
     /// Second pass for a shape that has BOTH fill and stroke on the SDF
     /// path, where each is its own instance.
     draw_stroke: Option<Entity>,
+}
+
+/// Hand a departing shape's atlas region back to the packer.
+///
+/// A component hook rather than a `RemovedComponents` system: despawns and
+/// removals both land here, in the same command flush that did them, so a
+/// slot can never outlive the shape that held it. The draw entities go too
+/// — they are the instances rendering into that region, and leaving them
+/// would keep painting a slot the packer has already re-let.
+fn release_slot(
+    mut world: bevy::ecs::world::DeferredWorld,
+    ctx: bevy::ecs::lifecycle::HookContext,
+) {
+    let Some(gpu) = world.get::<PfShapeGpu>(ctx.entity).cloned() else {
+        return;
+    };
+    if let Some(mut atlas) = world.get_resource_mut::<PfShapeAtlas>() {
+        atlas.release(gpu.capacity, gpu.origin);
+    }
+    let mut commands = world.commands();
+    commands.entity(gpu.draw).try_despawn();
+    if let Some(stroke) = gpu.draw_stroke {
+        commands.entity(stroke).try_despawn();
+    }
 }
 
 /// Round a reservation up so small size changes reuse the same region.
@@ -800,11 +864,27 @@ fn sync_gpu_shapes(
         if let Some((capacity, origin)) = old_slot {
             atlas.release(capacity, origin);
         }
-        let capacity = slot_capacity(px);
-        let Some(origin) = atlas.allocate(capacity) else {
-            // Out of room: rebuild the whole atlas next. Until then this shape
-            // keeps whatever it had, or falls through to the CPU rasterizer.
+        let wanted = slot_capacity(px);
+        // `capacity` is what was actually reserved, which best-fit reuse may
+        // widen; storing `wanted` here would release it to the wrong bucket.
+        let Some((origin, capacity)) = atlas.allocate(wanted) else {
+            // Out of room: rebuild the whole atlas next.
             full.0 = true;
+            // AND HAND THE SHAPE BACK. The claim is what tells the CPU
+            // rasterizer to keep its hands off (it queries
+            // `Without<PfShapeClaim>`), so a shape that is claimed but has
+            // no slot is drawn by NOBODY — it does not fall through, it
+            // disappears. That is how the game lost every console-button
+            // border while the labels stayed: the atlas was exhausted, the
+            // claim stood, and the fallback this module's own header
+            // promises ("never worse than not having it") never ran.
+            //
+            // Releasing the claim and the ImageNode puts the shape back in
+            // the CPU path's query on the very next frame, so exhaustion
+            // costs rasterization time instead of visible chrome.
+            commands
+                .entity(entity)
+                .remove::<(PfShapeGpu, PfShapeClaim, ImageNode)>();
             continue;
         };
         let Some(mut layout) = layouts.get_mut(&atlas.layout) else {

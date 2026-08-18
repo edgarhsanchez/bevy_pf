@@ -191,7 +191,22 @@ fn setup(mut commands: Commands) {
             ..default()
         })
         .with_children(|parent| {
-            for (label, shape) in specimens() {
+            // --stress runs the specimen set REPEATED, because slot
+            // reclamation only misbehaves at scale: the game carries ~148
+            // shapes and exhausted the atlas 1,445 times in 35 seconds,
+            // while five shapes sweeping their size never even filled it.
+            // A leak per despawn is invisible until there are enough
+            // shapes to run the packer out before a rebuild reclaims.
+            let repeats: usize = std::env::args()
+                .position(|a| a == "--repeat")
+                .and_then(|i| std::env::args().nth(i + 1))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(if std::env::args().any(|a| a == "--stress") {
+                    20
+                } else {
+                    1
+                });
+            for (label, shape) in (0..repeats).flat_map(|_| specimens()) {
                 parent
                     .spawn(Node {
                         flex_direction: FlexDirection::Column,
@@ -264,6 +279,7 @@ fn stress_across_frames(
     slotted: Query<Entity, With<bevy_pf::shapes_gpu::PfShapeGpu>>,
     rebuilds: Res<bevy_pf::shapes_gpu::PfAtlasRebuilds>,
     mut warmup_rebuilds: Local<Option<u32>>,
+    mut late_rebuilds: Local<Option<u32>>,
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -275,6 +291,14 @@ fn stress_across_frames(
     // counted against the steady state.
     if *frame == WARMUP {
         *warmup_rebuilds = Some(rebuilds.0);
+    }
+    // A SECOND baseline, two thirds in. Capacities converge as shapes grow
+    // into their largest size and then stay inside it, so the interesting
+    // question is not "how many rebuilds in total" but "does it go quiet".
+    // A count that keeps climbing after convergence is a leak; one that
+    // stops is just the cost of growing into the working set.
+    if *frame == TOTAL - 180 {
+        *late_rebuilds = Some(rebuilds.0);
     }
 
     // Sweep every shape's size continuously.
@@ -306,13 +330,35 @@ fn stress_across_frames(
             slotted.iter().count(),
             rebuilds.0,
         );
-        // A handful of rebuilds over 540 frames of continuous resizing is
-        // acceptable (slots are never individually freed, so reclamation is
-        // expected); one every few frames is thrashing.
-        let budget = frames / 60;
+        // THE ASSERTION IS CONVERGENCE, NOT A TOTAL.
+        //
+        // Growing into the working set genuinely costs rebuilds: every shape
+        // climbs through capacities before it settles into the largest size
+        // it will hold, and while that is happening the packer can run out.
+        // What must NOT happen is rebuilds continuing after the sizes have
+        // settled — that is the leak this harness exists to catch, and it is
+        // what "the borders vanished" looked like from the outside.
+        //
+        // So the budget scales with the working set (the old flat `frames /
+        // 60` was written when this test had five shapes and passed a leak
+        // that cost the game 1,445 exhaustions in 35 seconds), and the real
+        // check is the LATE window below, which must be exactly zero.
+        let budget = (frames / 60).max(shapes.iter().count() as u32 / 4);
         if steady > budget {
             println!(
                 "stress: FAIL -- {steady} rebuilds in steady state exceeds budget {budget}; atlas is thrashing"
+            );
+            std::process::exit(1);
+        }
+        // THE REAL CHECK: once sizes have settled, the packer must be silent.
+        let late = rebuilds
+            .0
+            .saturating_sub(late_rebuilds.unwrap_or(rebuilds.0));
+        println!("stress: rebuilds in the last 180 frames = {late}");
+        if late > 0 {
+            println!(
+                "stress: FAIL -- {late} rebuilds AFTER the working set settled; \
+                 slots are leaking rather than being reused"
             );
             std::process::exit(1);
         }

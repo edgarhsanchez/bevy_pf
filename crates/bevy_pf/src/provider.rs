@@ -594,7 +594,11 @@ pub(crate) fn apply_value(
             if let Some(brush) = as_brush() {
                 let brush = brush.clone();
                 let mut e = world.entity_mut(entity);
-                if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+                // See WRITE ONLY ON A REAL CHANGE above.
+                let differs = e
+                    .get::<crate::shapes::PfShape>()
+                    .is_some_and(|s| s.fill.as_ref() != Some(&brush));
+                if differs && let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
                     shape.fill = Some(brush);
                     // Dropping the rendered marker forces re-rasterization
                     // at the unchanged layout size.
@@ -606,7 +610,10 @@ pub(crate) fn apply_value(
             if let Some(brush) = as_brush() {
                 let brush = brush.clone();
                 let mut e = world.entity_mut(entity);
-                if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+                let differs = e
+                    .get::<crate::shapes::PfShape>()
+                    .is_some_and(|s| s.stroke.as_ref() != Some(&brush));
+                if differs && let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
                     shape.stroke = Some(brush);
                     e.remove::<crate::shapes::PfShapeRendered>();
                 }
@@ -747,6 +754,20 @@ fn after_apply_value(world: &mut World, entity: Entity, target: PropertyTarget) 
 }
 
 /// Apply the "unset" state (nothing provides a value, or `{x:Null}` wins).
+// WRITE ONLY ON A REAL CHANGE.
+//
+// `get_mut` marks the component changed the moment it is dereferenced,
+// whether or not the value differs. These setters are re-applied every
+// frame by the trigger and theme passes — re-asserting the SAME brush —
+// so writing unconditionally marked every shape in the tree dirty on
+// every frame. The CPU rasterizer merely re-rasterized needlessly; the
+// GPU atlas backend released and re-reserved a slot and respawned its
+// draw entities each frame, which is why templated chrome flickered or
+// vanished and only reappeared when a hover happened to re-sync it at
+// the right moment.
+//
+// Comparing first costs one brush equality test and turns a per-frame
+// storm into nothing at all when the value is genuinely unchanged.
 fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
     if template_suppressed(world, entity, target) {
         return;
@@ -754,14 +775,20 @@ fn apply_unset(world: &mut World, entity: Entity, target: PropertyTarget) {
     match target {
         PropertyTarget::Fill => {
             let mut e = world.entity_mut(entity);
-            if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+            let differs = e
+                .get::<crate::shapes::PfShape>()
+                .is_some_and(|s| s.fill.is_some());
+            if differs && let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
                 shape.fill = None;
                 e.remove::<crate::shapes::PfShapeRendered>();
             }
         }
         PropertyTarget::Stroke => {
             let mut e = world.entity_mut(entity);
-            if let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
+            let differs = e
+                .get::<crate::shapes::PfShape>()
+                .is_some_and(|s| s.stroke.is_some());
+            if differs && let Some(mut shape) = e.get_mut::<crate::shapes::PfShape>() {
                 shape.stroke = None;
                 e.remove::<crate::shapes::PfShapeRendered>();
             }
