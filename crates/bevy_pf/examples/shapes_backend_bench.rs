@@ -12,6 +12,9 @@
 //!       --example shapes_backend_bench -- --backend cpu --shapes 200 --animate
 //!   cargo run --release -p bevy_pf --features vector_gpu \
 //!       --example shapes_backend_bench -- --backend gpu --shapes 200 --animate
+//!   cargo run --release -p bevy_pf --features vector_gpu \
+//!       --example shapes_backend_bench -- --backend native --shapes 200 --animate
+//!       [--warmup N] [--frames N]
 //!
 //! Reports CPU frame time percentiles over 600 frames after a 120-frame
 //! warmup. Frame time, not FPS averages.
@@ -22,14 +25,33 @@ use bevy::window::PresentMode;
 use bevy_pf::shapes::{PfShape, ShapeGeometry};
 use bevy_pf_xaml::value as v;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Backend {
+    Cpu,
+    Native,
+    Gpu,
+}
+
+impl Backend {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::Native => "native",
+            Self::Gpu => "gpu",
+        }
+    }
+}
+
 #[derive(Resource)]
 struct Config {
     shapes: usize,
     animate: bool,
-    backend: &'static str,
+    backend: Backend,
     size: Vec2,
     /// Points in the generated polygon; 0 uses a rounded rectangle.
     complex: usize,
+    warmup: u32,
+    frames: usize,
 }
 
 #[derive(Resource, Default)]
@@ -47,13 +69,18 @@ fn arg_value(name: &str) -> Option<String> {
 }
 
 fn main() {
-    let gpu = arg_value("--backend").as_deref() != Some("cpu");
+    let backend = match arg_value("--backend").as_deref() {
+        Some("cpu") => Backend::Cpu,
+        Some("native") => Backend::Native,
+        Some("gpu") | None => Backend::Gpu,
+        Some(other) => panic!("unknown backend '{other}' (cpu|native|gpu)"),
+    };
     let config = Config {
         shapes: arg_value("--shapes")
             .and_then(|s| s.parse().ok())
             .unwrap_or(200),
         animate: std::env::args().any(|a| a == "--animate"),
-        backend: if gpu { "gpu" } else { "cpu" },
+        backend,
         size: Vec2::new(
             arg_value("--w")
                 .and_then(|s| s.parse().ok())
@@ -65,10 +92,23 @@ fn main() {
         complex: arg_value("--complex")
             .and_then(|s| s.parse().ok())
             .unwrap_or(0),
+        warmup: arg_value("--warmup")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(120),
+        frames: arg_value("--frames")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(600),
     };
     println!(
-        "bench: backend={} shapes={} animate={} size={}x{} complex={}",
-        config.backend, config.shapes, config.animate, config.size.x, config.size.y, config.complex
+        "bench: backend={} shapes={} animate={} size={}x{} complex={} frames={} warmup={}",
+        config.backend.name(),
+        config.shapes,
+        config.animate,
+        config.size.x,
+        config.size.y,
+        config.complex,
+        config.frames,
+        config.warmup
     );
 
     let mut app = App::new();
@@ -78,7 +118,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 resolution: (1280u32, 720u32).into(),
-                present_mode: PresentMode::AutoNoVsync,
+                present_mode: PresentMode::Immediate,
                 ..default()
             }),
             ..default()
@@ -87,13 +127,31 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, (animate_fills, sample_frames));
 
-    if gpu {
-        app.add_plugins(bevy_pf::shapes_gpu::PfShapeGpuPlugin);
-    } else {
-        app.add_systems(
-            PostUpdate,
-            bevy_pf::shapes::rasterize_shapes.after(bevy::ui::UiSystems::Layout),
-        );
+    app.configure_sets(
+        PostUpdate,
+        (
+            bevy_pf::shapes::PfShapeSystems::Claim,
+            bevy_pf::shapes::PfShapeSystems::Rasterize,
+        )
+            .chain()
+            .after(bevy::ui::UiSystems::Layout),
+    );
+    app.add_systems(
+        PostUpdate,
+        bevy_pf::shapes::rasterize_shapes.in_set(bevy_pf::shapes::PfShapeSystems::Rasterize),
+    );
+    match backend {
+        Backend::Cpu => {}
+        Backend::Native => {
+            app.add_systems(
+                PostUpdate,
+                bevy_pf::shapes::style_native_shapes
+                    .in_set(bevy_pf::shapes::PfShapeSystems::Claim),
+            );
+        }
+        Backend::Gpu => {
+            app.add_plugins(bevy_pf::shapes_gpu::PfShapeGpuPlugin);
+        }
     }
     app.run();
 }
@@ -179,7 +237,7 @@ fn sample_frames(
     mut exit: MessageWriter<AppExit>,
 ) {
     samples.frames += 1;
-    if samples.frames <= 120 {
+    if samples.frames <= config.warmup {
         return; // warmup
     }
     if let Some(ms) = diagnostics
@@ -188,20 +246,21 @@ fn sample_frames(
     {
         samples.ms.push(ms as f32);
     }
-    if samples.ms.len() < 600 {
+    if samples.ms.len() < config.frames {
         return;
     }
     let mut sorted = samples.ms.clone();
     sorted.sort_by(f32::total_cmp);
     let pct = |p: f32| sorted[((sorted.len() - 1) as f32 * p) as usize];
     println!(
-        "backend={} shapes={} animate={} size={}x{} complex={}  frame_ms p50={:.3} p95={:.3} p99={:.3}",
-        config.backend,
+        "backend={} shapes={} animate={} size={}x{} complex={} frames={}  frame_ms p50={:.3} p95={:.3} p99={:.3}",
+        config.backend.name(),
         config.shapes,
         config.animate,
         config.size.x,
         config.size.y,
         config.complex,
+        config.frames,
         pct(0.50),
         pct(0.95),
         pct(0.99),

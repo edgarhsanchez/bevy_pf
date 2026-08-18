@@ -64,9 +64,9 @@ L1  engine-free core (grown, not invented):
       draw model: PfShape/PathCommand/Brush/StrokeStyle + rasterize_shape
       easing, icons, geometry math
 L2  renderer backends (per-shape claim contract, shapes.rs module docs):
-      tiny-skia   CPU, runs anywhere incl. wasm; measured fastest at UI scale
-      vector_gpu  bevy_pf_vector instancing; measured crossover ~1000 shapes
-      bevy_ui     native nodes for the rect/ellipse subset; zero-cost
+      bevy_ui     default for solid rectangles/circles; no extra pass or texture
+      tiny-skia   cached CPU fallback for unsupported/static vector shapes
+      vector_gpu  opt-in instancing for frequently changing complex shapes
       (vello / vello_cpu: candidate, only if a measured gap appears)
 L3  hosts:
       bevy (instantiate.rs + systems)   — the primary product, unchanged
@@ -87,11 +87,11 @@ L3  hosts:
   as-is. Do not invent a property system.
 - **glam** vector types in the core (what `PfShape` already needs); no
   Bevy math dependency.
-- **tiny-skia** remains the default rasterizer. This is a measured
-  position, not a default: CPU rasterization beat the GPU atlas below
-  ~1000 shapes in-app, and the wider ecosystem agrees (Blend2D's results,
-  vello_cpu's existence). Revisit only against the benchmark discipline
-  below.
+- **bevy_ui native shapes** are the default for solid rectangles and circles.
+  They share Bevy's existing UI pass and avoid both raster textures and the
+  vector atlas camera. **tiny-skia** remains the cached fallback for geometry
+  Bevy cannot express. **vector_gpu** stays opt-in for frequently changing
+  complex shapes, where it measured faster than repeated CPU rasterization.
 - **wgpu** remains the GPU substrate (bevy_pf_vector is wgpu-portable, no
   exotic features). vello's sparse-strips rewrite (vello_cpu/hybrid) is
   the most interesting external development — API still unstable; watch,

@@ -145,11 +145,13 @@ Working today:
   or each cell of a chamfered `Path` strip, in that row's own status colour
   without a `DataTrigger` per status. Shapes re-rasterize on a paint change
   even when their size is unchanged.
-- **Vector graphics / WPF Shapes**: `Rectangle`, `Ellipse`, `Line`,
+- **Vector graphics / WPF Shapes**: solid rectangles and circles use Bevy's
+  native UI GPU pass by default; `Rectangle`, `Ellipse`, `Line`,
   `Polyline`, `Polygon`, and `Path` with the full geometry mini-language
   (`M/L/H/V/C/S/Q/T/A/Z`, `F0/F1`, relative commands, smooth-curve
-  reflection), gradient fills/strokes, `Stretch` modes — rasterized with
-  tiny-skia at laid-out pixel size.
+  reflection), gradient fills/strokes, and `Stretch` modes fall back to
+  tiny-skia at laid-out pixel size. The optional `vector_gpu` feature handles
+  frequently changing complex shapes through a shared GPU atlas.
 - **Runtime `.xaml` assets**: `XamlView(handle)` instantiates on load and
   rebuilds on file change (`--features hot_reload`); merged dictionaries are
   prefetched as load dependencies, so editing a theme file reloads every view

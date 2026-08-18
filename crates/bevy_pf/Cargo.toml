@@ -16,7 +16,7 @@ authors.workspace = true
 # default-features = false and re-add what they need: arboard, the crate
 # behind bevy's system_clipboard, has no Android backend and fails to
 # COMPILE for that target.
-default = ["clipboard"]
+default = ["clipboard", "native_shapes"]
 clipboard = ["bevy/system_clipboard"]
 # Watch asset files and re-instantiate XamlView trees on change.
 hot_reload = ["bevy/file_watcher"]
@@ -24,12 +24,12 @@ hot_reload = ["bevy/file_watcher"]
 # instanced, drawn into a shared atlas) instead of CPU tiny-skia
 # rasterization. The CPU path stays as the fallback for anything the atlas
 # cannot fit, so enabling this is additive.
-vector_gpu = ["dep:bevy_pf_vector"]
+vector_gpu = ["dep:bevy_pf_vector", "dep:guillotiere"]
 # Draw <Rectangle>/<Ellipse> with bevy_ui's own GPU node rendering
 # (border_radius + BackgroundColor + BorderColor) instead of rasterizing
-# them. Measured at PARITY in-game (127-147 fps vs a 137-159 baseline), not
-# a win, and not yet visually verified against the obsidian chrome -- so it
-# is opt-in until someone looks at it. See "WHY THE BENCHMARKS LIED".
+# them. This is the default path for solid rectangles and circles: it stays in
+# Bevy's existing UI pass and adds no texture, atlas, camera, or render pass.
+# Unsupported geometry and paint still fall through to tiny-skia.
 native_shapes = []
 
 [dependencies]
@@ -42,7 +42,19 @@ tiny-skia = { workspace = true }
 # git dependency, feature-gated or not. For local engine development,
 # override with a [patch.crates-io] entry in an untracked
 # .cargo/config.toml pointing at your clone.
-bevy_pf_vector = { version = "0.1", git = "https://github.com/edgarhsanchez/bevy_pf_vector", optional = true }
+bevy_pf_vector = { version = "0.1.1", optional = true }
+# ALREADY IN THE GRAPH: bevy_image depends on it for bevy's own dynamic
+# texture atlas, so this is a name for something already compiled in rather
+# than a new dependency.
+#
+# It replaces a hand-rolled shelf packer whose freed regions could only ever
+# be handed back at their EXACT original size and were never merged with
+# their neighbours. Fragmentation therefore only accumulated, and the only
+# way to reclaim it was to rebuild the whole atlas -- which drops every
+# reservation for a frame, and reads to a player as the entire UI blinking.
+# Guillotine allocation merges a freed rectangle with its siblings and
+# collapses it into its parent, so the space comes back usable.
+guillotiere = { version = "0.6", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window"] }
@@ -58,4 +70,4 @@ required-features = ["vector_gpu"]
 
 [[example]]
 name = "shapes_backend_bench"
-required-features = ["vector_gpu"]
+required-features = ["vector_gpu", "native_shapes"]

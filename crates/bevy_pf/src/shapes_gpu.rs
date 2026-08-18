@@ -67,18 +67,9 @@ const SLOT_PADDING: u32 = 4;
 pub struct PfShapeAtlas {
     pub image: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
-    /// Next free x within the current shelf.
-    cursor: UVec2,
-    /// Height of the current shelf.
-    shelf_height: u32,
-    /// Regions returned by shapes that outgrew them, keyed by capacity.
-    ///
-    /// Shelf packing cannot reclaim an arbitrary hole, which is why released
-    /// regions are only ever handed back for the SAME capacity. That is enough
-    /// because capacities are quantized to a 16px grain, so a shape whose size
-    /// oscillates cycles through a handful of distinct capacities and reuses
-    /// them instead of consuming the atlas.
-    free: std::collections::HashMap<UVec2, Vec<UVec2>>,
+    /// Guillotine allocator: subdivides recursively and MERGES on
+    /// deallocation, which is what keeps fragmentation from being permanent.
+    packer: guillotiere::AtlasAllocator,
     /// Bumped by [`PfShapeAtlas::reset`]. Every reservation is stamped with
     /// the generation it was made in, and a release carrying an older stamp
     /// is dropped.
@@ -98,91 +89,66 @@ pub struct PfShapeAtlas {
 }
 
 impl PfShapeAtlas {
-    /// Reserve a `size` slot, returning its origin. Shelf packing: shapes are
-    /// laid in rows, a new row starting when the current one runs out of
-    /// width. Slots are never freed — a resized shape takes a new slot and
-    /// the old one is abandoned — so the atlas is rebuilt wholesale when it
-    /// fills rather than fragmenting.
-    /// Reserve a region, returning where it starts and how big the region
-    /// ACTUALLY is — which may be larger than asked for when an existing
-    /// free region is recycled.
+    /// Reserve a region, returning where it starts and the id that owns it.
     ///
-    /// BEST FIT, not exact fit. Exact-match reuse only helps a shape that
-    /// returns to a size it held before; a shape sweeping through sizes
-    /// leaves a trail of regions at capacities nobody asks for again, and
-    /// the cursor marches on regardless. With 176 shapes sweeping together
-    /// that still cost 226 rebuilds over 540 frames even after departing
-    /// shapes started returning their slots. Accepting any free region big
-    /// enough turns that trail back into supply.
+    /// GUILLOTINE ALLOCATION, not shelf packing. The shelf packer this
+    /// replaced could only hand a freed region back at its EXACT original
+    /// size (or, later, best-fit to something at least that big), and it
+    /// never merged a freed region with its neighbours. A shape sweeping
+    /// through sizes therefore left a trail of regions at capacities nobody
+    /// asked for again, and the only way to turn that trail back into space
+    /// was to rebuild the entire atlas -- which drops every reservation for
+    /// a frame and reads to a player as the whole UI blinking.
     ///
-    /// The caller must store the returned capacity, not the requested one,
-    /// or the region comes back to the wrong bucket on release and the
-    /// pool corrupts.
-    fn allocate(&mut self, size: UVec2) -> Option<(UVec2, UVec2)> {
-        if let Some(origins) = self.free.get_mut(&size)
-            && let Some(origin) = origins.pop()
-        {
-            return Some((origin, size));
-        }
-        // Smallest region that still fits, so a 2048-wide leftover is not
-        // spent on a 16px dot while a wide bar waits behind it.
-        let best = self
-            .free
-            .iter()
-            .filter(|(cap, origins)| !origins.is_empty() && cap.x >= size.x && cap.y >= size.y)
-            .min_by_key(|(cap, _)| cap.x as u64 * cap.y as u64)
-            .map(|(cap, _)| *cap);
-        if let Some(cap) = best
-            && let Some(origins) = self.free.get_mut(&cap)
-            && let Some(origin) = origins.pop()
-        {
-            return Some((origin, cap));
-        }
-        let step = size + UVec2::splat(SLOT_PADDING);
-        if step.x > ATLAS_SIZE || step.y > ATLAS_SIZE {
+    /// Guillotine allocation subdivides recursively and, on deallocation,
+    /// merges the freed rectangle with its siblings and collapses it into its
+    /// parent. Space returns to the pool in usable shapes, so fragmentation
+    /// stops being something that can only be escaped by starting over.
+    ///
+    /// The padding is kept: neighbouring slots that touch exactly will bleed
+    /// into one another under linear filtering, and the sampler is only
+    /// nearest today because of that.
+    /// Returns the origin, the capacity ACTUALLY reserved, and the id that
+    /// owns it. The capacity matters: guillotine allocation may hand back a
+    /// region larger than asked for, and storing the REQUEST instead of the
+    /// grant makes a shape think it has outgrown a slot it still fits, so it
+    /// re-reserves and appends a layout entry for nothing.
+    fn allocate(&mut self, size: UVec2) -> Option<(UVec2, UVec2, guillotiere::AllocId)> {
+        let padded = size + UVec2::splat(SLOT_PADDING);
+        if padded.x > ATLAS_SIZE || padded.y > ATLAS_SIZE {
             return None;
         }
-        if self.cursor.x + step.x > ATLAS_SIZE {
-            self.cursor.x = 0;
-            self.cursor.y += self.shelf_height;
-            self.shelf_height = 0;
-        }
-        if self.cursor.y + step.y > ATLAS_SIZE {
-            return None;
-        }
-        let origin = self.cursor;
-        self.cursor.x += step.x;
-        self.shelf_height = self.shelf_height.max(step.y);
-        Some((origin, size))
+        let alloc = self
+            .packer
+            .allocate(guillotiere::size2(padded.x as i32, padded.y as i32))?;
+        let min = alloc.rectangle.min;
+        let granted = alloc.rectangle.size();
+        let capacity = UVec2::new(
+            (granted.width as u32).saturating_sub(SLOT_PADDING),
+            (granted.height as u32).saturating_sub(SLOT_PADDING),
+        );
+        Some((
+            UVec2::new(min.x as u32, min.y as u32),
+            capacity,
+            alloc.id,
+        ))
     }
 
-    /// Hand a region back for reuse at the same capacity.
-    fn release(&mut self, capacity: UVec2, origin: UVec2, generation: u32) {
-        // A region reserved before the last rebuild does not exist any more;
-        // re-listing it would alias live pixels. See `generation`.
+    /// Hand a region back. Guillotine deallocation merges it with adjacent
+    /// free space, so this is a real reclaim rather than an entry in a pool of
+    /// fixed-size leftovers.
+    fn release(&mut self, id: guillotiere::AllocId, generation: u32) {
+        // A region reserved before the last reset does not exist any more, and
+        // the id may since have been reissued to a LIVE shape -- deallocating
+        // it would hand those pixels to a second owner. See `generation`.
         if generation != self.generation {
             return;
         }
-        let bucket = self.free.entry(capacity).or_default();
-        // BACKSTOP, and it has already caught a real defect once. A duplicate
-        // origin here is always a bug, but dropping it silently is far better
-        // than handing two live shapes the same pixels; the debug assertion is
-        // what makes it a test failure rather than a mystery.
-        debug_assert!(
-            !bucket.contains(&origin),
-            "atlas region {origin:?} released twice in one generation"
-        );
-        if bucket.contains(&origin) {
-            return;
-        }
-        bucket.push(origin);
+        self.packer.deallocate(id);
     }
 
     fn reset(&mut self) {
-        self.cursor = UVec2::ZERO;
-        self.shelf_height = 0;
-        // The regions these point at no longer exist after a rebuild.
-        self.free.clear();
+        self.packer.clear();
         self.generation = self.generation.wrapping_add(1);
     }
 }
@@ -213,6 +179,8 @@ pub struct PfShapeGpu {
     origin: UVec2,
     /// Reserved region size, >= the drawn size (see [`slot_capacity`]).
     capacity: UVec2,
+    /// Owns the reservation in the packer; deallocation goes by id.
+    alloc: guillotiere::AllocId,
     /// Pixel size currently drawn.
     size: UVec2,
     /// The entity drawing into the slot.
@@ -240,7 +208,7 @@ fn release_slot(
         return;
     };
     if let Some(mut atlas) = world.get_resource_mut::<PfShapeAtlas>() {
-        atlas.release(gpu.capacity, gpu.origin, gpu.generation);
+        atlas.release(gpu.alloc, gpu.generation);
     }
     let mut commands = world.commands();
     commands.entity(gpu.draw).try_despawn();
@@ -292,7 +260,7 @@ const REBUILD_COOLDOWN: u32 = 300;
 #[derive(Resource, Default)]
 pub struct PfAtlasRebuilds(pub u32);
 
-/// Marker for the atlas camera so its activity can be gated.
+/// Marker for the atlas camera so empty atlases do not render.
 #[derive(Component)]
 struct PfShapeAtlasCamera;
 
@@ -400,9 +368,10 @@ fn setup_atlas(
     commands.insert_resource(PfShapeAtlas {
         image,
         layout,
-        cursor: UVec2::ZERO,
-        shelf_height: 0,
-        free: Default::default(),
+        packer: guillotiere::AtlasAllocator::new(guillotiere::size2(
+            ATLAS_SIZE as i32,
+            ATLAS_SIZE as i32,
+        )),
         generation: 0,
     });
 }
@@ -952,7 +921,7 @@ fn sync_gpu_shapes(
 
         // Copied before the fast path moves `gpu`: if this shape ends up
         // re-reserving below, this is the region to hand back.
-        let old_slot = gpu.as_ref().map(|g| (g.capacity, g.origin, g.generation));
+        let old_slot = gpu.as_ref().map(|g| (g.alloc, g.generation));
         // Another backend got there first -- bevy_ui native styling claims
         // ahead of this one (see the ordering in `build`) and paints the node
         // itself. Without this test the ordering was decorative: the GPU
@@ -964,6 +933,7 @@ fn sync_gpu_shapes(
         // Does THIS backend hold the shape? Only then may the exhaustion arm
         // below take its components away.
         let held = gpu.is_some() || claimed.is_some();
+        let old_index = gpu.as_ref().map(|g| g.index);
 
         // Fast path: the shape still fits its reservation, so the slot, the
         // layout index and the draw entity all stand. A colour-only edit
@@ -1055,7 +1025,7 @@ fn sync_gpu_shapes(
         let wanted = slot_capacity(px);
         // `capacity` is what was actually reserved, which best-fit reuse may
         // widen; storing `wanted` here would release it to the wrong bucket.
-        let Some((origin, capacity)) = atlas.allocate(wanted) else {
+        let Some((origin, capacity, alloc)) = atlas.allocate(wanted) else {
             // Out of room: rebuild the whole atlas next -- but ONLY if a
             // rebuild could actually help. A shape larger than the atlas
             // itself never fits however empty it is, and letting it latch
@@ -1099,13 +1069,29 @@ fn sync_gpu_shapes(
         };
         // Safe now: the reservation stands, so this release cannot be paired
         // with the hook-driven one on the failure path above.
-        if let Some((capacity, origin, generation)) = old_slot {
-            atlas.release(capacity, origin, generation);
+        if let Some((alloc, generation)) = old_slot {
+            atlas.release(alloc, generation);
         }
         let Some(mut layout) = layouts.get_mut(&atlas.layout) else {
             continue;
         };
-        let index = layout.add_texture(URect::from_corners(origin, origin + px));
+        // REUSE THE INDEX THIS SHAPE ALREADY OWNS. `add_texture` only ever
+        // pushes, and nothing truncates `layout.textures`, so minting a fresh
+        // index on every re-reservation grows that vector for the life of the
+        // process -- one entry per resize, per shape, forever. The wholesale
+        // rebuild used to be the only thing that reset it, which made
+        // rate-limiting rebuilds turn steady churn into an unbounded leak.
+        //
+        // A shape's index is a stable name for "wherever this shape lives"; it
+        // is the RECT behind the name that changes when it moves.
+        let rect = URect::from_corners(origin, origin + px);
+        let index = match old_index {
+            Some(index) if index < layout.textures.len() => {
+                layout.textures[index] = rect;
+                index
+            }
+            _ => layout.add_texture(rect),
+        };
 
         // A grown shape abandons its old reservation; the rebuild reclaims it.
         for previous in previous_draw {
@@ -1127,6 +1113,7 @@ fn sync_gpu_shapes(
                 index,
                 origin,
                 capacity,
+                alloc,
                 size: px,
                 draw,
                 draw_stroke,
@@ -1171,6 +1158,11 @@ fn rebuild_atlas_if_full(
     }
     full.0 = false;
     cooldown.0 = REBUILD_COOLDOWN;
+    // A rebuild is USER-VISIBLE: every shape loses its slot for a frame, which
+    // reads as the whole UI blinking. It had no log at all, so the only way to
+    // notice one was to catch the flicker by eye.
+    let losing = slots.iter().count();
+    warn!("pf: shape atlas rebuild -- {losing} shapes lose their slot for one frame");
     rebuilds.0 = rebuilds.0.saturating_add(1);
     let Some(mut atlas) = atlas else { return };
     let Some(mut layouts) = layouts else { return };
@@ -1189,7 +1181,7 @@ fn rebuild_atlas_if_full(
     }
 }
 
-/// The atlas camera runs every frame.
+/// The atlas camera runs continuously while at least one shape samples it.
 ///
 /// It used to be gated on a dirty counter — skip the pass and the 2048x2048
 /// clear when no shape changed — which measured ~0.13 ms better on static UI.
@@ -1198,17 +1190,20 @@ fn rebuild_atlas_if_full(
 /// drawn. Caught in the game as "the borders around the access code fields
 /// disappeared", reproduced in `shapes_gpu_check` as every specimen blank.
 ///
-/// The saving is real but needs a mechanism that does not depend on the
-/// target persisting: clear and redraw only the live slots, or double-buffer
-/// the atlas. Until then, correctness.
+/// Turning it off when there are NO slots is different: no `ImageNode` can be
+/// sampling the target, so its contents are irrelevant. Native bevy_ui shapes
+/// commonly leave this backend empty; skipping the empty pass removes its
+/// fixed cost without putting retained pixels at risk.
 fn gate_atlas_camera(
     mut dirty: ResMut<PfAtlasDirty>,
+    slots: Query<(), With<PfShapeGpu>>,
     mut cameras: Query<&mut Camera, With<PfShapeAtlasCamera>>,
 ) {
     dirty.0 = 0;
+    let active = !slots.is_empty();
     for mut camera in &mut cameras {
-        if !camera.is_active {
-            camera.is_active = true;
+        if camera.is_active != active {
+            camera.is_active = active;
         }
     }
 }
@@ -1221,68 +1216,138 @@ mod tests {
         PfShapeAtlas {
             image: Handle::default(),
             layout: Handle::default(),
-            cursor: UVec2::ZERO,
-            shelf_height: 0,
-            free: Default::default(),
+            packer: guillotiere::AtlasAllocator::new(guillotiere::size2(
+                ATLAS_SIZE as i32,
+                ATLAS_SIZE as i32,
+            )),
             generation: 0,
         }
     }
 
-    fn overlaps(a: (UVec2, UVec2), b: (UVec2, UVec2)) -> bool {
-        let (ao, ac) = a;
-        let (bo, bc) = b;
-        ao.x < bo.x + bc.x && bo.x < ao.x + ac.x && ao.y < bo.y + bc.y && bo.y < ao.y + ac.y
+    #[test]
+    fn atlas_camera_runs_only_while_a_slot_is_sampled() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<PfAtlasDirty>()
+            .add_systems(Update, gate_atlas_camera);
+        let camera = app
+            .world_mut()
+            .spawn((Camera::default(), PfShapeAtlasCamera))
+            .id();
+
+        app.update();
+        assert!(
+            !app.world().get::<Camera>(camera).unwrap().is_active,
+            "an empty atlas has no consumers and should not clear or render"
+        );
+
+        let mut atlas = atlas();
+        let (origin, capacity, alloc) = atlas.allocate(UVec2::splat(16)).unwrap();
+        let draw = app.world_mut().spawn_empty().id();
+        let slot = app
+            .world_mut()
+            .spawn(PfShapeGpu {
+                index: 0,
+                origin,
+                capacity,
+                alloc,
+                size: UVec2::splat(16),
+                draw,
+                draw_stroke: None,
+                generation: 0,
+            })
+            .id();
+
+        app.update();
+        assert!(
+            app.world().get::<Camera>(camera).unwrap().is_active,
+            "a live slot samples retained atlas pixels, so the camera must stay active"
+        );
+
+        app.world_mut().despawn(slot);
+        app.update();
+        assert!(
+            !app.world().get::<Camera>(camera).unwrap().is_active,
+            "once the last slot is gone, target persistence no longer matters"
+        );
     }
 
     /// A rebuild resets the packer immediately, but the component removals it
-    /// queues fire `release_slot` afterwards — so the free list is repopulated
-    /// with origins from the atlas that was just thrown away. Handing those
-    /// out again puts two live shapes on the same pixels, and each samples
-    /// the other's paint.
+    /// queues fire `release_slot` afterwards -- so the deallocations arrive
+    /// against an allocator that has already been cleared. Guillotine ids are
+    /// REISSUED after a clear, so a stale one does not merely refer to nothing:
+    /// it names whichever LIVE allocation happens to hold that id now, and
+    /// freeing it hands those pixels to a second owner.
     ///
-    /// Measured in the game before the fix: a console button's 4x4 teal dot
-    /// rendered as a hard-edged CYAN bar, sampling a slot that belonged to a
-    /// different control, and scrollbars carried a different colour on each
-    /// stretch of their length.
+    /// Measured in the game before the stamp existed: a console button's 4x4
+    /// teal dot rendered as a hard-edged CYAN bar, sampling a slot that
+    /// belonged to a different control, and scrollbars carried a different
+    /// colour along each stretch of their length.
     #[test]
-    fn a_release_from_before_a_rebuild_cannot_alias_live_pixels() {
+    fn a_release_from_before_a_reset_cannot_free_a_live_allocation() {
         let mut atlas = atlas();
-        let live: Vec<(UVec2, UVec2)> = (0..8)
+        let stale: Vec<guillotiere::AllocId> = (0..8)
+            .map(|_| atlas.allocate(UVec2::splat(16)).expect("fresh atlas").2)
+            .collect();
+
+        // The wholesale rebuild: packer cleared now, removals queued.
+        atlas.reset();
+
+        // Live shapes re-register against the rebuilt atlas FIRST...
+        let live: Vec<(UVec2, guillotiere::AllocId)> = (0..8)
             .map(|_| {
-                let (origin, cap) = atlas.allocate(UVec2::splat(16)).expect("fresh atlas");
-                (origin, cap)
+                let (o, _, id) = atlas.allocate(UVec2::splat(16)).expect("rebuilt atlas");
+                (o, id)
             })
             .collect();
 
-        // The wholesale rebuild: packer reset now, removals queued.
-        atlas.reset();
-
-        // ...and the queued `on_remove` hooks land here, each releasing a
-        // region that belonged to the PREVIOUS atlas.
-        for (origin, capacity) in &live {
-            atlas.release(*capacity, *origin, 0);
+        // ...and only then do the queued hooks land, each carrying an id from
+        // the atlas that no longer exists.
+        for id in &stale {
+            atlas.release(*id, 0);
         }
 
-        // Everything re-registers against the rebuilt atlas. MORE slots are
-        // asked for than were released, so the packer must serve some from
-        // the free list and the rest from the cursor -- and the cursor is
-        // back at the origin, which is exactly where those stale entries
-        // point. That is the collision; releasing and re-taking the same
-        // count would quietly hand back the same non-overlapping set.
-        let mut handed_out: Vec<(UVec2, UVec2)> = Vec::new();
-        for _ in 0..16 {
-            let slot = atlas.allocate(UVec2::splat(16)).expect("rebuilt atlas");
-            for previous in &handed_out {
-                assert!(
-                    !overlaps(slot, *previous),
-                    "two shapes were given overlapping atlas regions: \
-                     {:?} overlaps {:?} — one will sample the other's paint",
-                    slot,
-                    previous
-                );
+        // Every live reservation must still be exclusively its owner's: ask for
+        // as many regions again and none may land on a live origin.
+        let live_origins: std::collections::HashSet<(u32, u32)> =
+            live.iter().map(|(o, _)| (o.x, o.y)).collect();
+        for _ in 0..8 {
+            let (origin, _, _) = atlas.allocate(UVec2::splat(16)).expect("space remains");
+            assert!(
+                !live_origins.contains(&(origin.x, origin.y)),
+                "origin {origin:?} was handed out while a live shape still holds it -- \
+                 a stale release freed an allocation belonging to somebody else"
+            );
+        }
+    }
+
+    /// The stamp must not break ordinary reuse: a shape that outgrows its slot
+    /// inside one generation still hands the region back, and guillotine
+    /// merging must make that space genuinely available again.
+    #[test]
+    fn a_release_within_the_same_generation_returns_usable_space() {
+        let mut atlas = atlas();
+        // Fill with a size that divides the atlas evenly, then free it all and
+        // confirm the whole area comes back -- which only happens if freed
+        // rectangles MERGE. A shelf packer keeping fixed-size leftovers would
+        // fail the final large allocation.
+        let mut ids = Vec::new();
+        while let Some((_, _, id)) = atlas.allocate(UVec2::splat(256)) {
+            ids.push(id);
+            if ids.len() > 128 {
+                break;
             }
-            handed_out.push(slot);
         }
+        assert!(ids.len() > 8, "expected many 256px slots in a 2048px atlas");
+        let generation = atlas.generation;
+        for id in ids {
+            atlas.release(id, generation);
+        }
+        assert!(
+            atlas.allocate(UVec2::splat(1024)).is_some(),
+            "after freeing every small slot, a large one must fit -- freed \
+             regions have to merge, not sit in per-size pools"
+        );
     }
 
     /// The SDF stroke is inward-only from the size it is handed, so it must be
@@ -1366,18 +1431,5 @@ mod tests {
         assert_eq!(thickness, 2.0);
     }
 
-    /// The stamp must not break ordinary reuse: a shape that outgrows its slot
-    /// inside one generation still hands the region back, or the atlas fills
-    /// and thrashes.
-    #[test]
-    fn a_release_within_the_same_generation_is_still_reused() {
-        let mut atlas = atlas();
-        let (origin, capacity) = atlas.allocate(UVec2::splat(16)).expect("fresh atlas");
-        atlas.release(capacity, origin, atlas.generation);
-        let (reused, _) = atlas.allocate(UVec2::splat(16)).expect("free list");
-        assert_eq!(
-            reused, origin,
-            "a same-generation release should go back into the free list"
-        );
-    }
+
 }

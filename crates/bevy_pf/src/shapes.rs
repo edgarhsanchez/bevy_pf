@@ -92,12 +92,12 @@ pub enum PfShapeSystems {
 /// Style a shape with bevy_ui's OWN node rendering where the geometry allows
 /// it, instead of rasterizing anything.
 ///
-/// bevy_ui already draws rounded rectangles, borders and gradients on the GPU
+/// bevy_ui already draws rounded rectangles and borders on the GPU
 /// with a signed-distance shader, correctly clipped and z-ordered because it
 /// is part of the UI pass rather than a texture smuggled into it. A
-/// `<Rectangle>` or `<Ellipse>` with solid paint IS that primitive, so the
-/// fastest thing this backend can do for it is nothing at all: no tiny-skia
-/// raster, no texture upload, no atlas, no extra camera or pass.
+/// `<Rectangle>` or square `<Ellipse>` with solid paint IS that primitive, so
+/// the fastest thing this backend can do for it is nothing at all: no
+/// tiny-skia raster, no texture upload, no atlas, no extra camera or pass.
 ///
 /// That covers most UI chrome. Anything it cannot express — arbitrary paths,
 /// polylines, lines, dash patterns, elliptical corners, non-uniform ellipses
@@ -136,49 +136,114 @@ fn native_style(
             }
             BorderRadius::all(Val::Px(*radius_x))
         }
-        // An inscribed ellipse is a box rounded by half its extents.
-        ShapeGeometry::Ellipse => BorderRadius::all(Val::Px(size.x.min(size.y) * 0.5)),
+        // A rounded box can represent a circle, not a general oval. Using the
+        // shorter half-extent for a non-square ellipse produces a capsule.
+        ShapeGeometry::Ellipse if px.x == px.y => {
+            BorderRadius::all(Val::Px(size.x * 0.5))
+        }
+        ShapeGeometry::Ellipse => return None,
         _ => return None,
     };
     Some((fill, stroke, radius, shape.stroke_thickness))
 }
 
-/// Applies [`native_style`] and marks what it handled.
+/// Applies [`native_style`], updates shapes already owned by this backend, and
+/// relinquishes shapes that stop being expressible by bevy_ui.
 #[cfg(feature = "native_shapes")]
-pub(crate) fn style_native_shapes(
-    mut shapes: Query<
-        (Entity, Ref<PfShape>, &ComputedNode, &mut bevy::ui::Node),
-        Without<PfShapeClaim>,
-    >,
+pub fn style_native_shapes(
+    mut shapes: Query<(
+        Entity,
+        Ref<PfShape>,
+        &ComputedNode,
+        &mut bevy::ui::Node,
+        Option<&PfShapeClaim>,
+        Option<&mut BackgroundColor>,
+        Option<&mut BorderColor>,
+        Has<ImageNode>,
+        Has<PfShapeRendered>,
+    )>,
     mut commands: Commands,
 ) {
-    for (entity, shape, computed, mut node) in &mut shapes {
+    for (
+        entity,
+        shape,
+        computed,
+        mut node,
+        claim,
+        mut background,
+        mut border_color,
+        has_image,
+        has_rendered,
+    ) in &mut shapes
+    {
         let size = computed.size();
         let px = UVec2::new(size.x.round() as u32, size.y.round() as u32);
         if px.x == 0 || px.y == 0 {
             continue;
         }
+
+        let native_owned = claim.is_some_and(|claim| claim.backend == "bevy_ui_native");
+        let vector_owned = claim.is_some_and(|claim| claim.backend == "vector_gpu");
         let Some((fill, stroke, radius, thickness)) = native_style(&shape, px) else {
+            if native_owned {
+                node.border_radius = BorderRadius::default();
+                node.border = bevy::ui::UiRect::all(Val::Px(0.0));
+                if let Some(current) = background.as_mut() {
+                    **current = BackgroundColor(Color::NONE);
+                }
+                if let Some(current) = border_color.as_mut() {
+                    **current = BorderColor::all(Color::NONE);
+                }
+                commands.entity(entity).remove::<PfShapeClaim>();
+            }
             continue;
         };
+        if claim.is_some() && !native_owned && !vector_owned {
+            continue;
+        }
+
         // border_radius is a Node FIELD in bevy 0.19, not a component.
         if node.border_radius != radius {
             node.border_radius = radius;
         }
         let mut e = commands.entity(entity);
-        e.insert(PfShapeClaim {
-            backend: "bevy_ui_native",
-        });
+        if !native_owned {
+            e.insert(PfShapeClaim {
+                backend: "bevy_ui_native",
+            });
+        }
+        #[cfg(feature = "vector_gpu")]
+        if vector_owned {
+            e.remove::<crate::shapes_gpu::PfShapeGpu>();
+        }
         // Drop any texture a previous pass produced for this node.
-        e.remove::<(ImageNode, PfShapeRendered)>();
-        e.insert(BackgroundColor(fill.unwrap_or(Color::NONE)));
-        if let Some(stroke) = stroke {
-            e.insert(BorderColor::all(stroke));
+        if has_image || has_rendered {
+            e.remove::<(ImageNode, PfShapeRendered)>();
+        }
+        let desired = BackgroundColor(fill.unwrap_or(Color::NONE));
+        if let Some(current) = background.as_mut() {
+            if **current != desired {
+                **current = desired;
+            }
+        } else {
+            e.insert(desired);
+        }
+        let desired = BorderColor::all(stroke.unwrap_or(Color::NONE));
+        if let Some(current) = border_color.as_mut() {
+            if **current != desired {
+                **current = desired;
+            }
+        } else {
+            e.insert(desired);
         }
         // bevy_ui draws its border INSIDE the node; WPF straddles the edge.
         // Half a pixel of difference on HUD chrome. Mutate the existing Node
         // rather than insert one — it carries the layout.
-        let border = if stroke.is_some() { thickness } else { 0.0 };
+        let border = if stroke.is_some() {
+            thickness.max(0.0)
+        } else {
+            0.0
+        };
         if node.border != bevy::ui::UiRect::all(Val::Px(border)) {
             node.border = bevy::ui::UiRect::all(Val::Px(border));
         }
@@ -645,6 +710,7 @@ pub fn rasterize_shapes(
             Ref<PfShape>,
             &ComputedNode,
             Option<&PfShapeRendered>,
+            Option<&ImageNode>,
         ),
         Without<PfShapeClaim>,
     >,
@@ -652,7 +718,7 @@ pub fn rasterize_shapes(
     mut commands: Commands,
 ) {
     let Some(mut images) = images else { return };
-    for (entity, shape, computed, rendered) in &mut shapes {
+    for (entity, shape, computed, rendered, node) in &mut shapes {
         let size = computed.size();
         let px = UVec2::new(size.x.round() as u32, size.y.round() as u32);
         if px.x == 0 || px.y == 0 {
@@ -676,6 +742,29 @@ pub fn rasterize_shapes(
         let Some(data) = rasterize_shape(&shape, px.x, px.y) else {
             continue;
         };
+        // SAME SIZE, NEW PAINT: write into the texture this shape already
+        // owns instead of minting another one.
+        //
+        // `Image::new` + `images.add` allocates a whole new asset every time,
+        // and the guard above only skips when NOTHING changed -- so once a
+        // colour change was allowed to reach here (it previously could not,
+        // which was its own bug: hover never repainted), every hover began
+        // allocating a full texture. Measured on the resize stress harness
+        // before this: 105,500 image assets minted and 19 GB of texture
+        // churned in 540 frames, enough to saturate the asset system so
+        // thoroughly that NOTHING rendered at all.
+        //
+        // A resize still has to allocate, because the dimensions differ. A
+        // repaint does not, and repaints are the common case: hover, focus,
+        // selection, any brush bound to a view model.
+        if rendered.is_some_and(|r| r.0 == px)
+            && let Some(node) = node
+            && let Some(mut existing) = images.get_mut(&node.image)
+            && existing.data.as_ref().is_some_and(|d| d.len() == data.len())
+        {
+            existing.data = Some(data);
+            continue;
+        }
         let image = Image::new(
             Extent3d {
                 width: px.x,

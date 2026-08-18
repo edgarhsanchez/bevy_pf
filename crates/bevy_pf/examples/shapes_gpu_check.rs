@@ -27,6 +27,30 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(bevy_pf::shapes_gpu::PfShapeGpuPlugin)
         .add_systems(Startup, setup);
+    // THE CPU RASTERIZER BELONGS IN THIS HARNESS, and leaving it out was not a
+    // simplification -- it removed the very thing the harness most needs to
+    // check. This backend's contract is "never worse than not having it": what
+    // it cannot place in the atlas it demotes, and tiny-skia draws instead.
+    // Without the fallback registered, a demoted shape is drawn by NOBODY, so
+    // an over-committed atlas shows up here as specimens that simply are not
+    // there -- indistinguishable, to anyone looking at the window, from the
+    // backend dropping them.
+    //
+    // That is the same failure that erased the game's console-button chrome,
+    // and this harness -- the one built to catch it -- could not see it.
+    app.configure_sets(
+        PostUpdate,
+        (
+            bevy_pf::shapes::PfShapeSystems::Claim,
+            bevy_pf::shapes::PfShapeSystems::Rasterize,
+        )
+            .chain()
+            .after(bevy::ui::UiSystems::Layout),
+    );
+    app.add_systems(
+        PostUpdate,
+        bevy_pf::shapes::rasterize_shapes.in_set(bevy_pf::shapes::PfShapeSystems::Rasterize),
+    );
     if std::env::args().any(|a| a == "--screenshot") {
         app.add_systems(Update, screenshot_and_exit);
     }
@@ -284,6 +308,18 @@ fn screenshot_and_exit(
             .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
             .observe(bevy::render::view::screenshot::save_to_disk(
                 "shapes_gpu_check.png",
+            ));
+    }
+    // A SECOND SHOT, LATE. The frame-60 shot only proves the specimens drew
+    // ONCE. A shape that loses its slot later -- an atlas rebuild, an
+    // exhaustion demotion whose CPU fallback never ran -- is invisible to it,
+    // and "some shapes are missing" is exactly what that looks like to
+    // somebody watching the window rather than the file.
+    if *frame == 350 {
+        commands
+            .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+            .observe(bevy::render::view::screenshot::save_to_disk(
+                "shapes_gpu_check_late.png",
             ));
     }
     if *frame == 400 {

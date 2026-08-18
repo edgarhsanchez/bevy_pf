@@ -1233,6 +1233,7 @@ dependencies = [
  "bevy_pf_macros",
  "bevy_pf_vector",
  "bevy_pf_xaml",
+ "guillotiere",
  "js-sys",
  "thiserror 2.0.20",
  "tiny-skia 0.12.0",
@@ -1251,8 +1252,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf_vector"
-version = "0.1.0"
-source = "git+https://github.com/edgarhsanchez/bevy_pf_vector#451a00c70ac33b02cd277722f1c75b9105b5f8db"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cee626dc966798b1ca7c7205cfb25e1aa6824d7387fa0775828c1322afa0a86"
 dependencies = [
  "bevy",
  "bytemuck",

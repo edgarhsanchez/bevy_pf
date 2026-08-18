@@ -63,12 +63,14 @@ transparent to input exactly as in WPF.
 - `clipboard` *(default)* — system clipboard for text inputs. Android
   consumers should take `default-features = false`; the underlying crate has
   no Android backend and fails to compile there.
+- `native_shapes` *(default)* — draw solid `<Rectangle>` and square
+  `<Ellipse>` elements in Bevy's existing UI pass, with no raster texture or
+  extra camera. Unsupported shapes fall through to tiny-skia.
 - `hot_reload` — watch `.xaml` assets and re-instantiate on change.
 - `vector_gpu` — route shape rendering through
   [`bevy_pf_vector`](https://crates.io/crates/bevy_pf_vector) (tessellate
-  once, draw instanced) with the CPU path kept as fallback.
-- `native_shapes` — draw `<Rectangle>`/`<Ellipse>` with `bevy_ui`'s own node
-  rendering. Measured at parity, so opt-in.
+  once, draw instanced) after native shapes claim their supported subset, with
+  the CPU path kept as fallback.
 
 ## License
 
