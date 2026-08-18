@@ -1227,7 +1227,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "bevy",
  "bevy_pf_macros",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf_macros"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "bevy_pf_xaml",
  "proc-macro2",
@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf_xaml"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "roxmltree",
  "thiserror 2.0.20",
