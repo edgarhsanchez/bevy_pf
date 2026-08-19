@@ -145,8 +145,7 @@ fn main() {
         Backend::Native => {
             app.add_systems(
                 PostUpdate,
-                bevy_pf::shapes::style_native_shapes
-                    .in_set(bevy_pf::shapes::PfShapeSystems::Claim),
+                bevy_pf::shapes::style_native_shapes.in_set(bevy_pf::shapes::PfShapeSystems::Claim),
             );
         }
         Backend::Gpu => {

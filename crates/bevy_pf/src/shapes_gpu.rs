@@ -70,6 +70,28 @@ pub struct PfShapeAtlas {
     /// Guillotine allocator: subdivides recursively and MERGES on
     /// deallocation, which is what keeps fragmentation from being permanent.
     packer: guillotiere::AtlasAllocator,
+    /// Additional pages, opened when the ones before them are full.
+    ///
+    /// PAGES, NOT ONE TEXTURE, and this is what removes the blink. With a
+    /// single page a shape that does not fit has only bad options: demote it
+    /// to the CPU rasterizer, or reclaim space by rebuilding -- which drops
+    /// EVERY reservation for a frame, so the whole UI disappears and comes
+    /// back. Rate-limiting that only turned a constant failure into a
+    /// periodic one.
+    ///
+    /// Bevy's own font atlas answers this by never reclaiming at all: on
+    /// overflow `FontAtlasSet::add_glyph_to_atlas` tries every existing page
+    /// and then pushes a new one. Nothing is evicted, nothing is rebuilt, so
+    /// no glyph vanishes because the atlas was busy -- and UI text is
+    /// composited from exactly these multi-page atlases, so per-node distinct
+    /// page images are a case bevy_ui already supports.
+    ///
+    /// The cost is real: our pages are RENDER TARGETS, not CPU-filled images,
+    /// so each carries its own camera and clears its own 2048x2048 target
+    /// every frame. Bevy's pages cost nothing per frame; ours cost a pass.
+    /// Hence [`MAX_PAGES`], and hence the native bevy_ui backend -- which
+    /// needs no page at all -- claiming first.
+    extra: Vec<AtlasPage>,
     /// Bumped by [`PfShapeAtlas::reset`]. Every reservation is stamped with
     /// the generation it was made in, and a release carrying an older stamp
     /// is dropped.
@@ -88,7 +110,42 @@ pub struct PfShapeAtlas {
     generation: u32,
 }
 
+/// One additional atlas texture: its image, its slot layout, its allocator.
+pub struct AtlasPage {
+    pub image: Handle<Image>,
+    pub layout: Handle<TextureAtlasLayout>,
+    packer: guillotiere::AtlasAllocator,
+}
+
+/// How many atlas pages may exist in total (page 0 plus [`PfShapeAtlas::extra`]).
+///
+/// Each is 2048x2048xRGBA8 -- ~16 MB of VRAM and, because ours are render
+/// targets, one camera and one clear per frame. A deliberate ceiling rather
+/// than a limit anyone should reach: with solid rectangles, circles and now
+/// gradients all claimed by the native bevy_ui backend, what reaches the atlas
+/// is genuinely irregular geometry.
+const MAX_PAGES: usize = 4;
+
 impl PfShapeAtlas {
+    /// Every page, page 0 first.
+    fn packers(&mut self) -> impl Iterator<Item = &mut guillotiere::AtlasAllocator> {
+        std::iter::once(&mut self.packer).chain(self.extra.iter_mut().map(|p| &mut p.packer))
+    }
+
+    /// The image and layout for a page index.
+    pub fn page(&self, index: usize) -> (&Handle<Image>, &Handle<TextureAtlasLayout>) {
+        match index.checked_sub(1) {
+            None => (&self.image, &self.layout),
+            Some(extra) => {
+                let page = &self.extra[extra];
+                (&page.image, &page.layout)
+            }
+        }
+    }
+
+    fn page_count(&self) -> usize {
+        1 + self.extra.len()
+    }
     /// Reserve a region, returning where it starts and the id that owns it.
     ///
     /// GUILLOTINE ALLOCATION, not shelf packing. The shelf packer this
@@ -113,14 +170,22 @@ impl PfShapeAtlas {
     /// region larger than asked for, and storing the REQUEST instead of the
     /// grant makes a shape think it has outgrown a slot it still fits, so it
     /// re-reserves and appends a layout entry for nothing.
-    fn allocate(&mut self, size: UVec2) -> Option<(UVec2, UVec2, guillotiere::AllocId)> {
+    fn allocate(&mut self, size: UVec2) -> Option<(usize, UVec2, UVec2, guillotiere::AllocId)> {
         let padded = size + UVec2::splat(SLOT_PADDING);
         if padded.x > ATLAS_SIZE || padded.y > ATLAS_SIZE {
             return None;
         }
-        let alloc = self
-            .packer
-            .allocate(guillotiere::size2(padded.x as i32, padded.y as i32))?;
+        let wanted = guillotiere::size2(padded.x as i32, padded.y as i32);
+        let mut alloc = None;
+        let mut page = 0;
+        for (index, packer) in self.packers().enumerate() {
+            if let Some(a) = packer.allocate(wanted) {
+                alloc = Some(a);
+                page = index;
+                break;
+            }
+        }
+        let alloc = alloc?;
         let min = alloc.rectangle.min;
         let granted = alloc.rectangle.size();
         let capacity = UVec2::new(
@@ -128,6 +193,7 @@ impl PfShapeAtlas {
             (granted.height as u32).saturating_sub(SLOT_PADDING),
         );
         Some((
+            page,
             UVec2::new(min.x as u32, min.y as u32),
             capacity,
             alloc.id,
@@ -137,14 +203,21 @@ impl PfShapeAtlas {
     /// Hand a region back. Guillotine deallocation merges it with adjacent
     /// free space, so this is a real reclaim rather than an entry in a pool of
     /// fixed-size leftovers.
-    fn release(&mut self, id: guillotiere::AllocId, generation: u32) {
+    fn release(&mut self, page: usize, id: guillotiere::AllocId, generation: u32) {
         // A region reserved before the last reset does not exist any more, and
         // the id may since have been reissued to a LIVE shape -- deallocating
         // it would hand those pixels to a second owner. See `generation`.
         if generation != self.generation {
             return;
         }
-        self.packer.deallocate(id);
+        match page.checked_sub(1) {
+            None => self.packer.deallocate(id),
+            Some(extra) => {
+                if let Some(page) = self.extra.get_mut(extra) {
+                    page.packer.deallocate(id);
+                }
+            }
+        }
     }
 
     fn reset(&mut self) {
@@ -181,6 +254,9 @@ pub struct PfShapeGpu {
     capacity: UVec2,
     /// Owns the reservation in the packer; deallocation goes by id.
     alloc: guillotiere::AllocId,
+    /// Which atlas page the reservation lives on. Each page is its own
+    /// texture, layout and render layer.
+    page: usize,
     /// Pixel size currently drawn.
     size: UVec2,
     /// The entity drawing into the slot.
@@ -208,7 +284,7 @@ fn release_slot(
         return;
     };
     if let Some(mut atlas) = world.get_resource_mut::<PfShapeAtlas>() {
-        atlas.release(gpu.alloc, gpu.generation);
+        atlas.release(gpu.page, gpu.alloc, gpu.generation);
     }
     let mut commands = world.commands();
     commands.entity(gpu.draw).try_despawn();
@@ -260,9 +336,14 @@ const REBUILD_COOLDOWN: u32 = 300;
 #[derive(Resource, Default)]
 pub struct PfAtlasRebuilds(pub u32);
 
-/// Marker for the atlas camera so empty atlases do not render.
+/// Marker for an atlas page's camera, carrying which page it draws.
+///
+/// PER PAGE, not one flag covering all of them. Each page is its own
+/// 2048x2048 render target, so an active camera costs a full clear and a pass
+/// every frame whether or not anything lives on that page. Opening pages to
+/// stop shapes blinking would otherwise buy the blink back as steady GPU cost.
 #[derive(Component)]
-struct PfShapeAtlasCamera;
+struct PfShapeAtlasCamera(usize);
 
 /// Frames the atlas camera stays active after the last shape edit.
 ///
@@ -293,6 +374,61 @@ impl Plugin for PfShapeGpuPlugin {
             .init_resource::<PfAtlasDirty>()
             .add_systems(Startup, setup_atlas)
             .add_systems(PostUpdate, claim);
+    }
+}
+
+/// Open another atlas page: its texture, its slot layout, and the offscreen
+/// camera that draws into it, on its own render layer.
+fn open_page(
+    index: usize,
+    commands: &mut Commands,
+    images: &mut Assets<Image>,
+    layouts: &mut Assets<TextureAtlasLayout>,
+) -> AtlasPage {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: ATLAS_SIZE,
+            height: ATLAS_SIZE,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    );
+    image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    image.sampler = bevy::image::ImageSampler::nearest();
+    let image = images.add(image);
+    let layout = layouts.add(TextureAtlasLayout::new_empty(UVec2::splat(ATLAS_SIZE)));
+    let mut projection = OrthographicProjection::default_2d();
+    projection.scaling_mode = bevy::camera::ScalingMode::Fixed {
+        width: ATLAS_SIZE as f32,
+        height: ATLAS_SIZE as f32,
+    };
+    commands.spawn((
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            // Pages may share an order because each has a DIFFERENT target,
+            // which is what bevy keys its camera-ambiguity warning on.
+            order: -100,
+            ..default()
+        },
+        RenderTarget::Image(image.clone().into()),
+        Projection::Orthographic(projection),
+        bevy::render::view::Msaa::Off,
+        RenderLayers::layer(SHAPE_LAYER + index),
+        PfShapeAtlasCamera(index),
+        Name::new(format!("PfShapeAtlasCamera{index}")),
+    ));
+    AtlasPage {
+        image,
+        layout,
+        packer: guillotiere::AtlasAllocator::new(guillotiere::size2(
+            ATLAS_SIZE as i32,
+            ATLAS_SIZE as i32,
+        )),
     }
 }
 
@@ -360,9 +496,12 @@ fn setup_atlas(
         RenderTarget::Image(image.clone().into()),
         Projection::Orthographic(projection),
         bevy::render::view::Msaa::Off,
+        // Page 0's camera. Each page draws on its OWN layer so a page's
+        // camera renders only the shapes that live on it -- one shared layer
+        // would have every camera redraw every shape into every page.
         RenderLayers::layer(SHAPE_LAYER),
-        PfShapeAtlasCamera,
-        Name::new("PfShapeAtlasCamera"),
+        PfShapeAtlasCamera(0),
+        Name::new("PfShapeAtlasCamera0"),
     ));
 
     commands.insert_resource(PfShapeAtlas {
@@ -373,6 +512,7 @@ fn setup_atlas(
             ATLAS_SIZE as i32,
         )),
         generation: 0,
+        extra: Vec::new(),
     });
 }
 
@@ -815,6 +955,7 @@ fn spawn_draws(
     shape: &PfShape,
     px: UVec2,
     origin: UVec2,
+    page: usize,
 ) -> (Entity, Option<Entity>) {
     let centre = slot_center_world(origin, px).extend(0.0);
     let transform = || HudTransform {
@@ -827,7 +968,7 @@ fn spawn_draws(
             .spawn((
                 first_prim,
                 transform(),
-                RenderLayers::layer(SHAPE_LAYER),
+                RenderLayers::layer(SHAPE_LAYER + page),
                 Name::new("PfShapeSdf"),
             ))
             .id();
@@ -841,7 +982,7 @@ fn spawn_draws(
                         translation: centre + Vec3::new(0.0, 0.0, 1.0e-4),
                         ..default()
                     },
-                    RenderLayers::layer(SHAPE_LAYER),
+                    RenderLayers::layer(SHAPE_LAYER + page),
                     Name::new("PfShapeSdfStroke"),
                 ))
                 .id()
@@ -858,7 +999,7 @@ fn spawn_draws(
                 style,
             },
             transform(),
-            RenderLayers::layer(SHAPE_LAYER),
+            RenderLayers::layer(SHAPE_LAYER + page),
             Name::new("PfShapeDraw"),
         ))
         .id();
@@ -890,12 +1031,14 @@ fn sync_gpu_shapes(
     // feature, it is a PANIC on the first frame -- which is what took 30 of
     // this crate's 32 test binaries down the moment `vector_gpu` was on.
     layouts: Option<ResMut<Assets<TextureAtlasLayout>>>,
+    images: Option<ResMut<Assets<Image>>>,
     mut full: ResMut<PfAtlasFull>,
     mut dirty: ResMut<PfAtlasDirty>,
     mut commands: Commands,
 ) {
     let Some(mut atlas) = atlas else { return };
     let Some(mut layouts) = layouts else { return };
+    let Some(mut images) = images else { return };
     for (entity, shape, computed, mut gpu, cpu_rendered, claimed) in &mut shapes {
         let size = computed.size();
         let px = UVec2::new(size.x.round() as u32, size.y.round() as u32);
@@ -921,7 +1064,7 @@ fn sync_gpu_shapes(
 
         // Copied before the fast path moves `gpu`: if this shape ends up
         // re-reserving below, this is the region to hand back.
-        let old_slot = gpu.as_ref().map(|g| (g.alloc, g.generation));
+        let old_slot = gpu.as_ref().map(|g| (g.page, g.alloc, g.generation));
         // Another backend got there first -- bevy_ui native styling claims
         // ahead of this one (see the ordering in `build`) and paints the node
         // itself. Without this test the ordering was decorative: the GPU
@@ -933,7 +1076,7 @@ fn sync_gpu_shapes(
         // Does THIS backend hold the shape? Only then may the exhaustion arm
         // below take its components away.
         let held = gpu.is_some() || claimed.is_some();
-        let old_index = gpu.as_ref().map(|g| g.index);
+        let old_index = gpu.as_ref().map(|g| (g.page, g.index));
 
         // Fast path: the shape still fits its reservation, so the slot, the
         // layout index and the draw entity all stand. A colour-only edit
@@ -974,7 +1117,7 @@ fn sync_gpu_shapes(
             dirty.0 = 2;
             if gpu.size != px {
                 gpu.size = px;
-                if let Some(mut layout) = layouts.get_mut(&atlas.layout)
+                if let Some(mut layout) = layouts.get_mut(atlas.page(gpu.page).1.clone().id())
                     && let Some(rect) = layout.textures.get_mut(gpu.index)
                 {
                     *rect = URect::from_corners(gpu.origin, gpu.origin + px);
@@ -997,7 +1140,7 @@ fn sync_gpu_shapes(
             if gpu.size != px {
                 gpu.size = px;
                 transform.translation = slot_center_world(gpu.origin, px).extend(0.0);
-                if let Some(mut layout) = layouts.get_mut(&atlas.layout)
+                if let Some(mut layout) = layouts.get_mut(atlas.page(gpu.page).1.clone().id())
                     && let Some(rect) = layout.textures.get_mut(gpu.index)
                 {
                     *rect = URect::from_corners(gpu.origin, gpu.origin + px);
@@ -1025,7 +1168,25 @@ fn sync_gpu_shapes(
         let wanted = slot_capacity(px);
         // `capacity` is what was actually reserved, which best-fit reuse may
         // widen; storing `wanted` here would release it to the wrong bucket.
-        let Some((origin, capacity, alloc)) = atlas.allocate(wanted) else {
+        // OPEN A PAGE RATHER THAN GIVE THE SHAPE UP. Demotion is what makes
+        // size the failure axis: a shape that grows past the last free region
+        // loses its slot, falls to the CPU rasterizer, gets one back when it
+        // shrinks, and that oscillation is what a player sees as chrome
+        // blinking. Small shapes never hit it, which is exactly why they
+        // "do better". Another page costs VRAM and a pass; a demotion costs a
+        // full CPU rasterization and a new texture EVERY time the shape
+        // resizes -- measured at 19 GB of texture churn in 540 frames.
+        //
+        // Allocate ONCE and keep the result: calling `allocate` to test and
+        // then again to use it reserves two regions and abandons the first.
+        let mut slot = atlas.allocate(wanted);
+        if slot.is_none() && atlas.page_count() < MAX_PAGES {
+            let index = atlas.page_count();
+            let page = open_page(index, &mut commands, &mut images, &mut layouts);
+            atlas.extra.push(page);
+            slot = atlas.allocate(wanted);
+        }
+        let Some((page, origin, capacity, alloc)) = slot else {
             // Out of room: rebuild the whole atlas next -- but ONLY if a
             // rebuild could actually help. A shape larger than the atlas
             // itself never fits however empty it is, and letting it latch
@@ -1069,10 +1230,10 @@ fn sync_gpu_shapes(
         };
         // Safe now: the reservation stands, so this release cannot be paired
         // with the hook-driven one on the failure path above.
-        if let Some((alloc, generation)) = old_slot {
-            atlas.release(alloc, generation);
+        if let Some((page, alloc, generation)) = old_slot {
+            atlas.release(page, alloc, generation);
         }
-        let Some(mut layout) = layouts.get_mut(&atlas.layout) else {
+        let Some(mut layout) = layouts.get_mut(atlas.page(page).1.clone().id()) else {
             continue;
         };
         // REUSE THE INDEX THIS SHAPE ALREADY OWNS. `add_texture` only ever
@@ -1085,8 +1246,14 @@ fn sync_gpu_shapes(
         // A shape's index is a stable name for "wherever this shape lives"; it
         // is the RECT behind the name that changes when it moves.
         let rect = URect::from_corners(origin, origin + px);
+        // ONLY ON THE SAME PAGE. Each page owns a separate
+        // `TextureAtlasLayout`, so an index is a name within ONE page's table.
+        // Reusing an index from the old page against the new page's layout
+        // would overwrite whatever shape holds that index there -- two shapes
+        // pointing at one rect, which is the aliasing this backend has already
+        // been bitten by twice.
         let index = match old_index {
-            Some(index) if index < layout.textures.len() => {
+            Some((old_page, index)) if old_page == page && index < layout.textures.len() => {
                 layout.textures[index] = rect;
                 index
             }
@@ -1097,14 +1264,14 @@ fn sync_gpu_shapes(
         for previous in previous_draw {
             commands.entity(previous).despawn();
         }
-        let (draw, draw_stroke) = spawn_draws(&mut commands, &shape, px, origin);
+        let (draw, draw_stroke) = spawn_draws(&mut commands, &shape, px, origin, page);
 
         dirty.0 = 2;
         commands.entity(entity).insert((
             ImageNode::from_atlas_image(
-                atlas.image.clone(),
+                atlas.page(page).0.clone(),
                 TextureAtlas {
-                    layout: atlas.layout.clone(),
+                    layout: atlas.page(page).1.clone(),
                     index,
                 },
             )
@@ -1114,6 +1281,7 @@ fn sync_gpu_shapes(
                 origin,
                 capacity,
                 alloc,
+                page,
                 size: px,
                 draw,
                 draw_stroke,
@@ -1196,12 +1364,22 @@ fn rebuild_atlas_if_full(
 /// fixed cost without putting retained pixels at risk.
 fn gate_atlas_camera(
     mut dirty: ResMut<PfAtlasDirty>,
-    slots: Query<(), With<PfShapeGpu>>,
-    mut cameras: Query<&mut Camera, With<PfShapeAtlasCamera>>,
+    slots: Query<&PfShapeGpu>,
+    mut cameras: Query<(&mut Camera, &PfShapeAtlasCamera)>,
 ) {
     dirty.0 = 0;
-    let active = !slots.is_empty();
-    for mut camera in &mut cameras {
+    // Occupancy per page, so an empty page costs nothing. A page that HOLDS a
+    // slot must keep rendering: an inactive camera's target does not reliably
+    // retain its contents, which is how "the borders around the access code
+    // fields disappeared" -- so this gates on emptiness, never on idleness.
+    let mut occupied = [false; MAX_PAGES];
+    for gpu in &slots {
+        if let Some(flag) = occupied.get_mut(gpu.page) {
+            *flag = true;
+        }
+    }
+    for (mut camera, page) in &mut cameras {
+        let active = occupied.get(page.0).copied().unwrap_or(false);
         if camera.is_active != active {
             camera.is_active = active;
         }
@@ -1220,6 +1398,7 @@ mod tests {
                 ATLAS_SIZE as i32,
                 ATLAS_SIZE as i32,
             )),
+            extra: Vec::new(),
             generation: 0,
         }
     }
@@ -1232,7 +1411,7 @@ mod tests {
             .add_systems(Update, gate_atlas_camera);
         let camera = app
             .world_mut()
-            .spawn((Camera::default(), PfShapeAtlasCamera))
+            .spawn((Camera::default(), PfShapeAtlasCamera(0)))
             .id();
 
         app.update();
@@ -1242,7 +1421,7 @@ mod tests {
         );
 
         let mut atlas = atlas();
-        let (origin, capacity, alloc) = atlas.allocate(UVec2::splat(16)).unwrap();
+        let (page, origin, capacity, alloc) = atlas.allocate(UVec2::splat(16)).unwrap();
         let draw = app.world_mut().spawn_empty().id();
         let slot = app
             .world_mut()
@@ -1251,6 +1430,7 @@ mod tests {
                 origin,
                 capacity,
                 alloc,
+                page,
                 size: UVec2::splat(16),
                 draw,
                 draw_stroke: None,
@@ -1287,7 +1467,7 @@ mod tests {
     fn a_release_from_before_a_reset_cannot_free_a_live_allocation() {
         let mut atlas = atlas();
         let stale: Vec<guillotiere::AllocId> = (0..8)
-            .map(|_| atlas.allocate(UVec2::splat(16)).expect("fresh atlas").2)
+            .map(|_| atlas.allocate(UVec2::splat(16)).expect("fresh atlas").3)
             .collect();
 
         // The wholesale rebuild: packer cleared now, removals queued.
@@ -1296,7 +1476,7 @@ mod tests {
         // Live shapes re-register against the rebuilt atlas FIRST...
         let live: Vec<(UVec2, guillotiere::AllocId)> = (0..8)
             .map(|_| {
-                let (o, _, id) = atlas.allocate(UVec2::splat(16)).expect("rebuilt atlas");
+                let (_, o, _, id) = atlas.allocate(UVec2::splat(16)).expect("rebuilt atlas");
                 (o, id)
             })
             .collect();
@@ -1304,7 +1484,7 @@ mod tests {
         // ...and only then do the queued hooks land, each carrying an id from
         // the atlas that no longer exists.
         for id in &stale {
-            atlas.release(*id, 0);
+            atlas.release(0, *id, 0);
         }
 
         // Every live reservation must still be exclusively its owner's: ask for
@@ -1312,7 +1492,7 @@ mod tests {
         let live_origins: std::collections::HashSet<(u32, u32)> =
             live.iter().map(|(o, _)| (o.x, o.y)).collect();
         for _ in 0..8 {
-            let (origin, _, _) = atlas.allocate(UVec2::splat(16)).expect("space remains");
+            let (_, origin, _, _) = atlas.allocate(UVec2::splat(16)).expect("space remains");
             assert!(
                 !live_origins.contains(&(origin.x, origin.y)),
                 "origin {origin:?} was handed out while a live shape still holds it -- \
@@ -1332,7 +1512,7 @@ mod tests {
         // rectangles MERGE. A shelf packer keeping fixed-size leftovers would
         // fail the final large allocation.
         let mut ids = Vec::new();
-        while let Some((_, _, id)) = atlas.allocate(UVec2::splat(256)) {
+        while let Some((_, _, _, id)) = atlas.allocate(UVec2::splat(256)) {
             ids.push(id);
             if ids.len() > 128 {
                 break;
@@ -1341,7 +1521,7 @@ mod tests {
         assert!(ids.len() > 8, "expected many 256px slots in a 2048px atlas");
         let generation = atlas.generation;
         for id in ids {
-            atlas.release(id, generation);
+            atlas.release(0, id, generation);
         }
         assert!(
             atlas.allocate(UVec2::splat(1024)).is_some(),
@@ -1430,6 +1610,4 @@ mod tests {
         assert_eq!(size, Vec2::new(40.0, 40.0));
         assert_eq!(thickness, 2.0);
     }
-
-
 }

@@ -162,7 +162,9 @@ fn a_native_rectangle_updates_without_allocating_a_texture() {
     app.update();
 
     assert_eq!(
-        app.world().get::<PfShapeClaim>(entity).map(|claim| claim.backend),
+        app.world()
+            .get::<PfShapeClaim>(entity)
+            .map(|claim| claim.backend),
         Some("bevy_ui_native")
     );
     assert!(app.world().get::<ImageNode>(entity).is_none());
@@ -206,7 +208,9 @@ fn native_shapes_relinquish_and_reclaim_backend_ownership() {
     app.update();
     app.update();
     assert_eq!(
-        app.world().get::<PfShapeClaim>(entity).map(|claim| claim.backend),
+        app.world()
+            .get::<PfShapeClaim>(entity)
+            .map(|claim| claim.backend),
         Some("bevy_ui_native")
     );
 
@@ -224,7 +228,9 @@ fn native_shapes_relinquish_and_reclaim_backend_ownership() {
 
     #[cfg(feature = "vector_gpu")]
     assert_eq!(
-        app.world().get::<PfShapeClaim>(entity).map(|claim| claim.backend),
+        app.world()
+            .get::<PfShapeClaim>(entity)
+            .map(|claim| claim.backend),
         Some("vector_gpu")
     );
     #[cfg(not(feature = "vector_gpu"))]
@@ -253,7 +259,9 @@ fn native_shapes_relinquish_and_reclaim_backend_ownership() {
     app.update();
 
     assert_eq!(
-        app.world().get::<PfShapeClaim>(entity).map(|claim| claim.backend),
+        app.world()
+            .get::<PfShapeClaim>(entity)
+            .map(|claim| claim.backend),
         Some("bevy_ui_native")
     );
     assert!(app.world().get::<ImageNode>(entity).is_none());

@@ -103,25 +103,45 @@ pub enum PfShapeSystems {
 /// polylines, lines, dash patterns, elliptical corners, non-uniform ellipses
 /// — falls through to the rasterizer untouched.
 #[cfg(feature = "native_shapes")]
+/// What bevy_ui can paint a shape's fill or stroke with.
+///
+/// GRADIENTS COUNT. bevy_ui ships `BackgroundGradient` and `BorderGradient`,
+/// drawn by its own UI pass with the node's `border_radius` and per-side
+/// widths already applied — the same components a `<Border>` already uses.
+/// Treating a gradient as "not expressible as node styling" sent every
+/// gradient-filled rectangle and circle down the atlas path for no reason,
+/// where it competed for a slot, could be demoted when the atlas filled, and
+/// cost a texture the UI pass would have drawn for free.
+enum NativePaint {
+    Solid(Color),
+    Gradient(Vec<bevy::ui::Gradient>),
+}
+
+fn native_paint(brush: &v::PfBrush) -> Option<NativePaint> {
+    match brush {
+        v::PfBrush::Solid(c) => Some(NativePaint::Solid(Color::srgba_u8(c.r, c.g, c.b, c.a))),
+        // Same conversion the property store uses for `<Border>`, so a shape
+        // and a border carrying the same brush agree on interpolation space.
+        other => crate::convert::brush_to_gradients(other).map(NativePaint::Gradient),
+    }
+}
+
 fn native_style(
     shape: &PfShape,
     px: UVec2,
-) -> Option<(Option<Color>, Option<Color>, BorderRadius, f32)> {
+) -> Option<(Option<NativePaint>, Option<NativePaint>, BorderRadius, f32)> {
     let size = Vec2::new(px.x as f32, px.y as f32);
-    let solid = |brush: &v::PfBrush| match brush {
-        v::PfBrush::Solid(c) => Some(Color::srgba_u8(c.r, c.g, c.b, c.a)),
-        _ => None,
-    };
-    // A gradient or dashed stroke is not expressible as node styling.
+    // A dashed stroke is still not expressible: bevy_ui draws one continuous
+    // border, with no way to interrupt it.
     if !shape.stroke_dash_array.is_empty() {
         return None;
     }
     let fill = match &shape.fill {
-        Some(brush) => Some(solid(brush)?),
+        Some(brush) => Some(native_paint(brush)?),
         None => None,
     };
     let stroke = match &shape.stroke {
-        Some(brush) => Some(solid(brush)?),
+        Some(brush) => Some(native_paint(brush)?),
         None => None,
     };
     if fill.is_none() && stroke.is_none() {
@@ -138,9 +158,7 @@ fn native_style(
         }
         // A rounded box can represent a circle, not a general oval. Using the
         // shorter half-extent for a non-square ellipse produces a capsule.
-        ShapeGeometry::Ellipse if px.x == px.y => {
-            BorderRadius::all(Val::Px(size.x * 0.5))
-        }
+        ShapeGeometry::Ellipse if px.x == px.y => BorderRadius::all(Val::Px(size.x * 0.5)),
         ShapeGeometry::Ellipse => return None,
         _ => return None,
     };
@@ -194,7 +212,14 @@ pub fn style_native_shapes(
                 if let Some(current) = border_color.as_mut() {
                     **current = BorderColor::all(Color::NONE);
                 }
-                commands.entity(entity).remove::<PfShapeClaim>();
+                // Gradients are components, so releasing the node means taking
+                // them off; leaving one behind paints a shape this backend has
+                // just disclaimed.
+                commands.entity(entity).remove::<(
+                    PfShapeClaim,
+                    bevy::ui::BackgroundGradient,
+                    bevy::ui::BorderGradient,
+                )>();
             }
             continue;
         };
@@ -220,7 +245,17 @@ pub fn style_native_shapes(
         if has_image || has_rendered {
             e.remove::<(ImageNode, PfShapeRendered)>();
         }
-        let desired = BackgroundColor(fill.unwrap_or(Color::NONE));
+        // A gradient paints through the gradient component and needs the flat
+        // colour cleared to NONE, or the solid would cover it. Going the other
+        // way the component has to be REMOVED, not set empty: a stale
+        // `BackgroundGradient` outlives the brush that made it and keeps
+        // painting over the colour that replaced it.
+        let (fill_color, fill_gradient) = match fill {
+            Some(NativePaint::Solid(color)) => (color, None),
+            Some(NativePaint::Gradient(stages)) => (Color::NONE, Some(stages)),
+            None => (Color::NONE, None),
+        };
+        let desired = BackgroundColor(fill_color);
         if let Some(current) = background.as_mut() {
             if **current != desired {
                 **current = desired;
@@ -228,7 +263,22 @@ pub fn style_native_shapes(
         } else {
             e.insert(desired);
         }
-        let desired = BorderColor::all(stroke.unwrap_or(Color::NONE));
+        match fill_gradient {
+            Some(stages) => {
+                e.insert(bevy::ui::BackgroundGradient(stages));
+            }
+            None => {
+                e.remove::<bevy::ui::BackgroundGradient>();
+            }
+        }
+
+        let has_stroke = stroke.is_some();
+        let (stroke_color, stroke_gradient) = match stroke {
+            Some(NativePaint::Solid(color)) => (color, None),
+            Some(NativePaint::Gradient(stages)) => (Color::NONE, Some(stages)),
+            None => (Color::NONE, None),
+        };
+        let desired = BorderColor::all(stroke_color);
         if let Some(current) = border_color.as_mut() {
             if **current != desired {
                 **current = desired;
@@ -236,14 +286,18 @@ pub fn style_native_shapes(
         } else {
             e.insert(desired);
         }
+        match stroke_gradient {
+            Some(stages) => {
+                e.insert(bevy::ui::BorderGradient(stages));
+            }
+            None => {
+                e.remove::<bevy::ui::BorderGradient>();
+            }
+        }
         // bevy_ui draws its border INSIDE the node; WPF straddles the edge.
         // Half a pixel of difference on HUD chrome. Mutate the existing Node
         // rather than insert one — it carries the layout.
-        let border = if stroke.is_some() {
-            thickness.max(0.0)
-        } else {
-            0.0
-        };
+        let border = if has_stroke { thickness.max(0.0) } else { 0.0 };
         if node.border != bevy::ui::UiRect::all(Val::Px(border)) {
             node.border = bevy::ui::UiRect::all(Val::Px(border));
         }
@@ -760,7 +814,10 @@ pub fn rasterize_shapes(
         if rendered.is_some_and(|r| r.0 == px)
             && let Some(node) = node
             && let Some(mut existing) = images.get_mut(&node.image)
-            && existing.data.as_ref().is_some_and(|d| d.len() == data.len())
+            && existing
+                .data
+                .as_ref()
+                .is_some_and(|d| d.len() == data.len())
         {
             existing.data = Some(data);
             continue;
