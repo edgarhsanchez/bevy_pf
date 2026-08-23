@@ -42,6 +42,7 @@ pub mod dialog;
 pub mod dynamic;
 pub mod error;
 pub mod events;
+pub mod focus_nav;
 pub mod fonts;
 pub mod hit_test;
 pub mod icons;
@@ -87,6 +88,7 @@ pub use instantiate::{
     InstantiateResult, XamlEnv, instantiate_document, instantiate_document_env,
     set_application_resources,
 };
+pub use focus_nav::{PfFocusDir, PfFocusNav, PfFocusScope, activate_control};
 pub use items::PfItemsSource;
 pub use overlay::{PfPlacement, PfPopup, PfToolTip};
 pub use plugin::{PfCommandsExt, PfUiPlugin};
@@ -105,6 +107,7 @@ pub mod prelude {
     pub use crate::components::{PfAutomationId, PfElementKind, PfName, PfUid, XamlNames};
     pub use crate::device::{DeviceIdiom, DevicePlatform, PfDevice};
     pub use crate::events::{PfEventAppExt, PfPointerInfo};
+    pub use crate::focus_nav::{PfFocusDir, PfFocusNav, PfFocusScope, activate_control};
     pub use crate::hit_test::{PfHitFilter, PfHitTest, PfHitTestVisible};
     pub use crate::instantiate::PfElementAppExt;
     pub use crate::navigation::{PfNavigated, PfNavigationAppExt};

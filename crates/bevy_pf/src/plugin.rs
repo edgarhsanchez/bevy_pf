@@ -116,6 +116,19 @@ impl Plugin for PfUiPlugin {
         app.init_resource::<crate::components::PfControlTheme>();
         app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<PfFocusVisual>();
+        // Device-agnostic focus driving (gamepads, tests): PfFocusNav
+        // messages move focus geometrically and activate the focused
+        // control; scroll-into-view keeps the result on screen. Ordered
+        // before focus_visuals so a move and its ring land together.
+        app.add_message::<crate::focus_nav::PfFocusNav>();
+        app.init_resource::<crate::focus_nav::PfFocusScope>();
+        app.add_systems(
+            Update,
+            (
+                crate::focus_nav::focus_nav.before(focus_visuals),
+                crate::focus_nav::scroll_focus_into_view.after(crate::focus_nav::focus_nav),
+            ),
+        );
         app.add_systems(Update, (focus_visuals, keyboard_interaction));
         app.add_systems(Update, crate::triggers::evaluate_triggers);
         // `IsHitTestVisible="False"` reaches the whole subtree, WPF-style.
@@ -314,6 +327,7 @@ fn focus_visuals(
     parents: Query<&ChildOf>,
     kinds: Query<&crate::components::PfElementKind>,
     templated: Query<&crate::components::PfTemplatedControl>,
+    states: Query<&crate::animation::PfVisualStates>,
     mut borders: Query<&mut BorderColor>,
     mut commands: Commands,
 ) {
@@ -406,9 +420,17 @@ fn focus_visuals(
         }
         state.saved = None;
     }
-    // Mark the newly-focused control (unless a template owns its look).
+    // Mark the newly-focused control — unless its template DECLARES a
+    // FocusStates group, in which case the template owns the look. A
+    // templated control without one used to be skipped wholesale, which
+    // made every such control focusable with zero feedback: a gamepad
+    // moving focus through them was flying blind (controller audit).
+    let template_owns_focus = templated.get(control.unwrap_or(Entity::PLACEHOLDER)).is_ok()
+        && states
+            .get(control.unwrap_or(Entity::PLACEHOLDER))
+            .is_ok_and(|s| s.groups.iter().any(|g| g.name == "FocusStates"));
     if let Some(next) = control
-        && templated.get(next).is_err()
+        && !template_owns_focus
     {
         if outlined {
             if let Ok(mut e) = commands.get_entity(next) {
