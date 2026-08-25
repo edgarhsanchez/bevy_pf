@@ -121,3 +121,51 @@ fn unsupported_gradient_attributes_warn_instead_of_vanishing() {
         );
     }
 }
+
+#[derive(Reflect, Default)]
+struct EdgeVm {
+    edge: String,
+}
+
+/// A BOUND BorderBrush MUST SURVIVE THE BUTTON'S OWN CHROME.
+///
+/// A Button repaints its border from `ButtonVisual::normal_border` on
+/// every `Changed<Interaction>` — which includes the frame it spawns,
+/// because that is when `Interaction` is first added. Setting only
+/// `BorderColor` from the binding was therefore painted over by the
+/// style's colour before it was ever seen, and any later hover undid it
+/// again.
+///
+/// The symptom that found this: a transparent-when-unavailable row button
+/// drew a visible empty box on every row of a list.
+#[test]
+fn a_bound_border_brush_survives_the_buttons_chrome() {
+    let mut a = app();
+    let vm = Bindable::new(EdgeVm { edge: "#00000000".into() });
+    let doc = bevy_pf_xaml::parse(
+        r##"<Button xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Name="B" Content="X" BorderThickness="1"
+                    BorderBrush="{Binding edge}"/>"##,
+    )
+    .expect("parses");
+    let world = a.world_mut();
+    let root = world.spawn(DataContext(vm.clone())).id();
+    instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
+    a.update();
+
+    let b = named(&a, root, "B");
+    let transparent = a.world().get::<bevy::ui::BorderColor>(b).expect("a border").top;
+    assert_eq!(
+        transparent.alpha(),
+        0.0,
+        "the bound transparent border was repainted by the button's chrome"
+    );
+
+    // And a later change still lands, rather than being reverted by the
+    // next interaction repaint.
+    vm.update(|m: &mut EdgeVm| m.edge = "#FFFFB454".into());
+    a.update();
+    let lit = a.world().get::<bevy::ui::BorderColor>(b).expect("a border").top;
+    assert!(lit.alpha() > 0.9, "the bound border did not light up");
+}

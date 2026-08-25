@@ -1565,9 +1565,23 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
         }
         BindingTarget::BorderBrush => {
             if let Ok(color) = value.to_display().parse::<v::PfColor>() {
-                world
-                    .entity_mut(entity)
-                    .insert(bevy::ui::BorderColor::all(convert::color(color)));
+                let color = convert::color(color);
+                // A BUTTON REPAINTS ITS OWN BORDER, so setting BorderColor
+                // alone does not hold. `button_interaction_visuals` writes
+                // `BorderColor::all(visual.normal_border)` on every
+                // `Changed<Interaction>` — which includes the frame the
+                // control spawns, because that is when `Interaction` is
+                // first added. A bound BorderBrush was therefore painted
+                // over by the style's colour before it was ever seen, and
+                // any later hover undid it again.
+                //
+                // The provider path already keeps the two in step
+                // (provider.rs, PropertyTarget::BorderBrush); this is the
+                // same rule for the binding path.
+                if let Some(mut visual) = world.get_mut::<crate::components::ButtonVisual>(entity) {
+                    visual.normal_border = color;
+                }
+                world.entity_mut(entity).insert(bevy::ui::BorderColor::all(color));
             }
         }
         BindingTarget::Stroke | BindingTarget::Fill => {

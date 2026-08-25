@@ -184,6 +184,26 @@ pub(crate) fn sync_items_sources(world: &mut World) {
                     .get::<Children>(container)
                     .and_then(|c| c.iter().position(|child| child == sel))
             });
+        // KEEP THE FOCUS RING ON THE ROW IT WAS ON.
+        //
+        // Every row is despawned and respawned below — there is no child
+        // reuse — so a focused control inside one becomes a dangling
+        // entity, and `focus_nav` then treats the next move as "nothing
+        // focused" and lands top-left. For a keyboard that is a nuisance;
+        // for a gamepad, whose ONLY pointer is the focus ring, it means
+        // acting on a row throws the player back to the top of the
+        // dialog and they cannot act on the same row twice.
+        //
+        // And this fires far more often than on activation: any change to
+        // the bound collection rebuilds, so a list whose rows carry live
+        // state (affordability colours, counts) destroys the ring while
+        // the player is merely sitting still.
+        //
+        // Position, not identity: the same row index and the same tab
+        // stop within that row. The rows are regenerated from one
+        // template, so "the third tab stop of row 5" is stable across the
+        // rebuild even though every entity id changed.
+        let previous_focus = focus_position(world, container);
         world.entity_mut(container).despawn_children();
 
         let mut items = Vec::with_capacity(len);
@@ -385,6 +405,7 @@ pub(crate) fn sync_items_sources(world: &mut World) {
         }
 
         world.entity_mut(container).add_children(&items);
+        restore_focus_position(world, &items, previous_focus);
 
         // Re-point the selection at the row in the same position, or clear it
         // when the list shrank past it. Without this the ListBox holds a
@@ -400,6 +421,73 @@ pub(crate) fn sync_items_sources(world: &mut World) {
             combo.selected = None;
         }
     }
+}
+
+/// Where the focus ring sat inside an items container, as (row, tab stop
+/// within that row), or `None` if it was not in there at all.
+///
+/// Recorded before a rebuild despawns the rows and restored after, so a
+/// pad that activates a row keeps its place instead of being thrown back
+/// to the top of the panel.
+fn focus_position(world: &mut World, container: Entity) -> Option<(usize, usize)> {
+    let focused = world.get_resource::<bevy::input_focus::InputFocus>()?.get()?;
+    let rows: Vec<Entity> = world.get::<Children>(container)?.iter().collect();
+    let row = rows.iter().position(|&row| contains(world, row, focused))?;
+    let within = tab_stops(world, rows[row]).iter().position(|&e| e == focused).unwrap_or(0);
+    Some((row, within))
+}
+
+/// Put the ring back on the same row and the same control within it,
+/// clamped when the list shrank under it.
+fn restore_focus_position(world: &mut World, items: &[Entity], at: Option<(usize, usize)>) {
+    let Some((row, within)) = at else { return };
+    if items.is_empty() {
+        return;
+    }
+    let row = items[row.min(items.len() - 1)];
+    let stops = tab_stops(world, row);
+    // A row with no tab stop of its own still gets the ring, so focus
+    // stays inside the list rather than vanishing to the panel top.
+    let target = stops.get(within.min(stops.len().saturating_sub(1))).copied().unwrap_or(row);
+    if let Some(mut focus) = world.get_resource_mut::<bevy::input_focus::InputFocus>() {
+        // Navigated, not Programmatic: to the player this IS the ring
+        // they were already moving, surviving a rebuild they never asked
+        // for and cannot see.
+        focus.set(target, bevy::input_focus::FocusCause::Navigated);
+    }
+}
+
+/// `entity` is `root` or sits beneath it.
+fn contains(world: &World, root: Entity, entity: Entity) -> bool {
+    let mut cursor = entity;
+    loop {
+        if cursor == root {
+            return true;
+        }
+        match world.get::<ChildOf>(cursor) {
+            Some(parent) => cursor = parent.parent(),
+            None => return false,
+        }
+    }
+}
+
+/// Every focusable descendant of `root`, in tree order — the same order
+/// `focus_nav` walks, so an index here means the same control there.
+fn tab_stops(world: &World, root: Entity) -> Vec<Entity> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(e) = stack.pop() {
+        if world.get::<bevy::input_focus::tab_navigation::TabIndex>(e).is_some() {
+            out.push(e);
+        }
+        if let Some(children) = world.get::<Children>(e) {
+            // Pushed in reverse so the stack pops them front-to-back.
+            for child in children.iter().collect::<Vec<_>>().into_iter().rev() {
+                stack.push(child);
+            }
+        }
+    }
+    out
 }
 
 /// Whether an items panel stacks its children top-to-bottom, and so hands them

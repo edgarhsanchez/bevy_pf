@@ -224,3 +224,106 @@ fn focus_change_scrolls_the_focused_control_into_view() {
         .unwrap();
     assert!(y > 0.0, "viewer scrolled to keep focus visible, got {y}");
 }
+
+#[derive(Reflect, Default)]
+struct ShopVm {
+    rows: Vec<ShopRowVm>,
+}
+
+#[derive(Reflect, Default)]
+struct ShopRowVm {
+    name: String,
+    cost: String,
+}
+
+/// THE RING SURVIVES AN ITEMS REBUILD.
+///
+/// Every generated row is despawned and respawned when the bound
+/// collection changes — there is no child reuse — so a focused control
+/// inside one becomes a dangling entity. `focus_nav` then reads "nothing
+/// focused" and lands top-left on the next move.
+///
+/// For a keyboard that is a nuisance. For a gamepad, whose only pointer
+/// IS the ring, it means acting on a row throws the player to the top of
+/// the dialog, and a row that can be used twice cannot be used twice.
+/// Worse, the rebuild fires on ANY change to the collection, so a list
+/// carrying live per-row state destroys the ring while the player sits
+/// still.
+#[test]
+fn focus_survives_an_items_rebuild_and_stays_on_the_same_row() {
+    let mut app = layout_app();
+    let vm = Bindable::new(ShopVm {
+        rows: vec![
+            ShopRowVm { name: "shield".into(), cost: "6 TI".into() },
+            ShopRowVm { name: "drive".into(), cost: "2 FE".into() },
+            ShopRowVm { name: "core".into(), cost: "5 SI".into() },
+        ],
+    });
+    let doc = bevy_pf_xaml::parse(
+        r##"<ItemsControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                          x:Name="List" ItemsSource="{Binding rows}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding name}"/>
+                    <Button Content="{Binding cost}" Width="60" Height="20"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>"##,
+    )
+    .expect("parses");
+    let world = app.world_mut();
+    let root = world.spawn(DataContext(vm.clone())).id();
+    instantiate_document_env(world, root, &doc, &XamlEnv::default()).expect("instantiates");
+    app.update();
+
+    // Focus the BUTTON in the middle row — index 1, second tab stop path.
+    let list = named(&app, root, "List");
+    let rows: Vec<Entity> = app.world().get::<Children>(list).unwrap().iter().collect();
+    assert_eq!(rows.len(), 3, "one container per bound row");
+    let middle_before = rows[1];
+    let button_before = *app
+        .world()
+        .get::<Children>(middle_before)
+        .and_then(|c| c.iter().next().and_then(|sp| app.world().get::<Children>(sp)))
+        .expect("the row template built a panel of children")
+        .iter()
+        .collect::<Vec<_>>()
+        .last()
+        .expect("the row has a button");
+    app.world_mut()
+        .resource_mut::<InputFocus>()
+        .set(button_before, bevy::input_focus::FocusCause::Navigated);
+    app.update();
+    assert_eq!(focused(&mut app), Some(button_before), "focus did not take");
+
+    // Now change the collection the way crafting does: same length, new
+    // per-row data. This despawns and respawns every row.
+    vm.update(|m: &mut ShopVm| m.rows[1].cost = "1 FE".into());
+    app.update();
+
+    let rows_after: Vec<Entity> = app.world().get::<Children>(list).unwrap().iter().collect();
+    assert_eq!(rows_after.len(), 3, "the rebuild kept the row count");
+    assert_ne!(rows_after[1], middle_before, "the rows really were regenerated");
+
+    let now = focused(&mut app).expect("the ring vanished after a rebuild");
+    let middle_after = rows_after[1];
+    let mut cursor = now;
+    let mut inside_middle_row = false;
+    loop {
+        if cursor == middle_after {
+            inside_middle_row = true;
+            break;
+        }
+        match app.world().get::<ChildOf>(cursor) {
+            Some(parent) => cursor = parent.parent(),
+            None => break,
+        }
+    }
+    assert!(
+        inside_middle_row,
+        "the ring left the row it was on — a pad cannot act on the same row twice"
+    );
+}
