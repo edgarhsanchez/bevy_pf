@@ -327,3 +327,65 @@ fn focus_survives_an_items_rebuild_and_stays_on_the_same_row() {
         "the ring left the row it was on — a pad cannot act on the same row twice"
     );
 }
+
+/// THE RING IS KEYBOARD FEEDBACK, NOT CLICK FEEDBACK.
+///
+/// `InputFocusVisible` is the contract: bevy's own `click_to_focus` sets
+/// it false on a pointer press, Tab and `PfFocusNav::Move` set it true.
+/// `focus_visuals` used to ignore it and outline every focus change, so
+/// every mouse click on a button grew a cyan rectangle — WPF, and every
+/// native toolkit, hides the focus visual for pointer-acquired focus.
+#[test]
+fn a_click_never_wears_the_focus_ring_and_navigation_always_does() {
+    use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
+
+    let mut app = layout_app();
+    app.init_resource::<InputFocusVisible>();
+    let root = spawn(
+        &mut app,
+        r##"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <Button x:Name="A" Content="A" Width="80" Height="24"/>
+              <Button x:Name="B" Content="B" Width="80" Height="24"/>
+            </StackPanel>"##,
+    );
+    app.update();
+    let a = named(&app, root, "A");
+    let b = named(&app, root, "B");
+
+    // Pad navigation: ring on.
+    nav(&mut app, PfFocusNav::Move(PfFocusDir::Down));
+    app.update();
+    assert_eq!(focused(&mut app), Some(a));
+    assert!(
+        app.world().get::<bevy::ui::Outline>(a).is_some(),
+        "navigation focus did not draw the ring"
+    );
+
+    // A pointer press, as bevy's click_to_focus + acquire_focus deliver
+    // it: focus moves to the pressed control AND visibility goes false.
+    app.world_mut().resource_mut::<InputFocusVisible>().0 = false;
+    app.world_mut().resource_mut::<InputFocus>().set(b, FocusCause::Navigated);
+    app.update();
+    assert!(
+        app.world().get::<bevy::ui::Outline>(b).is_none(),
+        "a mouse click grew a focus rectangle"
+    );
+    assert!(
+        app.world().get::<bevy::ui::Outline>(a).is_none(),
+        "the old ring survived the click"
+    );
+
+    // Back on the pad: the ring returns.
+    nav(&mut app, PfFocusNav::Move(PfFocusDir::Up));
+    app.update();
+    assert!(
+        app.world().resource::<InputFocusVisible>().0,
+        "a pad move did not make focus visible again"
+    );
+    let now = focused(&mut app).expect("something focused");
+    assert!(
+        app.world().get::<bevy::ui::Outline>(now).is_some(),
+        "the ring did not come back for the pad"
+    );
+}

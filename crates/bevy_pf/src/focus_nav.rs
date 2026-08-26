@@ -132,6 +132,7 @@ pub(crate) fn focus_nav(
     mut messages: MessageReader<PfFocusNav>,
     scope: Res<PfFocusScope>,
     mut focus: ResMut<InputFocus>,
+    mut visible: Option<ResMut<bevy::input_focus::InputFocusVisible>>,
     stops: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<TabIndex>>,
     visibilities: Query<&Visibility>,
     parents: Query<&ChildOf>,
@@ -231,6 +232,13 @@ pub(crate) fn focus_nav(
                     && focus.get() != Some(next)
                 {
                     focus.set(next, FocusCause::Navigated);
+                    // Navigation is what MAKES the ring visible — the
+                    // counterpart of bevy's click_to_focus hiding it.
+                    // Without this, a pad player who clicked once would
+                    // never see their ring again.
+                    if let Some(v) = visible.as_mut() {
+                        v.0 = true;
+                    }
                 }
             }
         }

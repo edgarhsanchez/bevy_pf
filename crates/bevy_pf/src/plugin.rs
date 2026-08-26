@@ -314,13 +314,23 @@ struct PfFocusVisual {
     outlined: bool,
 }
 
-/// WPF focus feedback for default chrome: when keyboard focus moves (click
-/// or Tab), the focused control's border takes the accent focus color and
-/// the previous control's border is restored. Templated controls express
-/// focus through FocusStates instead; controls without a border are
-/// left untouched.
+/// WPF focus feedback for default chrome: when keyboard focus moves, the
+/// focused control's border takes the accent focus color and the previous
+/// control's border is restored. Templated controls express focus through
+/// FocusStates instead; controls without a border are left untouched.
+///
+/// KEYBOARD focus, not pointer focus. `InputFocusVisible` is the platform
+/// convention, and bevy's own `click_to_focus` writes it: a pointer press
+/// sets it FALSE, Tab sets it TRUE, and `focus_nav` (the pad) sets it
+/// TRUE on a move. Drawing the ring without consulting it meant every
+/// mouse click grew a focus rectangle — WPF hides the focus visual for
+/// pointer-acquired focus, and so does every native toolkit, because the
+/// pointer user can see what they clicked. Absent (a harness without
+/// `InputDispatchPlugin`) reads as visible, which is what every headless
+/// test already assumes.
 fn focus_visuals(
     focus: Res<bevy::input_focus::InputFocus>,
+    visible: Option<Res<bevy::input_focus::InputFocusVisible>>,
     ring: Res<PfFocusRingColor>,
     visibilities: Query<&Visibility>,
     mut state: ResMut<PfFocusVisual>,
@@ -331,7 +341,8 @@ fn focus_visuals(
     mut borders: Query<&mut BorderColor>,
     mut commands: Commands,
 ) {
-    if !focus.is_changed() {
+    let shown = visible.as_ref().map(|v| v.0).unwrap_or(true);
+    if !focus.is_changed() && !visible.as_ref().is_some_and(|v| v.is_changed()) {
         return;
     }
     // The focused entity is usually the inner editable; the border lives on
@@ -363,7 +374,7 @@ fn focus_visuals(
     ];
     let mut control = None;
     let mut outlined = false;
-    if let Some(mut cursor) = focus.get() {
+    if let Some(mut cursor) = focus.get().filter(|_| shown) {
         loop {
             if let Ok(kind) = kinds.get(cursor) {
                 if FOCUSABLE.contains(&kind.0.as_str()) {
