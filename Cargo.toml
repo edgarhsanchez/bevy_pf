@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.8"
+version = "0.2.9"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
@@ -15,9 +15,9 @@ repository = "https://github.com/edgarhsanchez/bevy_pf"
 authors = ["bevy_pf contributors"]
 
 [workspace.dependencies]
-bevy_pf_xaml = { path = "crates/bevy_pf_xaml", version = "0.2.8" }
-bevy_pf_macros = { path = "crates/bevy_pf_macros", version = "0.2.8" }
-bevy_pf = { path = "crates/bevy_pf", version = "0.2.8" }
+bevy_pf_xaml = { path = "crates/bevy_pf_xaml", version = "0.2.9" }
+bevy_pf_macros = { path = "crates/bevy_pf_macros", version = "0.2.9" }
+bevy_pf = { path = "crates/bevy_pf", version = "0.2.9" }
 
 bevy = { version = "0.19", default-features = true, features = ["bevy_ui_widgets"] }
 roxmltree = "0.21"
