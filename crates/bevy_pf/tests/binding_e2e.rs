@@ -1110,3 +1110,65 @@ fn derived_setters_notify_selectively_and_skip_equal_values() {
         Some(bevy_pf::BoundValue::Str("live".into()))
     );
 }
+
+/// A bound `IsEnabled` has to work in BOTH directions.
+///
+/// The regression this pins: `IsEnabled` was applied once while the tree
+/// was built and only ever INSERTED `InteractionDisabled`. A control bound
+/// to a live value therefore went dead the first time the value was false
+/// and stayed dead forever — the exact shape of a Fire button that is
+/// disabled while out of ammunition and never comes back when the rack
+/// refills.
+#[test]
+fn isenabled_binding_disables_and_re_enables() {
+    let mut app = test_app();
+    let vm = Bindable::new(GameVm::default()); // ready: false
+    let root = spawn_bound_scene(
+        &mut app,
+        r#"<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             <Button x:Name="Fire" Content="FIRE" IsEnabled="{Binding ready}"/>
+           </StackPanel>"#,
+        vm.clone(),
+    );
+    app.world_mut()
+        .entity_mut(root)
+        .insert(DataContext(vm.clone()));
+    app.update();
+
+    let btn = app
+        .world()
+        .get::<XamlNames>(root)
+        .unwrap()
+        .get("Fire")
+        .unwrap();
+
+    // ready = false -> disabled.
+    assert!(
+        app.world()
+            .get::<bevy::ui::InteractionDisabled>(btn)
+            .is_some(),
+        "a false IsEnabled must disable the control"
+    );
+
+    // ready = true -> the marker must come back OFF. This is the half
+    // that did not exist.
+    vm.update(|m: &mut GameVm| m.ready = true);
+    app.update();
+    assert!(
+        app.world()
+            .get::<bevy::ui::InteractionDisabled>(btn)
+            .is_none(),
+        "a true IsEnabled must re-enable the control"
+    );
+
+    // And back again, so the binding is not one-shot in either direction.
+    vm.update(|m: &mut GameVm| m.ready = false);
+    app.update();
+    assert!(
+        app.world()
+            .get::<bevy::ui::InteractionDisabled>(btn)
+            .is_some(),
+        "IsEnabled must keep tracking the value, not latch"
+    );
+}

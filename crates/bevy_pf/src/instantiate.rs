@@ -3788,11 +3788,19 @@ impl<'w> Ctx<'w> {
                     self.pending.selected_index = Some(idx as usize);
                 }
             }
+            // Symmetric on purpose. This used to insert the marker when
+            // false and do nothing when true, which is fine for a literal
+            // in the markup but wrong the moment a style, a trigger or a
+            // template re-applies the property with the opposite value —
+            // the control could be disabled but never re-enabled.
             "IsEnabled" => {
-                if !value.to_bool()? {
-                    self.world
-                        .entity_mut(entity)
-                        .insert(bevy::ui::InteractionDisabled);
+                let enabled = value.to_bool()?;
+                let mut e = self.world.entity_mut(entity);
+                let disabled = e.contains::<bevy::ui::InteractionDisabled>();
+                if enabled && disabled {
+                    e.remove::<bevy::ui::InteractionDisabled>();
+                } else if !enabled && !disabled {
+                    e.insert(bevy::ui::InteractionDisabled);
                 }
             }
             // WPF `UIElement.IsHitTestVisible`. The subtree reach is applied
@@ -8409,6 +8417,7 @@ impl<'w> Ctx<'w> {
             "Visibility" | "IsVisible" => {
                 (entity, BindingTarget::Visibility, v::BindingMode::OneWay)
             }
+            "IsEnabled" => (entity, BindingTarget::IsEnabled, v::BindingMode::OneWay),
             "Width" => (entity, BindingTarget::Width, v::BindingMode::OneWay),
             "Height" => (entity, BindingTarget::Height, v::BindingMode::OneWay),
             "FontSize" => (entity, BindingTarget::FontSize, v::BindingMode::OneWay),

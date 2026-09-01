@@ -658,6 +658,16 @@ pub enum BindingTarget {
     ProgressValue,
     /// `Visibility` (accepts "Visible/Hidden/Collapsed" strings or booleans).
     Visibility,
+    /// `IsEnabled` — presence of [`bevy::ui::InteractionDisabled`], inverted.
+    ///
+    /// Bindable because a disabled control is almost always a STATEMENT
+    /// ABOUT DATA: a Fire button with no ammunition, a Save button over an
+    /// unchanged document. Before this existed, `IsEnabled` was applied
+    /// once while the tree was built and only ever INSERTED the marker, so
+    /// binding it latched a control off the first time the value went
+    /// false and nothing could turn it back on. It now tracks the value in
+    /// both directions, like every other target here.
+    IsEnabled,
     Width,
     Height,
     FontSize,
@@ -1529,6 +1539,26 @@ fn apply_binding_value(world: &mut World, entity: Entity, binding: &PfBinding, v
                     .unwrap_or(v::Visibility::Visible),
             };
             crate::provider::apply_wpf_visibility(world, entity, vis);
+        }
+        BindingTarget::IsEnabled => {
+            // WPF's sense: IsEnabled=false is the disabled one. Anything
+            // that is not a bool is read the way the rest of the binding
+            // layer reads truthiness, so "True"/"False" from a string
+            // property behaves the same as a real bool.
+            let enabled = match value {
+                BoundValue::Bool(b) => *b,
+                other => !matches!(
+                    other.to_display().trim().to_ascii_lowercase().as_str(),
+                    "false" | "0" | "" | "no"
+                ),
+            };
+            let mut e = world.entity_mut(entity);
+            let disabled = e.contains::<bevy::ui::InteractionDisabled>();
+            if enabled && disabled {
+                e.remove::<bevy::ui::InteractionDisabled>();
+            } else if !enabled && !disabled {
+                e.insert(bevy::ui::InteractionDisabled);
+            }
         }
         BindingTarget::Width | BindingTarget::Height => {
             let Some(n) = value.as_f64() else { return };
