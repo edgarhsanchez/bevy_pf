@@ -27,6 +27,20 @@
 //!
 //! Shapes that cannot get an atlas slot (atlas full) fall back to the CPU
 //! rasterizer, so this is never worse than not having it.
+//!
+//! # Alpha
+//!
+//! The atlas is cleared to transparent and composited by bevy_ui as a
+//! STRAIGHT-alpha image, exactly like the CPU backend's textures (which are
+//! demultiplied before upload). The vector pass must therefore leave straight
+//! pixels behind, and its ordinary `SrcAlpha, OneMinusSrcAlpha` blend does
+//! not: over a transparent clear it stores `rgb * a`, bevy_ui multiplies by
+//! `a` again, and a translucent fill lands at roughly `a²` — an 8% wash
+//! vanished, a 40% one showed as 16%, and the two backends disagreed on the
+//! same markup. Every atlas camera therefore carries
+//! [`bevy_pf_vector::StraightAlphaTarget`], which switches the pass to a
+//! blend that stores straight colour and alpha (see that type's doc for the
+//! one approximation it accepts).
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, RenderTarget};
@@ -419,6 +433,11 @@ fn open_page(
         Projection::Orthographic(projection),
         bevy::render::view::Msaa::Off,
         RenderLayers::layer(SHAPE_LAYER + index),
+        // The atlas is a transparent texture that bevy_ui composites as
+        // STRAIGHT alpha; without this the vector pass leaves premultiplied
+        // pixels behind and every translucent fill shows at about alpha².
+        // See the module doc, "Alpha".
+        bevy_pf_vector::StraightAlphaTarget,
         PfShapeAtlasCamera(index),
         Name::new(format!("PfShapeAtlasCamera{index}")),
     ));
@@ -500,6 +519,7 @@ fn setup_atlas(
         // camera renders only the shapes that live on it -- one shared layer
         // would have every camera redraw every shape into every page.
         RenderLayers::layer(SHAPE_LAYER),
+        bevy_pf_vector::StraightAlphaTarget,
         PfShapeAtlasCamera(0),
         Name::new("PfShapeAtlasCamera0"),
     ));
