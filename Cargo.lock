@@ -1227,7 +1227,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "bevy",
  "bevy_pf_macros",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf_macros"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "bevy_pf_xaml",
  "proc-macro2",
@@ -1252,9 +1252,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf_vector"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cee626dc966798b1ca7c7205cfb25e1aa6824d7387fa0775828c1322afa0a86"
+checksum = "5310b30f1f7d726815d699d20f27ad49b4935728edfebcc90151b3c08c334ed2"
 dependencies = [
  "bevy",
  "bytemuck",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_pf_xaml"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "roxmltree",
  "thiserror 2.0.20",
