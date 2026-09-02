@@ -95,7 +95,12 @@ jobs:
               echo "resolved: bevy_pf_vector $req is on crates.io"
               exit 0
             fi
-            if ! grep -q 'no matching package named `bevy_pf_vector`' /tmp/probe.log; then
+            # Two shapes of "not there yet": a crate never published at all,
+          # and — every release after the first — a crate whose NEW version
+          # the index has not served yet. Only the first was recognised, so
+          # the v0.2.11 release failed on its first probe while the sibling
+          # build was still running.
+          if ! grep -qE 'no matching package named `bevy_pf_vector`|failed to select a version for the requirement `bevy_pf_vector' /tmp/probe.log; then
               echo "::error::packaging failed for a reason other than the missing dependency"
               cat /tmp/probe.log
               exit 1
