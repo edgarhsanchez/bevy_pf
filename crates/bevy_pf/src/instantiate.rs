@@ -4692,6 +4692,10 @@ impl<'w> Ctx<'w> {
                 for &child in &children {
                     self.place_grid_child(child, rows, cols);
                 }
+                // A cell of a real Grid stretches its content exactly as a
+                // Border's does, and needs the same explicit width for the
+                // same reason (see `stretch_panels_to_cell`).
+                self.stretch_panels_to_cell(entity, &children);
                 self.add_children(entity, &children);
             }
             ElemKind::Canvas => {
@@ -4811,8 +4815,60 @@ impl<'w> Ctx<'w> {
             for &child in children {
                 self.place_grid_child(child, 1, 1);
             }
+            self.stretch_panels_to_cell(entity, children);
         }
         self.add_children(entity, children);
+    }
+
+    /// A vertical panel (or nested Grid) in a cell that stretches its items
+    /// is given the cell's full width EXPLICITLY, not just by alignment.
+    ///
+    /// WPF gives it that width anyway — HorizontalAlignment defaults to
+    /// Stretch — and taffy's grid does the same in the final pass, so the
+    /// picture is identical either way. The difference is in the sizing
+    /// pass. taffy sizes an auto column by first asking each item for its
+    /// minimum contribution, and an auto-width flex column answers that
+    /// under a MIN-CONTENT constraint: every child at its own narrowest,
+    /// so a wrapping TextBlock reports one word per line. taffy caches that
+    /// measurement and, by design, reuses it for any later query whose
+    /// known width equals the cached width, assuming that laying the node
+    /// out at exactly its min-content width repeats the measurement. Here
+    /// it does not: a sibling with an explicit Width (444 in a 444 content
+    /// box is the ordinary idiom) makes the panel's min-content width equal
+    /// the column, the wrapping text is then laid out at that full width
+    /// and takes two lines, but the row track already took the
+    /// word-per-line height. The panel came out with a phantom band under
+    /// its content of about (words − lines) × line height per wrapping
+    /// TextBlock — ~195 px under a twenty-word survey line.
+    ///
+    /// With the width written down as 100% of the cell, the sizing pass
+    /// resolves it against the definite cell and measures the panel at the
+    /// width it will really get; there is no narrow measurement to cache.
+    /// Only stretching hosts qualify — Border, ScrollViewer, content
+    /// presenters, real Grid cells — never a Button or Label, whose cell
+    /// centres its content and would put a stretched, left-aligned label
+    /// where a centred one belongs. An explicit Width, MinWidth or
+    /// HorizontalAlignment on the child wins, as it should. Horizontal
+    /// panels are left alone: a flex row hands each child its own width,
+    /// so their measurement was never inconsistent.
+    fn stretch_panels_to_cell(&mut self, host: Entity, children: &[Entity]) {
+        let stretches = self.world.get::<Node>(host).is_some_and(|n| {
+            matches!(n.justify_items, JustifyItems::Default | JustifyItems::Stretch)
+        });
+        if !stretches {
+            return;
+        }
+        for &child in children {
+            if let Some(mut n) = self.world.get_mut::<Node>(child)
+                && (n.display == Display::Grid
+                    || (n.display == Display::Flex && n.flex_direction == FlexDirection::Column))
+                && n.width == Val::Auto
+                && n.min_width == Val::Auto
+                && matches!(n.justify_self, JustifySelf::Auto | JustifySelf::Stretch)
+            {
+                n.width = Val::Percent(100.0);
+            }
+        }
     }
 
     fn add_children(&mut self, entity: Entity, children: &[Entity]) {
